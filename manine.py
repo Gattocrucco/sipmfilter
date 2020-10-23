@@ -45,17 +45,19 @@ def integrate(data):
         else:
             assert False, 'no trigger start found'
         
-        for j in range(j + 1, len(trigger)):
-            if 400 <= trigger[j] < 2 ** 10:
-                break
-        else:
-            assert False, 'no trigger end found'
+        # Uncomment this to start from the end of the trigger square impulse.
+        # for j in range(j + 1, len(trigger)):
+        #     if 400 <= trigger[j] < 2 ** 10:
+        #         break
+        # else:
+        #     assert False, 'no trigger end found'
         
         assert j + 1000 <= len(signal), 'less than 1000 samples after trigger'
+        assert j >= 7000, 'less than 7000 samples before trigger'
 
         start[i] = j
         value[i] = average_inadcrange(signal[j:j + 1000])
-        baseline[i] = average_inadcrange(signal[:j])
+        baseline[i] = average_inadcrange(signal[j - 7000:j])
     
     return start, value, baseline
 
@@ -68,6 +70,11 @@ data = np.copy(data) # the file is actually loaded into memory here
 print('computing...')
 start, value, baseline = integrate(data)
 
+# Identify events with out-of-trigger signals.
+baseline_zone = data[:, 0, 100:8900]
+ignore = np.any((0 <= baseline_zone) & (baseline_zone < 700), axis=-1)
+print(f'ignoring {np.sum(ignore)} events with values < 700 in baseline zone')
+
 fig = figwithsize()
 
 ax = fig.subplots(1, 1)
@@ -75,8 +82,8 @@ ax.set_title('Histograms of signals and baselines')
 ax.set_xlabel('ADC scale')
 ax.set_ylabel('Bin count')
 
-ax.hist(value, bins=1000, histtype='step', label='signal')
-ax.hist(baseline, bins='auto', histtype='step', label='baseline')
+ax.hist(value[~ignore], bins=1000, histtype='step', label='signal')
+ax.hist(baseline[~ignore], bins='auto', histtype='step', label='baseline')
 
 ax.legend(loc='best')
 
@@ -90,7 +97,7 @@ ax.set_xlabel('ADC scale')
 ax.set_ylabel('Occurences')
 
 corr_value = baseline - value
-ax.hist(corr_value, bins=1000, histtype='stepfilled')
+ax.hist(corr_value[~ignore], bins=1000, histtype='stepfilled')
 
 saveaspng(fig)
 
