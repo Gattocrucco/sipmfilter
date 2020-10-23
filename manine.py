@@ -20,9 +20,20 @@ def saveaspng(fig):
     fig.savefig(name)
 
 @numba.jit(cache=True, nopython=True)
+def average_inadcrange(a):
+    out = 0
+    n = 0
+    for x in a:
+        if 0 <= x < 2 ** 10:
+            out += x
+            n += 1
+    return out / n
+
+@numba.jit(cache=True, nopython=True)
 def integrate(data):
     start = np.empty(data.shape[0], dtype=np.int32)
-    value = np.empty(data.shape[0], dtype=np.int32)
+    value = np.empty(data.shape[0])
+    baseline = np.empty(data.shape[0])
     
     for i in range(data.shape[0]):
         signal = data[i, 0]
@@ -43,30 +54,44 @@ def integrate(data):
         assert j + 1000 <= len(signal), 'less than 1000 samples after trigger'
 
         start[i] = j
-        value[i] = 0
-        for j in range(j, j + 1000):
-            if 0 <= signal[j] < 2 ** 10:
-                value[i] += signal[j]
+        value[i] = average_inadcrange(signal[j:j + 1000])
+        baseline[i] = average_inadcrange(signal[:j])
     
-    return start, value
+    return start, value, baseline
 
 filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 print(f'reading {filename}...')
-rate, data = wavfile.read(filename, mmap=True)
+rate, data = wavfile.read(filename, mmap=True) # mmap = memory map, no RAM used
 data = data.reshape(-1, 2, 15011) # the number 15011 is from dsfe/README.md
-data = np.copy(data) # actually loaded into memory here
+data = np.copy(data) # the file is actually loaded into memory here
 
-print('computing sum...')
-start, value = integrate(data)
+print('computing...')
+start, value, baseline = integrate(data)
 
 fig = figwithsize()
 
 ax = fig.subplots(1, 1)
-ax.set_title('Histogram of 1000 samples average after trigger ends')
+ax.set_title('Normalized histograms of signals and baselines')
+ax.set_xlabel('ADC scale')
+ax.set_ylabel('Density')
+
+ax.hist(value, bins=1000, histtype='step', label='signal')
+ax.hist(baseline, bins='auto', histtype='step', label='baseline')
+
+ax.legend(loc='best')
+
+saveaspng(fig)
+
+fig = figwithsize()
+
+ax = fig.subplots(1, 1)
+ax.set_title('Histogram of baseline-corrected and inverted signal')
 ax.set_xlabel('ADC scale')
 ax.set_ylabel('Occurences')
 
-ax.hist(value / 1000, bins=1000, histtype='stepfilled')
+corr_value = baseline - value
+ax.hist(corr_value, bins=1000, histtype='stepfilled')
 
 saveaspng(fig)
-fig.show()
+
+plt.show()
