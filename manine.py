@@ -39,7 +39,7 @@ def integrate(data):
         signal = data[i, 0]
         trigger = data[i, 1]
                 
-        for j in range(len(trigger)):
+        for j in range(100, len(trigger)):
             if 0 <= trigger[j] < 400:
                 break
         else:
@@ -91,6 +91,23 @@ ax.set_ylabel('Occurences')
 
 corr_value = baseline - value
 ax.hist(corr_value, bins=1000, histtype='stepfilled')
+
+saveaspng(fig)
+
+fig = figwithsize()
+
+ax = fig.subplots(2, 1, sharex=True)
+ax[0].set_title('Abnormal triggers')
+ax[1].set_title('Corresponding signals')
+ax[1].set_xlabel('Event sample number')
+ax[0].set_ylabel('ADC value')
+ax[1].set_ylabel('ADC value')
+
+for i in np.argwhere(start < 100).reshape(-1):
+    ax[0].plot(data[i, 1], ',')
+    ax[1].plot(data[i, 0], ',')
+
+ax[1].set_ylim(-50, 1050)
 
 saveaspng(fig)
 
