@@ -5,6 +5,7 @@
 
 *.root
 *.wav
+__pycache__
 
 # Node artifact files
 node_modules/
