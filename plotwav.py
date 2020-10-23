@@ -20,42 +20,24 @@ def saveaspng(fig):
     fig.savefig(name)
 
 filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
-maxsamples = 3000000
 print(f'reading {filename}...')
 rate, data = wavfile.read(filename, mmap=True)
-data = np.copy(data[:maxsamples])
+data = data.reshape(-1, 2, 15011) # the number 15011 is from dsfe/README.md
+data = np.copy(data[:1000])
+
+signal = data[:, 0, :].reshape(-1)
+trigger = data[:, 1, :].reshape(-1)
 
 print(f'declared rate = {rate} Hz')
 print(f'data type = {data.dtype}')
 
-datamin = np.min(data)
-datamax = np.max(data)
-print(f'min = {datamin}, max = {datamax}')
+signalmin = np.min(signal)
+signalmax = np.max(signal)
+print(f'min = {signalmin}, max = {signalmax}')
 
 print('computing global histogram...')
-widedata = np.array(data, dtype=np.int32)
-counts = np.bincount(widedata - datamin)
-
-# I'm dropping this because it is not precise enough.
-#
-# print('computing trigger frequency...')
-# n = 2 ** 20 # about 1 million
-# datan = np.copy(data[:n])
-# outofrange = (datan < 0) | (datan >= 2 ** 10)
-# datan[outofrange] = 0
-# f = fft.rfft(datan)
-# fmag = np.abs(f)
-# period_est = 30000 # period estimated by eye (number of samples)
-# freq_est = int(n / period_est)
-# start = freq_est - freq_est // 2
-# peak_nb = fmag[start:start + freq_est] # neighboorhood of the fft peak
-# freq = start + np.argmax(peak_nb)
-# period = n / freq
-# period_err = period * (1 / freq)
-# print(f'trigger period = {period:.0f} +- {period_err:.0f} samples')
-
-print('computing 1000 samples moving average...')
-
+widesignal = np.array(signal, dtype=np.int32)
+counts = np.bincount(widesignal - signalmin)
 
 fig = figwithsize([11.8, 4.8])
 
@@ -64,7 +46,7 @@ ax.set_title('Histogram of all data')
 ax.set_xlabel('ADC value')
 ax.set_ylabel('occurences')
 
-ax.plot(np.arange(datamin, datamax + 1), counts, drawstyle='steps')
+ax.plot(np.arange(signalmin, signalmax + 1), counts, drawstyle='steps')
 
 ax.set_yscale('symlog')
 ax.set_ylim(-1, ax.get_ylim()[1])
@@ -76,10 +58,13 @@ fig = figwithsize([8.21, 5.09])
 
 ax = fig.subplots(1, 1)
 
-start = 0 #int(100e6)
-ax.plot(data[start:start + 250000], ',', color='red')
+start = 0
+s = slice(start, start + 125000)
+ax.plot(signal[s], ',', color='red', label='signal')
+ax.plot(trigger[s], ',', color='blue', label='trigger')
 ax.set_ylim(-1, 2**10 + 1)
 
+ax.legend(loc='best')
 ax.set_title('Original signal')
 ax.set_xlabel(f'Sample number (starting from {start})')
 ax.set_ylabel('ADC value')
