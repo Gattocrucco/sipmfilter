@@ -71,9 +71,9 @@ start, value, baseline = integrate(data)
 fig = figwithsize()
 
 ax = fig.subplots(1, 1)
-ax.set_title('Normalized histograms of signals and baselines')
+ax.set_title('Histograms of signals and baselines')
 ax.set_xlabel('ADC scale')
-ax.set_ylabel('Density')
+ax.set_ylabel('Bin count')
 
 ax.hist(value, bins=1000, histtype='step', label='signal')
 ax.hist(baseline, bins='auto', histtype='step', label='baseline')
@@ -97,16 +97,35 @@ saveaspng(fig)
 fig = figwithsize()
 
 ax = fig.subplots(2, 1, sharex=True)
-ax[0].set_title('Abnormal triggers')
-ax[1].set_title('Corresponding signals')
+ax[0].set_title('Baseline < 800')
+ax[1].set_title('Corresponding triggers')
 ax[1].set_xlabel('Event sample number')
 ax[0].set_ylabel('ADC value')
 ax[1].set_ylabel('ADC value')
 
-for i in np.argwhere(start < 100).reshape(-1):
-    ax[0].plot(data[i, 1], ',')
-    ax[1].plot(data[i, 0], ',')
+for i in np.argwhere(baseline < 800).reshape(-1):
+    ax[0].plot(data[i, 0], ',')
+    ax[1].plot(data[i, 1], ',')
 
+ax[0].set_ylim(-50, 1050)
+ax[1].set_ylim(-50, 1050)
+
+saveaspng(fig)
+
+fig = figwithsize()
+
+ax = fig.subplots(2, 1, sharex=True)
+ax[0].set_title('Signal 1000 samples average < 400')
+ax[1].set_title('Corresponding triggers')
+ax[1].set_xlabel('Event sample number')
+ax[0].set_ylabel('ADC value')
+ax[1].set_ylabel('ADC value')
+
+for i in np.argwhere(value < 400).reshape(-1):
+    ax[0].plot(data[i, 0], ',')
+    ax[1].plot(data[i, 1], ',')
+
+ax[0].set_ylim(-50, 1050)
 ax[1].set_ylim(-50, 1050)
 
 saveaspng(fig)
