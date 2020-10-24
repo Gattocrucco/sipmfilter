@@ -57,7 +57,7 @@ def integrate(data):
 
         start[i] = j
         value[i] = average_inadcrange(signal[j:j + 1000])
-        baseline[i] = average_inadcrange(signal[j - 7000:j])
+        baseline[i] = average_inadcrange(signal[j - 7000:j - 100])
     
     return start, value, baseline
 
