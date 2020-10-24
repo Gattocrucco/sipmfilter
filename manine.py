@@ -75,6 +75,33 @@ baseline_zone = data[:, 0, 100:8900]
 ignore = np.any((0 <= baseline_zone) & (baseline_zone < 700), axis=-1)
 print(f'ignoring {np.sum(ignore)} events with values < 700 in baseline zone')
 
+# Boundaries for peaks in (baseline - value) histogram
+# Written down by looking at the plot
+window = np.array([
+    -15,
+    12,
+    37,
+    62,
+    86,
+    110,
+    137,
+    159,
+    183,
+    207,
+    232,
+    256,
+    281,
+    297
+])
+
+corr_value = (baseline - value)[~ignore]
+center, width = np.empty((2, len(window) - 1))
+for i in range(len(window) - 1):
+    selection = (window[i] <= corr_value) & (corr_value < window[i + 1])
+    values = corr_value[selection]
+    center[i] = np.median(values)
+    width[i] = np.diff(np.quantile(values, [0.50 - 0.68/2, 0.50 + 0.68/2]))[0] / 2
+
 fig = figwithsize()
 
 ax = fig.subplots(1, 1)
@@ -89,7 +116,7 @@ ax.legend(loc='best')
 
 saveaspng(fig)
 
-fig = figwithsize()
+fig = figwithsize([7.27, 5.73])
 
 ax = fig.subplots(1, 1)
 ax.set_title('Histogram of baseline-corrected and inverted signal')
@@ -97,7 +124,39 @@ ax.set_xlabel('ADC scale')
 ax.set_ylabel('Occurences')
 
 corr_value = baseline - value
-ax.hist(corr_value[~ignore], bins=1000, histtype='stepfilled')
+ax.hist(corr_value[~ignore], bins=1000, histtype='step', zorder=10, label='histogram')
+
+kwvline = dict(linestyle='--', color='black', linewidth=1, label='median')
+kwvspan = dict(color='lightgray', label='symmetrized 68 % interquantile range')
+for i in range(len(center)):
+    ax.axvline(center[i], **kwvline)
+    ax.axvspan(center[i] - width[i], center[i] + width[i], **kwvspan)
+    kwvline.pop('label', None)
+    kwvspan.pop('label', None)
+
+kwvline = dict(linestyle=':', color='gray', label='boundaries (handpicked)')
+for i in range(len(window)):
+    ax.axvline(window[i], **kwvline)
+    kwvline.pop('label', None)
+
+ax.set_xlim(-15, 315)
+ax.legend(loc='upper right')
+
+saveaspng(fig)
+
+fig = figwithsize()
+
+ax = fig.subplots(2, 1, sharex=True)
+ax[0].set_title('Center and width of peaks in signal histogram')
+ax[0].set_ylabel('median')
+ax[1].set_ylabel('68 % half interquantile range')
+ax[1].set_xlabel('Peak number (number of photoelectrons)')
+
+ax[0].plot(center, '.--')
+ax[1].plot(width, '.--')
+
+for a in ax:
+    a.grid()
 
 saveaspng(fig)
 
