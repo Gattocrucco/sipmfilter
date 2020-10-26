@@ -94,6 +94,7 @@ data = np.copy(data[:1000]) # the file is actually loaded into memory here
 
 print('identify true signals with trigger...')
 start, value, baseline = integrate(data)
+absolute_start = start + np.arange(len(start)) * data.shape[-1]
 
 # Identify events with out-of-trigger signals.
 baseline_zone = data[:, 0, 100:8900]
@@ -103,13 +104,33 @@ print(f'ignoring {np.sum(ignore)} events with values < 700 in baseline zone')
 print('search signals with filter...')
 wave = data[:, 0, :]
 wave[:, :20] = 880 # there's garbage at the start of each acq. event
+
+# Apply moving average filter and 
 avg_len = 1000
 fwave = filter_moving_average(wave.reshape(-1), avg_len)
 locs = trigger_under_threshold(fwave, 866) + avg_len
-locs0 = locs // data.shape[-1]
-locs1 = locs % data.shape[-1]
+
+# Remove duplicate detections and spurious signals.
+locs0 = locs // data.shape[-1] # event index
 ignore_locs = ignore[locs0]
 locs_clean = dead_time_filter(locs[~ignore_locs], 3000)
+
+# Find detected signals which are close to a trigger impulse.
+sl = np.concatenate([
+    absolute_start,
+    locs_clean
+])
+sl_locmask = np.concatenate([
+    np.zeros(len(absolute_start), bool),
+    np.ones(len(locs_clean), bool)
+])
+sl_idxs = np.argsort(sl)
+sl = sl[sl_idxs]
+sl_locmask = sl_locmask[sl_idxs]
+sl_diff = np.diff(sl, prepend=-10000000, append=10000000)
+sl_close = sl_diff < 2 * avg_len
+sl_close = sl_close[1:] | sl_close[:-1]
+locs_triggered = sl[sl_close & sl_locmask]
 
 fig = figwithsize([11.8,  4.8])
 
@@ -121,11 +142,13 @@ ax.set_ylabel('ADC value')
 n = 100000
 ax.plot(wave.reshape(-1)[:n], label='original')
 ax.plot(fwave[:n], label='filtered')
-l = locs_clean[locs_clean < n]
-ax.plot(l, np.full(l.shape, 866), 'xk', label='signal detected')
+ax.plot(locs_clean, np.full(locs_clean.shape, 866), 'xk', label='signal detected')
+ax.plot(absolute_start, np.full(start.shape, 836), '+k', label='laser trigger')
+ax.plot(locs_triggered, np.full(locs_triggered.shape, 806), '*k', label='true signals detected')
 
 ax.legend(loc='best')
 ax.set_ylim(-10, 1024)
+ax.set_xlim(-1, n + 1)
 
 saveaspng(fig)
 
