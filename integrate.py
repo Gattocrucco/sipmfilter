@@ -2,9 +2,85 @@ import numba
 import numpy as np
 
 @numba.jit(cache=True, nopython=True)
+def filter(data, delta_ma, length_ma, delta_exp, tau_exp):
+    """
+    Parameters
+    ----------
+    data : array (nevents, 2, 15001)
+        As read by readwav.py.
+    delta_ma : array (N,)
+        Sample where the moving average filter is evaluated relative to the
+        start of the trigger impulse.
+    length_ma : array (N,)
+        Number of averaged samples.
+    delta_exp : array (M,)
+        Sample where the exponential filter is evaluated relative to the
+        start of the trigger impulse.
+    tau_exp : array (M,)
+        Scale parameter of the exponential filter.
+    
+    Returns
+    -------
+    trigger : array (nevents,)
+        Within-event sample where the trigger fires.
+    baseline : array (nevents,)
+        Average of the region before the trigger impulse.
+    ma : array (nevents, N)
+        Value of the moving average filter.
+    exp : array (nevents, M)
+        Value of the exponential average filter.
+    """
+    nevents = data.shape[0]
+    N = len(delta_ma)
+    M = len(delta_exp)
+    
+    trigger = np.empty(nevents, np.int32)
+    baseline = np.empty(nevents)
+    ma = np.empty((nevents, N))
+    exp = np.empty((nevents, M))
+    
+    for i in range(nevents):
+        wsig, wtrig = data[i]
+        
+        trigger[i] = _trigger(wtrig)
+        baseline[i] = _baseline(wsig, trigger[i])
+        for j in range(N):
+            ma[i, j] = _filter_ma(wsig, trigger[i] + delta_ma[j], length_ma[j])
+        for j in range(M):
+            exp[i, j] = _filter_exp(wsig, trigger[i] + delta_exp[j], tau_exp[j])
+    
+    return trigger, baseline, ma, exp
+
+@numba.jit(cache=True, nopython=True)
+def _trigger(x):
+    for i in range(len(x)):
+        if x[i] < 400:
+            break
+    else:
+        assert False, 'no trigger found'
+    return i
+
+@numba.jit(cache=True, nopython=True)
+def _baseline(x, t):
+    assert t >= 7000, 'less than 7000 samples before trigger'
+    return np.mean(x[t - 7000:t - 100])
+
+@numba.jit(cache=True, nopython=True)
+def _filter_ma(x, t, l):
+    return np.mean(x[t - l + 1:t + 1])
+
+@numba.jit(cache=True, nopython=True)
+def _filter_exp(x, t, l):
+    lamda = 1 - 1/l
+    out = x[0]
+    for i in range(1, t + 1):
+        out = lamda * out + (1 - lamda) * x[i]
+    return out
+
+@numba.jit(cache=True, nopython=True)
 def integrate(data):
     """
-    Take data from wav file and add compute a 1000 samples average of the signal
+    Take data from wav file and compute a 1000 samples average of the signal
     after each trigger pulse start.
     
     Parameters
