@@ -9,7 +9,7 @@ filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 data = readwav.readwav(filename, mmap=False)
 
 print('computing...')
-start, baseline, vma, vexp = integrate.filter(data, *np.full((4, 1), 1000))
+start, baseline, vma, vexp = integrate.filter(data, *np.full((4, 1), 2000))
 vma = vma[:, 0]
 vexp = vexp[:, 0]
 
@@ -21,8 +21,8 @@ ignore = np.any((0 <= baseline_zone) & (baseline_zone < 700), axis=-1)
 print(f'ignoring {np.sum(ignore)} events with values < 700 in baseline zone')
 
 corr_value = (baseline - value)[~ignore]
-counts, bins = np.histogram(corr_value, bins=1000)
-peaks, pp = signal.find_peaks(counts, prominence=8, height=8)
+counts, bins = np.histogram(corr_value, bins=500)
+peaks, pp = signal.find_peaks(counts, prominence=16, height=16, distance=2)
 ph = pp['peak_heights']
 psel = np.concatenate([[True], (ph[1:] / ph[:-1]) > 1/5])
 peaks = peaks[psel]
@@ -65,8 +65,7 @@ ax.set_title('Histogram of baseline-corrected and inverted signal')
 ax.set_xlabel('ADC scale')
 ax.set_ylabel('Occurences')
 
-corr_value = baseline - value
-ax.hist(corr_value[~ignore], bins=1000, histtype='step', zorder=10, label='histogram')
+ax.plot(bins[:-1], counts, drawstyle='steps-post', zorder=10, label='histogram')
 ax.plot(peaks_loc, ph, 'x')
 
 kwvline = dict(linestyle='--', color='black', linewidth=1, label='median')
@@ -77,12 +76,13 @@ for i in range(len(center)):
     kwvline.pop('label', None)
     kwvspan.pop('label', None)
 
-kwvline = dict(linestyle=':', color='gray', label='boundaries (handpicked)')
+kwvline = dict(linestyle=':', color='gray', label='boundaries')
 for i in range(len(window)):
     ax.axvline(window[i], **kwvline)
     kwvline.pop('label', None)
 
-ax.set_xlim(-15, 315)
+ax.set_xlim(window[0] - 10, window[-1] + 10)
+ax.set_ylim(0, ax.get_ylim()[1])
 ax.legend(loc='upper right')
 
 fighelp.saveaspng(fig)
