@@ -1,5 +1,6 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from scipy import signal
 import readwav
 import fighelp
 import integrate
@@ -19,26 +20,23 @@ baseline_zone = data[:, 0, :8900]
 ignore = np.any((0 <= baseline_zone) & (baseline_zone < 700), axis=-1)
 print(f'ignoring {np.sum(ignore)} events with values < 700 in baseline zone')
 
-# Boundaries for peaks in (baseline - value) histogram
-# Written down by looking at the plot
-window = np.array([
-    -15,
-    12,
-    37,
-    62,
-    86,
-    110,
-    137,
-    159,
-    183,
-    207,
-    232,
-    256,
-    281,
-    297
+corr_value = (baseline - value)[~ignore]
+counts, bins = np.histogram(corr_value, bins=1000)
+peaks, pp = signal.find_peaks(counts, prominence=8, height=8)
+ph = pp['peak_heights']
+psel = np.concatenate([[True], (ph[1:] / ph[:-1]) > 1/5])
+peaks = peaks[psel]
+ph = ph[psel]
+
+bins_center = (bins[1:] + bins[:-1]) / 2
+peaks_loc = bins_center[peaks]
+window_mid = (peaks_loc[1:] + peaks_loc[:-1]) / 2
+window = np.concatenate([
+    [peaks_loc[0] - (window_mid[0] - peaks_loc[0])],
+    window_mid,
+    [peaks_loc[-1] + (peaks_loc[-1] - window_mid[-1])]
 ])
 
-corr_value = (baseline - value)[~ignore]
 center, width = np.empty((2, len(window) - 1))
 for i in range(len(window) - 1):
     selection = (window[i] <= corr_value) & (corr_value < window[i + 1])
@@ -69,6 +67,7 @@ ax.set_ylabel('Occurences')
 
 corr_value = baseline - value
 ax.hist(corr_value[~ignore], bins=1000, histtype='step', zorder=10, label='histogram')
+ax.plot(peaks_loc, ph, 'x')
 
 kwvline = dict(linestyle='--', color='black', linewidth=1, label='median')
 kwvspan = dict(color='lightgray', label='symmetrized 68 % interquantile range')
