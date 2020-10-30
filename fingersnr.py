@@ -10,7 +10,7 @@ import integrate
 filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 data = readwav.readwav(filename, mmap=False)
 
-delta_rel = np.linspace(0.9, 1.1, 10)
+delta_rel = np.linspace(0.6, 1.4, 10)
 tau = np.linspace(500, 2000, 10)
 
 delta = (tau.reshape(-1, 1) * delta_rel).reshape(-1)
@@ -18,9 +18,11 @@ tau = np.broadcast_to(tau.reshape(-1, 1), tau.shape + delta_rel.shape).reshape(-
 
 delta = np.array(delta, int)
 tau = np.array(tau, int)
+delta_exp = np.array(np.linspace(300, 1500, 10), int)
+delta_exp = np.broadcast_to(delta_exp.reshape(1, -1), (10, 10)).reshape(-1)
 
 print('computing...')
-start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau)
+start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta_exp, tau)
 
 # Identify events with out-of-trigger signals.
 baseline_zone = data[:, 0, :8900]
@@ -34,6 +36,8 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None):
     psel = np.concatenate([[True], (ph[1:] / ph[:-1]) > 1/5])
     peaks = peaks[psel]
     ph = ph[psel]
+    if len(peaks) <= 1:
+        return 0
 
     bins_center = (bins[1:] + bins[:-1]) / 2
     peaks_loc = bins_center[peaks]
@@ -104,19 +108,19 @@ for i in tqdm.tqdm(range(snr.shape[1])):
         corr_value = (baseline - value)[~ignore]
         snr[j, i] = single_filter_analysis(corr_value)
 
-# def fun(x, useexp):
-#     delta, tau = x
-#     delta = np.array([delta], int)
-#     tau = np.array([tau], int)
-#     start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau)
-#     value = vexp if useexp else vma
-#     corr_value = (baseline - value)[~ignore]
-#     snr = single_filter_analysis(corr_value)
-#     return snr
+def fun(delta, tau, useexp=False):
+    delta = np.array([delta], int)
+    tau = np.array([tau], int)
+    start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau)
+    value = vexp if useexp else vma
+    corr_value = (baseline - value[:, 0])[~ignore]
+    snr = single_filter_analysis(corr_value)
+    return snr
 
 snr = snr.reshape(2, -1, len(delta_rel))
 tau = tau.reshape(-1, len(delta_rel))
 delta = delta.reshape(tau.shape)
+delta_exp = delta_exp.reshape(tau.shape)
 
 fig = fighelp.figwithsize([6.4, 7.1], resetfigcount=True)
 
@@ -130,9 +134,11 @@ for i, ax in enumerate(axs):
     for j in range(snr.shape[1]):
         alpha = (j + 1) / snr.shape[1]
         label = f'tau = {tau[j, 0]}'
-        ax.plot(delta[j], snr[i, j], color='black', alpha=alpha, label=label)
+        d = delta if i == 0 else delta_exp
+        ax.plot(d[j], snr[i, j], color='black', alpha=alpha, label=label)
     ax.set_ylabel('SNR')
     ax.legend(loc='best', fontsize='small')
+    ax.grid()
 
 fighelp.saveaspng(fig)
 
@@ -155,5 +161,7 @@ def fingerplot(tau, delta, kind='ma'):
     fig2.tight_layout()
     fig1.show()
     fig2.show()
+    
+print('call fingerplot(<tau>, <delta>, "ma" or "exp") interactively')
 
 plt.show()
