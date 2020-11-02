@@ -7,33 +7,34 @@ import readwav
 import fighelp
 import integrate
 
+# Load wav file.
 filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 data = readwav.readwav(filename, mmap=False)
-
-tau = np.array([32, 64, 128, 192, 256, 320, 384, 512, 768, 1024])
-
-# delta for moving average
-delta_rel = np.linspace(0.5, 1.4, 10)
-delta_off = 80 + np.linspace(-40, 40, 10)
-delta = delta_off + delta_rel * tau.reshape(-1, 1)
-delta = np.array(delta, int).reshape(-1)
-
-# delta for exponential moving average
-delta_rel_exp = np.linspace(0.1, 2, 10)
-delta_off_exp = np.linspace(75, 500, 10)
-delta_exp = delta_off_exp + delta_rel_exp * tau.reshape(-1, 1)
-delta_exp = np.array(delta_exp, int).reshape(-1)
-
-tau = np.array(tau, int)
-tau = np.broadcast_to(tau.reshape(-1, 1), tau.shape + delta_rel.shape).reshape(-1)
-
-print('computing...')
-start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta_exp, tau)
 
 # Identify events with out-of-trigger signals.
 baseline_zone = data[:, 0, :8900]
 ignore = np.any((0 <= baseline_zone) & (baseline_zone < 700), axis=-1)
 print(f'ignoring {np.sum(ignore)} events with values < 700 in baseline zone')
+
+tau = np.array([32, 64, 128, 192, 256, 320, 384, 512, 768, 1024, 1536, 2048])
+ndelta = 10
+
+# delta for moving average
+delta_rel = np.linspace(0.5, 1.4, ndelta)
+delta_off = 80 + np.linspace(-40, 40, ndelta)
+taueff = 500 * (tau / 500) ** (4/5)
+delta = delta_off + delta_rel * taueff.reshape(-1, 1)
+delta = np.array(delta, int).reshape(-1)
+
+# delta for exponential moving average
+delta_rel_exp = np.linspace(0.1, 2, ndelta)
+delta_off_exp = np.linspace(65, 400, ndelta)
+taueff_exp = 512 * (tau / 512) ** (3/5)
+delta_exp = delta_off_exp + delta_rel_exp * taueff_exp.reshape(-1, 1)
+delta_exp = np.array(delta_exp, int).reshape(-1)
+
+tau = np.array(tau, int)
+tau = np.broadcast_to(tau.reshape(-1, 1), (len(tau), ndelta)).reshape(-1)
 
 def single_filter_analysis(corr_value, fig1=None, fig2=None):
     """
@@ -136,52 +137,58 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None):
     
     return 0 if bad else snr
 
-snr = np.empty((2, len(tau)))
+def snrplot():
+    """
+    Plot SNR as a function of tau and delta for some values of tau and delta
+    hardcoded in the script.
+    
+    Returns
+    -------
+    fig : matplotlib figure
+        The figure with the plots.
+    """
+    print('computing filters...')
+    start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta_exp, tau)
 
-for i in tqdm.tqdm(range(snr.shape[1])):
-    for j, value in enumerate([vma, vexp]):
-        value = value[:, i]
-        corr_value = (baseline - value)[~ignore]
-        snr[j, i] = single_filter_analysis(corr_value)
+    snr = np.empty((2, len(tau)))
 
-def fun(delta, tau, useexp=False):
-    delta = np.array([delta], int)
-    tau = np.array([tau], int)
-    start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau)
-    value = vexp if useexp else vma
-    corr_value = (baseline - value[:, 0])[~ignore]
-    snr = single_filter_analysis(corr_value)
-    return snr
+    print('analysing filter output...')
+    for i in tqdm.tqdm(range(snr.shape[1])):
+        for j, value in enumerate([vma, vexp]):
+            value = value[:, i]
+            corr_value = (baseline - value)[~ignore]
+            snr[j, i] = single_filter_analysis(corr_value)
 
-snr = snr.reshape(2, -1, len(delta_rel))
-tau = tau.reshape(-1, len(delta_rel))
-delta = delta.reshape(tau.shape)
-delta_exp = delta_exp.reshape(tau.shape)
+    snr = snr.reshape(2, -1, ndelta)
+    tau = tau.reshape(-1, ndelta)
+    delta = delta.reshape(tau.shape)
+    delta_exp = delta_exp.reshape(tau.shape)
 
-fig = fighelp.figwithsize([6.4, 7.1], resetfigcount=True)
+    fig = plt.figure('snrplot', figsize=[6.4, 7.1])
+    fig.clf()
 
-axs = fig.subplots(2, 1)
+    axs = fig.subplots(2, 1)
 
-axs[0].set_title('Moving average')
-axs[1].set_title('Exponential average')
-axs[1].set_xlabel('Offset from trigger [samples]')
+    axs[0].set_title('Moving average')
+    axs[1].set_title('Exponential moving average')
+    axs[1].set_xlabel('Offset from trigger [ns]')
 
-for i, ax in enumerate(axs):
-    for j in range(snr.shape[1]):
-        alpha = 1 - (j / snr.shape[1])
-        label = f'tau = {tau[j, 0]}'
-        d = delta if i == 0 else delta_exp
-        ax.plot(d[j], snr[i, j], color='black', alpha=alpha, label=label)
-    ax.set_ylabel('SNR')
-    ax.legend(loc='best', fontsize='small')
-    ax.grid()
+    for i, ax in enumerate(axs):
+        for j in range(snr.shape[1]):
+            alpha = 1 - (j / snr.shape[1])
+            label = f'tau = {tau[j, 0]} ns'
+            d = delta if i == 0 else delta_exp
+            ax.plot(d[j], snr[i, j], color='black', alpha=alpha, label=label)
+        ax.set_ylabel('SNR')
+        ax.legend(loc='best', fontsize='small')
+        ax.grid()
 
-fighelp.saveaspng(fig)
+    fig.tight_layout()
+    fig.show()
+    
+    return fig
 
 def fingerplot(tau, delta, kind='ma'):
-    """
-    Call this interactively after running the script in ipython
-    """
     tau = np.array([tau], int)
     delta = np.array([delta], int)
     start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau)
@@ -198,6 +205,147 @@ def fingerplot(tau, delta, kind='ma'):
     fig1.show()
     fig2.show()
     
-print('call fingerplot(<tau>, <delta>, "ma" or "exp") interactively')
+# Optimization does not work very well for the exponential moving average
+# because yes, while it seems to be ok for the moving average.
+#
+# def fun(x, useexp):
+#     delta, tau = x
+#     delta = np.array([delta], int)
+#     tau = np.array([tau], int)
+#     start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau)
+#     value = vexp if useexp else vma
+#     corr_value = (baseline - value[:, 0])[~ignore]
+#     snr = single_filter_analysis(corr_value)
+#     print(snr)
+#     return -snr
+#
+# print('searching optimal parameters for moving average...')
+# options = dict(maxfev=100, disp=True, return_all=True, xatol=1, fatol=0.001)
+# resultma = optimize.minimize(fun, x0=[1470, 1530], args=(False,), options=options, method='Nelder-Mead')
+#
+# print('searching optimal parameters for exponential average...')
+# options = dict(maxfev=100, disp=True, return_all=True, xatol=1, fatol=0.001)
+# resultexp = optimize.minimize(fun, x0=[1500, 800], args=(True,), options=options, method='Nelder-Mead')
 
-plt.show()
+def snrmax():
+    """
+    Find the maximum SNR varying delta for each tau. Tau values to consider are
+    hardcoded in the script. "Delta" is the offset from the trigger. Also plot
+    the results.
+    
+    Returns
+    -------
+    tau : array (N,)
+        The tau values tested.
+    snrmax : array (2, ntau)
+        The maximum SNR for each tau, first dimension is (moving average,
+        exponential moving average).
+    deltarange : array (2, ntau, 3)
+        The triplets [delta_left, delta_max, delta_right] where delta_max is
+        the delta that maximizes the SNR and delta_left and _right are points
+        where the SNR is -1 relative to the maximum.
+    
+    """
+    def fun(delta, tau, useexp):
+        delta = np.array([delta], int)
+        tau = np.array([tau], int)
+        start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau)
+        value = vexp if useexp else vma
+        corr_value = (baseline - value[:, 0])[~ignore]
+        snr = single_filter_analysis(corr_value)
+        return -snr
+
+    print('maximizing SNR for each tau...')
+    snrmax = np.empty((2, len(tau)))
+    deltarange = np.empty((2, len(tau), 3))
+    # dim0: MOVAVG, EXPAVG
+    # dim1: tau
+    # dim2: left, max, right
+    for i in tqdm.tqdm(range(len(tau))):
+        t = tau[i, 0]
+        for j in range(2):
+            useexp = j == 1
+            args = (t, useexp)
+            bracket = (66 + t * 0.8, 66 + t * 1.2)
+            options = dict(xtol=1, maxiter=20)
+            result = optimize.minimize_scalar(fun, bracket=bracket, args=args, options=options, method='golden')
+            if not result.success:
+                print(f'i={i}, j={j}, max: {result}')
+            deltamax = result.x
+            deltarange[j, i, 1] = deltamax
+            snrmax[j, i] = -result.fun
+        
+            f = lambda *args: fun(*args) - (1 - snrmax[j, i])
+            kw = dict(args=args, options=options, method='bisect')
+            bracket = (0, deltamax)
+            result = optimize.root_scalar(f, bracket=bracket, **kw)
+            if not result.converged:
+                print(f'i={i}, j={j}, left: {result}')
+            deltarange[j, i, 0] = result.root
+
+            bracket = (deltamax, 2.5 * deltamax)
+            result = optimize.root_scalar(f, bracket=bracket, **kw)
+            if not result.converged:
+                print(f'i={i}, j={j}, right: {result}')
+            deltarange[j, i, 2] = result.root
+    
+    output = (tau[:, 0], snrmax, deltarange)
+    snrmaxplot(*output)
+    return output
+
+def snrmaxplot(tau, snrmax, deltarange):
+    """
+    Plot the output from snrmax(). Called by snrmax().
+    
+    Parameters
+    ----------
+    The things returned by snrmax().
+    
+    Returns
+    -------
+    fig : matplotlib figure
+    """
+    fig = plt.figure('snrplot', figsize=[6.4, 7.1])
+    fig.clf()
+
+    axs = fig.subplots(3, 1, sharex=True)
+
+    axs[0].set_title('Maximum SNR')
+    axs[1].set_title('Offset from trigger that maximizes the SNR')
+    axs[2].set_title('Interval width -1 SNR relative to maximum')
+    axs[0].set_ylabel('SNR')
+    axs[1].set_ylabel('Offset from trigger [ns]')
+    axs[2].set_ylabel('Offset from trigger [ns]')
+    axs[2].set_xlabel('Filter duration parameter [ns]')
+    
+    for i, label in enumerate(['moving average', 'exponential moving average']):
+        x = tau + [-8, 8][i]
+
+        ax = axs[0]
+        line, = ax.plot(x, snrmax[i], '.--', label=label)
+        color = line.get_color()
+        ax.legend(loc='best')
+        ax.grid(True)
+    
+        ax = axs[1]
+        dr = deltarange[i].T
+        yerr = [
+            dr[1] - dr[0],
+            dr[2] - dr[1]
+        ]
+        ax.errorbar(x, dr[1], yerr=yerr, fmt='.', color=color, capsize=4)
+        ax.grid(True)
+        
+        ax = axs[2]
+        ax.plot(x, dr[2] - dr[0], '.--', color=color)
+        ax.grid(True)
+
+    fig.tight_layout()
+    fig.show()
+    
+    return fig
+
+print('now call interactively any of:')
+print('fingerplot(<tau>, <delta>, "ma" or "exp")')
+print('snrplot()')
+print('snrmax()')
