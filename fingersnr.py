@@ -285,7 +285,10 @@ def snrmax(bslen=6900):
     def fun(delta, tau, useexp):
         delta = np.array([delta], int)
         tau = np.array([tau], int)
-        start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau, bslen)
+        try:
+            start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau, bslen)
+        except ZeroDivisionError:
+            return 0
         value = vexp if useexp else vma
         corr_value = (baseline - value[:, 0])[~ignore]
         snr = single_filter_analysis(corr_value)
@@ -374,11 +377,12 @@ def snrmaxplot(tau, snrmax, deltarange):
     
         ax = axs[1]
         dr = deltarange[i].T
-        yerr = [
+        yerr = np.array([
             dr[1] - dr[0],
             dr[2] - dr[1]
-        ]
-        ax.errorbar(x, dr[1], yerr=yerr, fmt='.', color=color, capsize=4)
+        ])
+        sel = snrmax[i] > 0
+        ax.errorbar(x[sel], dr[1, sel], yerr=yerr[:, sel], fmt='.', color=color, capsize=4)
         ax.grid(True)
         
         ax = axs[2]
