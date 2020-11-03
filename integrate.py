@@ -2,7 +2,7 @@ import numba
 import numpy as np
 
 @numba.jit(cache=True, nopython=True)
-def filter(data, delta_ma, length_ma, delta_exp, tau_exp):
+def filter(data, delta_ma, length_ma, delta_exp, tau_exp, bslen=6900):
     """
     Parameters
     ----------
@@ -18,6 +18,8 @@ def filter(data, delta_ma, length_ma, delta_exp, tau_exp):
         start of the trigger impulse.
     tau_exp : array (M,)
         Scale parameter of the exponential filter.
+    bslen : int
+        The number of samples used for the baseline.
     
     Returns
     -------
@@ -43,7 +45,7 @@ def filter(data, delta_ma, length_ma, delta_exp, tau_exp):
         wsig, wtrig = data[i]
         
         trigger[i] = _trigger(wtrig)
-        baseline[i] = _baseline(wsig, trigger[i])
+        baseline[i] = _baseline(wsig, trigger[i], bslen)
         for j in range(N):
             ma[i, j] = _filter_ma(wsig, trigger[i] + delta_ma[j], length_ma[j])
         for j in range(M):
@@ -61,9 +63,10 @@ def _trigger(x):
     return i
 
 @numba.jit(cache=True, nopython=True)
-def _baseline(x, t):
-    assert t >= 7000, 'less than 7000 samples before trigger'
-    return np.mean(x[t - 7000:t - 100])
+def _baseline(x, t, l):
+    L = l + 100
+    assert t >= L, 'not enough samples for baseline before trigger'
+    return np.mean(x[t - L:t - 100])
 
 @numba.jit(cache=True, nopython=True)
 def _filter_ma(x, t, l):
@@ -78,8 +81,10 @@ def _filter_exp(x, t, l):
     return out
 
 @numba.jit(cache=True, nopython=True)
-def integrate(data):
+def integrate(data, bslen=6900):
     """
+    OLD FUNCTION, USE `filter` INSTEAD
+    
     Take data from wav file and compute a 1000 samples average of the signal
     after each trigger pulse start.
     
@@ -87,6 +92,8 @@ def integrate(data):
     ----------
     data : array with shape (nevents, 2, 15001)
         Wav data as read by readwav.py.
+    bslen : int
+        The number of samples used for the baseline.
     
     Returns
     -------
@@ -120,10 +127,11 @@ def integrate(data):
         #     assert False, 'no trigger end found'
         
         assert j + 1000 <= len(signal), 'less than 1000 samples after trigger'
-        assert j >= 7000, 'less than 7000 samples before trigger'
+        bsstart = bslen + 100
+        assert j >= bsstart, 'not enough samples for baseline before trigger'
 
         start[i] = j
         value[i] = np.mean(signal[j:j + 1000])
-        baseline[i] = np.mean(signal[j - 7000:j - 100])
+        baseline[i] = np.mean(signal[j - bsstart:j - 100])
     
     return start, value, baseline

@@ -8,7 +8,7 @@ filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 data = readwav.readwav(filename, mmap=False)
 
 print('computing...')
-start, value, baseline = integrate.integrate(data)
+start, value, baseline = integrate.integrate(data, bslen=200)
 
 # Identify events with out-of-trigger signals.
 baseline_zone = data[:, 0, :8900]

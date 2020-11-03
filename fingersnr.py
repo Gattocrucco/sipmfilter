@@ -137,18 +137,26 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None):
     
     return 0 if bad else snr
 
-def snrplot():
+def snrplot(bslen=6900):
     """
     Plot SNR as a function of tau and delta for some values of tau and delta
     hardcoded in the script.
+    
+    Parameters
+    ----------
+    bslen : int
+        The number of samples used for the baseline.
     
     Returns
     -------
     fig : matplotlib figure
         The figure with the plots.
+    snr : array (2, ntau, ndelta)
+        The SNR for (moving average, exponential moving average), and for each
+        length parameter (tau) and offset from trigger (delta).
     """
     print('computing filters...')
-    start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta_exp, tau)
+    start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta_exp, tau, bslen)
 
     snr = np.empty((2, len(tau)))
 
@@ -160,11 +168,11 @@ def snrplot():
             snr[j, i] = single_filter_analysis(corr_value)
 
     snr = snr.reshape(2, -1, ndelta)
-    tau = tau.reshape(-1, ndelta)
-    delta = delta.reshape(tau.shape)
-    delta_exp = delta_exp.reshape(tau.shape)
+    ltau = tau.reshape(-1, ndelta)
+    ldelta = delta.reshape(ltau.shape)
+    ldelta_exp = delta_exp.reshape(ltau.shape)
 
-    fig = plt.figure('snrplot', figsize=[6.4, 7.1])
+    fig = plt.figure('fingersnr-snrplot', figsize=[6.4, 7.1])
     fig.clf()
 
     axs = fig.subplots(2, 1)
@@ -176,8 +184,8 @@ def snrplot():
     for i, ax in enumerate(axs):
         for j in range(snr.shape[1]):
             alpha = 1 - (j / snr.shape[1])
-            label = f'tau = {tau[j, 0]} ns'
-            d = delta if i == 0 else delta_exp
+            label = f'tau = {ltau[j, 0]} ns'
+            d = ldelta if i == 0 else ldelta_exp
             ax.plot(d[j], snr[i, j], color='black', alpha=alpha, label=label)
         ax.set_ylabel('SNR')
         ax.legend(loc='best', fontsize='small')
@@ -186,12 +194,12 @@ def snrplot():
     fig.tight_layout()
     fig.show()
     
-    return fig
+    return fig, snr
 
-def fingerplot(tau, delta, kind='ma'):
+def fingerplot(tau, delta, kind='ma', bslen=6900):
     tau = np.array([tau], int)
     delta = np.array([delta], int)
-    start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau)
+    start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau, bslen)
     value = dict(ma=vma, exp=vexp)[kind][:, 0]
     corr_value = (baseline - value)[~ignore]
     fig1 = plt.figure('fingersnr-fingerplot-1', figsize=[7.27, 5.73])
@@ -227,11 +235,16 @@ def fingerplot(tau, delta, kind='ma'):
 # options = dict(maxfev=100, disp=True, return_all=True, xatol=1, fatol=0.001)
 # resultexp = optimize.minimize(fun, x0=[1500, 800], args=(True,), options=options, method='Nelder-Mead')
 
-def snrmax():
+def snrmax(bslen=6900):
     """
     Find the maximum SNR varying delta for each tau. Tau values to consider are
     hardcoded in the script. "Delta" is the offset from the trigger. Also plot
     the results.
+    
+    Parameters
+    ----------
+    bslen : int
+        The number of samples used for the baseline.
     
     Returns
     -------
@@ -249,20 +262,22 @@ def snrmax():
     def fun(delta, tau, useexp):
         delta = np.array([delta], int)
         tau = np.array([tau], int)
-        start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau)
+        start, baseline, vma, vexp = integrate.filter(data, delta, tau, delta, tau, bslen)
         value = vexp if useexp else vma
         corr_value = (baseline - value[:, 0])[~ignore]
         snr = single_filter_analysis(corr_value)
         return -snr
+    
+    ltau = tau.reshape(-1, ndelta)
 
     print('maximizing SNR for each tau...')
-    snrmax = np.empty((2, len(tau)))
-    deltarange = np.empty((2, len(tau), 3))
+    snrmax = np.empty((2, len(ltau)))
+    deltarange = np.empty((2, len(ltau), 3))
     # dim0: MOVAVG, EXPAVG
     # dim1: tau
     # dim2: left, max, right
-    for i in tqdm.tqdm(range(len(tau))):
-        t = tau[i, 0]
+    for i in tqdm.tqdm(range(len(ltau))):
+        t = ltau[i, 0]
         for j in range(2):
             useexp = j == 1
             args = (t, useexp)
@@ -277,19 +292,26 @@ def snrmax():
         
             f = lambda *args: fun(*args) - (1 - snrmax[j, i])
             kw = dict(args=args, options=options, method='bisect')
-            bracket = (0, deltamax)
-            result = optimize.root_scalar(f, bracket=bracket, **kw)
-            if not result.converged:
-                print(f'i={i}, j={j}, left: {result}')
-            deltarange[j, i, 0] = result.root
-
-            bracket = (deltamax, 2.5 * deltamax)
-            result = optimize.root_scalar(f, bracket=bracket, **kw)
-            if not result.converged:
-                print(f'i={i}, j={j}, right: {result}')
-            deltarange[j, i, 2] = result.root
+            
+            try:
+                bracket = (0, deltamax)
+                result = optimize.root_scalar(f, bracket=bracket, **kw)
+                if not result.converged:
+                    print(f'i={i}, j={j}, left: {result}')
+                deltarange[j, i, 0] = result.root
+            except ValueError:
+                deltarange[j, i, 0] = np.nan
+            
+            try:
+                bracket = (deltamax, 3 * deltamax)
+                result = optimize.root_scalar(f, bracket=bracket, **kw)
+                if not result.converged:
+                    print(f'i={i}, j={j}, right: {result}')
+                deltarange[j, i, 2] = result.root
+            except ValueError:
+                deltarange[j, i, 2] = np.nan
     
-    output = (tau[:, 0], snrmax, deltarange)
+    output = (ltau[:, 0], snrmax, deltarange)
     snrmaxplot(*output)
     return output
 
@@ -305,7 +327,7 @@ def snrmaxplot(tau, snrmax, deltarange):
     -------
     fig : matplotlib figure
     """
-    fig = plt.figure('snrplot', figsize=[6.4, 7.1])
+    fig = plt.figure('fingersnr-snrmaxplot', figsize=[6.4, 7.1])
     fig.clf()
 
     axs = fig.subplots(3, 1, sharex=True)
@@ -346,6 +368,6 @@ def snrmaxplot(tau, snrmax, deltarange):
     return fig
 
 print('now call interactively any of:')
-print('fingerplot(<tau>, <delta>, "ma" or "exp")')
-print('snrplot()')
-print('snrmax()')
+print('fingerplot(<tau>, <delta>, "ma" or "exp", bslen)')
+print('snrplot(bslen)')
+print('snrmax(bslen)')

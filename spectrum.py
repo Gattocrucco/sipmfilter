@@ -62,7 +62,8 @@ for i, ax in enumerate(axs):
         ax.legend(loc='best')
     if i == 1:
         ax.set_xlabel('Frequency [MHz]')
-    ax.set_ylabel('Spectral density [V MHz$^{-1/2}$]')
+    ax.set_ylabel('Spectral density [Arb. un. MHz$^{-1/2}$]')
+    # ax.set_ylabel('Spectral density [V MHz$^{-1/2}$]')
 
     ax.set_yscale('log')
     ax.grid()
