@@ -137,9 +137,9 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None):
     
     return 0 if bad else snr
 
-def snrplot(bslen=6900):
+def snrseries(bslen=6900):
     """
-    Plot SNR as a function of tau and delta for some values of tau and delta
+    Compute SNR as a function of tau and delta for some values of tau and delta
     hardcoded in the script.
     
     Parameters
@@ -149,8 +149,12 @@ def snrplot(bslen=6900):
     
     Returns
     -------
-    fig : matplotlib figure
-        The figure with the plots.
+    tau : array (ntau,)
+        Values of the filter scale parameter.
+    delta_ma : array (ntau, ndelta)
+        Values of the offset for the moving average for each tau.
+    delta_exp : array (ntau, ndelta)
+        Values of the offset for the moving exponential average for each tau.
     snr : array (2, ntau, ndelta)
         The SNR for (moving average, exponential moving average), and for each
         length parameter (tau) and offset from trigger (delta).
@@ -171,21 +175,40 @@ def snrplot(bslen=6900):
     ltau = tau.reshape(-1, ndelta)
     ldelta = delta.reshape(ltau.shape)
     ldelta_exp = delta_exp.reshape(ltau.shape)
+    
+    output = (ltau[:, 0], ldelta, ldelta_exp, snr)
+    fig = snrplot(*output)
+    return output
+
+def snrplot(tau, delta_ma, delta_exp, snr):
+    """
+    Plot SNR as a function of tau and delta for some values of tau and delta
+    hardcoded in the script. Called by snrseries().
+    
+    Parameters
+    ----------
+    The output from snrseries().
+    
+    Returns
+    -------
+    fig : matplotlib figure
+        The figure with the plots.
+    """
 
     fig = plt.figure('fingersnr-snrplot', figsize=[6.4, 7.1])
     fig.clf()
 
-    axs = fig.subplots(2, 1)
+    axs = fig.subplots(2, 1, sharey=True, sharex=True)
 
     axs[0].set_title('Moving average')
     axs[1].set_title('Exponential moving average')
     axs[1].set_xlabel('Offset from trigger [ns]')
 
     for i, ax in enumerate(axs):
-        for j in range(snr.shape[1]):
-            alpha = 1 - (j / snr.shape[1])
-            label = f'tau = {ltau[j, 0]} ns'
-            d = ldelta if i == 0 else ldelta_exp
+        for j in range(len(tau)):
+            alpha = 1 - (j / len(tau))
+            label = f'tau = {tau[j]} ns'
+            d = delta_ma if i == 0 else delta_exp
             ax.plot(d[j], snr[i, j], color='black', alpha=alpha, label=label)
         ax.set_ylabel('SNR')
         ax.legend(loc='best', fontsize='small')
@@ -194,7 +217,7 @@ def snrplot(bslen=6900):
     fig.tight_layout()
     fig.show()
     
-    return fig, snr
+    return fig
 
 def fingerplot(tau, delta, kind='ma', bslen=6900):
     tau = np.array([tau], int)
@@ -368,6 +391,6 @@ def snrmaxplot(tau, snrmax, deltarange):
     return fig
 
 print('now call interactively any of:')
-print('fingerplot(<tau>, <delta>, "ma" or "exp", bslen)')
-print('snrplot(bslen)')
-print('snrmax(bslen)')
+print('fingerplot(<tau>, <delta>, "ma" or "exp", <bslen>)')
+print('snrseries(<bslen>)')
+print('snrmax(<bslen>)')
