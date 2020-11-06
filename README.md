@@ -7,12 +7,14 @@ The scripts read files which are not included in the repository due to size. [So
 Scripts:
 
   * `fingersnr.py`: compute the SNR for moving average and exponential moving average filter varying their parameters. You have to run this script in ipython and then call functions interactively.
+  
+  * `fingersnrmf.py`: like `fingersnr.py` but for the matched filter.
 
   * `plotwav.py`: plot a pair of things to check the wav file is read correctly and makes sense.
   
   * `plotwav2.py`: a single plot for the 2020-11-03 slides.
   
-  * `manine.py`: test for fingersnr.py.
+  * `manine.py`: test for `fingersnr.py`.
   
   * `spectrum.py`: compute the spectra of Proto0 (the data file is not on the repository due to size) and of LNGS (wav file).
   
@@ -24,3 +26,5 @@ Modules:
   * `integrate.py`: function to compute filters on the signals.
   
   * `fighelp.py`: convenience functions for matplotlib figures.
+  
+  * `single_filter_analysis.py`: make a fingerplot and compute the SNR.

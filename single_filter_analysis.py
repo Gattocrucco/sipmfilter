@@ -2,7 +2,7 @@ from scipy import signal
 import numpy as np
 from matplotlib import pyplot as plt
 
-def single_filter_analysis(corr_value, fig1=None, fig2=None):
+def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
     """
     Compute the SNR i.e. ratio of signal amplitude over amplitude of noise for
     an array of filter outputs.
@@ -13,11 +13,20 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None):
         The filter output already corrected for sign and baseline.
     fig1, fig2 : matplotlib figure objects (optional)
         If given, make a fingerplot and a plot of the peak centers and widths.
+    return_full : bool
+        If True return additional information.
     
     Returns
     -------
     snr : float
         The ratio of the center of the second peak over the width of the first.
+    
+    The following are returned if return_full=True:
+    
+    center : array (M,)
+        The centers of the peaks.
+    width : array (M,)
+        The width of the peaks. Standard deviation or equivalent.
     """
     
     # Make a histogram and find the peaks in the histogram.
@@ -30,7 +39,10 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None):
     peaks = peaks[psel]
     ph = ph[psel]
     if len(peaks) <= 1:
-        return 0
+        if return_full:
+            return 0, np.empty(0), np.empty(0)
+        else:
+            return 0
     
     # Take regions around the peaks.
     bins_center = (bins[1:] + bins[:-1]) / 2
@@ -104,4 +116,7 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None):
         for a in ax:
             a.grid()
     
-    return 0 if bad else snr
+    output = 0 if bad else snr
+    if return_full:
+        output = (output, center, width)
+    return output
