@@ -4,9 +4,9 @@ from scipy import signal, optimize
 import tqdm
 
 import readwav
-import fighelp
 import integrate
 from single_filter_analysis import single_filter_analysis
+from make_template import make_template
 
 # Load wav file.
 filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
@@ -14,33 +14,63 @@ data = readwav.readwav(filename, mmap=False)
 ignore = readwav.spurious_signals(data)
 print(f'ignoring {np.sum(ignore)} events with signals in baseline zone')
 
-tau = np.array([32, 64, 128, 192, 256, 320, 384, 512, 768, 1024, 1536, 2048])
-ndelta = 10
-
-# delta for moving average
-delta_rel = np.linspace(0.5, 1.4, ndelta)
-delta_off = 80 + np.linspace(-40, 40, ndelta)
-taueff = 500 * (tau / 500) ** (4/5)
-delta = delta_off + delta_rel * taueff.reshape(-1, 1)
-delta = np.array(delta, int).reshape(-1)
-
-# delta for exponential moving average
-delta_rel_exp = np.linspace(0.1, 2, ndelta)
-delta_off_exp = np.linspace(65, 400, ndelta)
-taueff_exp = 512 * (tau / 512) ** (3/5)
-delta_exp = delta_off_exp + delta_rel_exp * taueff_exp.reshape(-1, 1)
-delta_exp = np.array(delta_exp, int).reshape(-1)
-
-tau = np.array(tau, int)
-tau = np.broadcast_to(tau.reshape(-1, 1), (len(tau), ndelta)).reshape(-1)
-
-def snrseries(bslen=6900):
+def make_tau_delta(tau, ndelta, flat=True):
     """
-    Compute SNR as a function of tau and delta for some values of tau and delta
-    hardcoded in the script.
+    Parameters
+    ----------
+    tau : array (ntau,)
+    ndelta : int
+    flat : bool
+    
+    Return
+    ------
+    tau, delta_ma, delta_exp, delta_mf : arrays
+        The shape is (ntau, ndelta) if flat=False else (ntau * ndelta,).
+    """
+    
+    # make tau same shape as delta
+    tau = np.broadcast_to(tau.reshape(-1, 1), (len(tau), ndelta))
+
+    # delta for moving average
+    delta_ma_rel = np.linspace(0.5, 1.4, ndelta)
+    delta_ma_off = 80 + np.linspace(-40, 40, ndelta)
+    taueff_ma = 500 * (tau / 500) ** (4/5)
+    delta_ma = delta_ma_off + delta_ma_rel * taueff_ma
+
+    # delta for exponential moving average
+    delta_rel_exp = np.linspace(0.1, 2, ndelta)
+    delta_off_exp = np.linspace(65, 400, ndelta)
+    taueff_exp = 512 * (tau / 512) ** (3/5)
+    delta_exp = delta_off_exp + delta_rel_exp * taueff_exp
+
+    # delta for matched filter
+    delta_off_mf = 2 * (np.arange(ndelta) - ndelta // 2)
+    delta_mf = delta_off_mf + tau
+    
+    # convert to int and reshape
+    arrays = ()
+    for x in [tau, delta_ma, delta_exp, delta_mf]:
+        x = np.array(np.rint(x), int)
+        if flat:
+            x = x.reshape(-1)
+        arrays += (x,)
+    
+    return arrays
+
+_default_tau = np.array([32, 64, 128, 192, 256, 320, 384, 512, 768, 1024, 1536, 2048])
+_default_ndelta = 10
+
+def snrseries(tau=_default_tau, ndelta=_default_ndelta, bslen=8000):
+    """
+    Compute SNR as a function of tau and delta. Make a plot and return the
+    results.
     
     Parameters
     ----------
+    tau : array (ntau,)
+        Length parameter of the filters. 
+    ndelta : int
+        Number of values of offset from trigger explored in a hardcoded range.
     bslen : int
         The number of samples used for the baseline.
     
@@ -51,36 +81,47 @@ def snrseries(bslen=6900):
     delta_ma : array (ntau, ndelta)
         Values of the offset for the moving average for each tau.
     delta_exp : array (ntau, ndelta)
-        Values of the offset for the moving exponential average for each tau.
-    snr : array (2, ntau, ndelta)
-        The SNR for (moving average, exponential moving average), and for each
-        length parameter (tau) and offset from trigger (delta).
+        Values of the offset for the exponential moving average for each tau.
+    delta_mf : array (ntau, ndelta)
+        Values of the offset for the matched filter for each tau.
+    waveform : array (max(tau),)
+        Template used for the matched filter.
+    snr : array (3, ntau, ndelta)
+        The SNR for (moving average, exponential moving average, matched
+        filter), and for each length parameter (tau) and offset from trigger
+        (delta).
     """
+    
+    # Generate delta ranges.
+    ntau = len(tau)
+    tau, delta_ma, delta_exp, delta_mf = make_tau_delta(tau, ndelta, flat=True)
+    
+    print('make template for matched filter...')
+    waveform = make_template(data, ignore, np.max(tau))
+    
     print('computing filters...')
-    start, baseline, vma, vexp = integrate.filter(data, bslen, delta, tau, delta_exp, tau)
+    start, baseline, vma, vexp, vmf = integrate.filter(data, bslen, delta_ma, tau, delta_exp, tau, delta_mf, waveform, tau)
 
-    snr = np.empty((2, len(tau)))
+    snr = np.empty((3, len(tau)))
 
     print('analysing filter output...')
     for i in tqdm.tqdm(range(snr.shape[1])):
-        for j, value in enumerate([vma, vexp]):
+        for j, value in enumerate([vma, vexp, vmf]):
             value = value[:, i]
             corr_value = (baseline - value)[~ignore]
             snr[j, i] = single_filter_analysis(corr_value)
-
-    snr = snr.reshape(2, -1, ndelta)
-    ltau = tau.reshape(-1, ndelta)
-    ldelta = delta.reshape(ltau.shape)
-    ldelta_exp = delta_exp.reshape(ltau.shape)
     
-    output = (ltau[:, 0], ldelta, ldelta_exp, snr)
-    fig = snrplot(*output)
+    # Reshape arrays, make plot and return.
+    output = (tau.reshape(ntau, ndelta)[:, 0],)
+    for x in [delta_ma, delta_exp, delta_mf]:
+        output += (x.reshape(ntau, ndelta),)
+    output += (waveform, snr.reshape(-1, ntau, ndelta))
+    snrplot(*output)
     return output
 
-def snrplot(tau, delta_ma, delta_exp, snr):
+def snrplot(tau, delta_ma, delta_exp, delta_mf, waveform, snr):
     """
-    Plot SNR as a function of tau and delta for some values of tau and delta
-    hardcoded in the script. Called by snrseries().
+    Plot SNR as a function of tau and delta. Called by snrseries().
     
     Parameters
     ----------
@@ -88,38 +129,47 @@ def snrplot(tau, delta_ma, delta_exp, snr):
     
     Returns
     -------
-    fig : matplotlib figure
-        The figure with the plots.
+    fig1, fig2 : matplotlib figure
+        The figures with the plots.
     """
 
     fig = plt.figure('fingersnr-snrplot', figsize=[6.4, 7.1])
     fig.clf()
 
-    axs = fig.subplots(2, 1, sharey=True, sharex=True)
+    axs = fig.subplots(2, 2, sharey=True, sharex=True).reshape(-1)
 
     axs[0].set_title('Moving average')
     axs[1].set_title('Exponential moving average')
-    axs[1].set_xlabel('Offset from trigger [ns]')
+    axs[2].set_title('Matched filter')
+    
+    axs[-1].set_xlabel('Offset from trigger [ns]')
 
-    for i, ax in enumerate(axs):
+    for i, (ax, d) in enumerate(zip(axs, [delta_ma, delta_exp, delta_mf])):
         for j in range(len(tau)):
             alpha = 1 - (j / len(tau))
             label = f'tau = {tau[j]} ns'
-            d = delta_ma if i == 0 else delta_exp
             ax.plot(d[j], snr[i, j], color='black', alpha=alpha, label=label)
         ax.set_ylabel('SNR')
-        ax.legend(loc='best', fontsize='small')
+        if i == 0:
+            ax.legend(loc='best', fontsize='small')
         ax.grid()
 
     fig.tight_layout()
-    fig.show()
+    fig.show(), fig2.show()
     
-    return fig
+    return fig, fig2
 
-def fingerplot(tau, delta, kind='ma', bslen=6900):
-    start, baseline, vma, vexp = integrate.filter(data, bslen, delta, tau, delta, tau)
-    value = dict(ma=vma, exp=vexp)[kind][:, 0]
-    corr_value = (baseline - value)[~ignore]
+def fingerplot(tau, delta, kind='ma', bslen=8000):
+    
+    if kind == 'ma':
+        start, baseline, value = integrate.filter(data, bslen, delta_ma=delta, length_ma=tau)
+    elif kind == 'exp':
+        start, baseline, value = integrate.filter(data, bslen, delta_exp=delta, tau_exp=tau)
+    elif kind == 'mf':
+        waveform = make_template(data, ignore)
+        start, baseline, value = integrate.filter(data, bslen, delta_mf=delta, waveform_mf=waveform, length_mf=tau)
+    
+    corr_value = (baseline - value[:, 0])[~ignore]
     fig1 = plt.figure('fingersnr-fingerplot-1', figsize=[7.27, 5.73])
     fig2 = plt.figure('fingersnr-fingerplot-2', figsize=[6.4, 4.8])
     fig1.clf()

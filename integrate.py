@@ -3,7 +3,7 @@ import numpy as np
 
 _asarray1d = lambda a, d: np.asarray(a, d).reshape(-1)
 
-def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_exp=None, delta_mf=None, waveform_mf=None):
+def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_exp=None, delta_mf=None, waveform_mf=None, length_mf=None):
     """
     Filter LNGS laser data.
     
@@ -28,6 +28,10 @@ def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_
         the trigger impulse.
     waveform_mf : 1D array
         The waveform correlated to compute the matched filter.
+    length_mf : array (K,) or scalar
+        The waveform is truncated to this length for each delta. If the waveform
+        is too short it is padded with zeroes. After the truncation, the
+        waveform is normalized to unity.
     
     Returns
     -------
@@ -65,15 +69,17 @@ def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_
         delta_exp = np.empty(0, int)
         tau_exp = np.empty(0, int)
     
-    compute_mf = delta_mf is not None and waveform_mf is not None
+    compute_mf = delta_mf is not None and waveform_mf is not None and length_mf is not None
     if compute_mf:
         delta_mf = _asarray1d(delta_mf, int)
-        waveform_mf = np.asarray(waveform_mf)
+        waveform_mf = np.asarray(waveform_mf, float)
+        length_mf = _asarray1d(length_mf, int)
     else:
         delta_mf = np.empty(0, int)
         waveform_mf = np.empty(0, float)
+        length_mf = np.empty(0, int)
     
-    start, baseline, ma, exp, mf = _filter(data, bslen, delta_ma, length_ma, delta_exp, tau_exp, delta_mf, waveform_mf)
+    start, baseline, ma, exp, mf = _filter(data, bslen, delta_ma, length_ma, delta_exp, tau_exp, delta_mf, waveform_mf, length_mf)
     
     output = (start, baseline)
     if compute_ma:
@@ -85,7 +91,7 @@ def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_
     return output
 
 @numba.jit(cache=True, nopython=True)
-def _filter(data, bslen, delta_ma, length_ma, delta_exp, tau_exp, delta_mf, waveform_mf):
+def _filter(data, bslen, delta_ma, length_ma, delta_exp, tau_exp, delta_mf, waveform_mf, length_mf):
     """
     Compiled internal for filter(). Parameters are the same but non optional.
     
@@ -123,7 +129,7 @@ def _filter(data, bslen, delta_ma, length_ma, delta_exp, tau_exp, delta_mf, wave
         for j in range(M):
             exp[i, j] = _filter_exp(wsig, trigger[i] + delta_exp[j], tau_exp[j])
         for j in range(K):
-            mf[i, j] = _filter_matched(wsig, trigger[i] + delta_mf[j], waveform_mf)
+            mf[i, j] = _filter_matched(wsig, trigger[i] + delta_mf[j], waveform_mf, length_mf[j])
     
     return trigger, baseline, ma, exp, mf
 
@@ -155,8 +161,9 @@ def _filter_exp(x, t, l):
     return out
 
 @numba.jit(cache=True, nopython=True)
-def _filter_matched(x, t, w):
-    return np.sum(x[t - len(w) + 1:t + 1] * w)
+def _filter_matched(x, t, w, l):
+    w = w[:l]
+    return np.sum(x[t - len(w) + 1:t + 1] * w) / np.sum(w)
 
 @numba.jit(cache=True, nopython=True)
 def integrate(data, bslen=6900):

@@ -28,3 +28,5 @@ Modules:
   * `fighelp.py`: convenience functions for matplotlib figures.
   
   * `single_filter_analysis.py`: make a fingerplot and compute the SNR.
+  
+  * `make_template.py`: make a template for the matched filter.
