@@ -74,13 +74,31 @@ def make_template(data, ignore=None, length=2000, fig=None):
     
     return waveform / np.sum(waveform)
 
-fig = plt.figure('fingersnrmf')
+# Make the template for the matched filter and plot it.
+fig = plt.figure('fingersnrmf-make_template')
 fig.clf()
 
 waveform = make_template(data, ignore=ignore, fig=fig)
 
 fig.tight_layout()
 fig.show()
+
+# Compute the matched filter and do a fingerplot.
+fig1 = plt.figure('fingersnrmf-fingerplot-1', figsize=[7.27, 5.73])
+fig2 = plt.figure('fingersnrmf-fingerplot-2', figsize=[6.4, 4.8])
+fig1.clf()
+fig2.clf()
+
+trigger, baseline, value = integrate.filter(data, bslen=8000, delta_mf=len(waveform), waveform_mf=waveform)
+value = value[:, 0]
+corr_value = (baseline - value)[~ignore]
+snr = single_filter_analysis(corr_value, fig1, fig2)
+print(f'snr = {snr:.1f}')
+
+fig1.tight_layout()
+fig2.tight_layout()
+fig1.show()
+fig2.show()
     
 def snrseries(bslen=6900):
     """
