@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib import gridspec
-from scipy import signal, optimize
+from scipy import optimize
 import tqdm
 
 import readwav
@@ -17,15 +17,29 @@ print(f'ignoring {np.sum(ignore)} events with signals in baseline zone')
 
 def make_tau_delta(tau, ndelta, flat=True):
     """
+    Make a range of delta (offset from trigger) for each tau (length parameter
+    of the filter) for each filter. The filters are
+    
+        "ma" moving average,
+    
+        "exp" exponential moving average,
+    
+        "mf" matched filter.
+    
+    The output is meant to be used as arguments to integrate.filter().
+    
     Parameters
     ----------
     tau : array (ntau,)
+        Values of the length parameter.
     ndelta : int
+        Number of delta values in each range.
     flat : bool
+        If True, return 1D arrays, else (ntau, ndelta).
     
     Return
     ------
-    tau, delta_ma, delta_exp, delta_mf : arrays
+    tau, delta_ma, delta_exp, delta_mf : int arrays
         The shape is (ntau, ndelta) if flat=False else (ntau * ndelta,).
     """
     
@@ -138,7 +152,7 @@ def snrplot(tau, delta_ma, delta_exp, delta_mf, waveform, snr):
         The figures with the plots.
     """
 
-    fig = plt.figure('fingersnr-snrplot', figsize=[6.4, 7.1])
+    fig = plt.figure('fingersnr-snrplot', figsize=[10.2, 7.1])
     fig.clf()
     
     grid = gridspec.GridSpec(2, 2)
@@ -186,6 +200,25 @@ def snrplot(tau, delta_ma, delta_exp, delta_mf, waveform, snr):
     return fig1, fig2
 
 def fingerplot(tau, delta, kind='ma', bslen=8000):
+    """
+    Make a fingerplot with a specific filter and print the SNR.
+    
+    Parameters
+    ----------
+    tau : int
+        Length parameter of the filter.
+    delta : int
+        Offset from the trigger where the filter is evaluated.
+    kind : str
+        One of 'ma' = moving average, 'exp' = exponential moving average,
+        'mf' = matched filter.
+    bslen : int
+        Number of samples used for the baseline.
+    
+    Return
+    ------
+    fig1, fig2 : matplotlib figures
+    """
     
     if kind == 'ma':
         start, baseline, value = integrate.filter(data, bslen, delta_ma=delta, length_ma=tau)
@@ -233,7 +266,7 @@ def fingerplot(tau, delta, kind='ma', bslen=8000):
 # options = dict(maxfev=100, disp=True, return_all=True, xatol=1, fatol=0.001)
 # resultexp = optimize.minimize(fun, x0=[1500, 800], args=(True,), options=options, method='Nelder-Mead')
 
-def snrmax(tau=_default_tau, bslen=6900):
+def snrmax(tau=_default_tau, bslen=8000, plot=True):
     """
     Find the maximum SNR varying delta for each tau. "Delta" is the offset from
     the trigger. Also plot the results.
@@ -244,6 +277,8 @@ def snrmax(tau=_default_tau, bslen=6900):
         Values of the length parameter of the filters.
     bslen : int
         The number of samples used for the baseline.
+    plot : bool
+        If False, do not plot. Use snrmaxplot() separately.
     
     Returns
     -------
@@ -281,16 +316,15 @@ def snrmax(tau=_default_tau, bslen=6900):
     waveform = make_template(data, ignore, np.max(tau))
 
     print('maximizing SNR for each tau...')
-    snrmax = np.empty((3, ntau))
-    deltarange = np.empty((3, ntau, 3))
+    snrmax = np.full((3, ntau), np.nan)
+    deltarange = np.full((3, ntau, 3), np.nan)
     # dim0: MOVAVG, EXPAVG, MATFIL
     # dim1: tau
     # dim2: left, max, right
     for i in tqdm.tqdm(range(ntau)):
-        t = tau[i, 0]
-        for j in range(2):
-            useexp = j == 1
-            args = (t, useexp)
+        t = tau[i]
+        for j, kind in enumerate(['ma', 'exp', 'mf']):
+            args = (t, kind, waveform)
             bracket = (66 + t * 0.8, 66 + t * 1.2)
             options = dict(xtol=1, maxiter=20)
             result = optimize.minimize_scalar(fun, bracket=bracket, args=args, options=options, method='golden')
@@ -309,8 +343,8 @@ def snrmax(tau=_default_tau, bslen=6900):
                 if not result.converged:
                     print(f'i={i}, j={j}, left: {result}')
                 deltarange[j, i, 0] = result.root
-            except ValueError:
-                deltarange[j, i, 0] = np.nan
+            except ValueError: # "f(a) and f(b) must have different signs"
+                pass
             
             try:
                 bracket = (deltamax, 3 * deltamax)
@@ -319,10 +353,11 @@ def snrmax(tau=_default_tau, bslen=6900):
                     print(f'i={i}, j={j}, right: {result}')
                 deltarange[j, i, 2] = result.root
             except ValueError:
-                deltarange[j, i, 2] = np.nan
+                pass
     
-    output = (ltau[:, 0], snrmax, deltarange)
-    snrmaxplot(*output)
+    output = (tau, snrmax, deltarange)
+    if plot:
+        snrmaxplot(*output)
     return output
 
 def snrmaxplot(tau, snrmax, deltarange):
@@ -350,8 +385,9 @@ def snrmaxplot(tau, snrmax, deltarange):
     axs[2].set_ylabel('Offset from trigger [ns]')
     axs[2].set_xlabel('Filter duration parameter [ns]')
     
-    for i, label in enumerate(['moving average', 'exponential moving average']):
-        x = tau + [-8, 8][i]
+    names = ['moving average', 'exponential moving average', 'matched filter']
+    for i, label in enumerate(names):
+        x = tau + 12 * (i - 1)
 
         ax = axs[0]
         line, = ax.plot(x, snrmax[i], '.--', label=label)
@@ -381,4 +417,4 @@ def snrmaxplot(tau, snrmax, deltarange):
 print('now call interactively any of:')
 print('fingerplot(<tau>, <delta>, "ma" or "exp" or "mf", <bslen>)')
 print('snrseries(<taus>, <ndelta>, <bslen>)')
-print('snrmax(<bslen>)')
+print('snrmax(<taus>, <bslen>)')
