@@ -266,19 +266,21 @@ def fingerplot(tau, delta, kind='ma', bslen=8000):
 # options = dict(maxfev=100, disp=True, return_all=True, xatol=1, fatol=0.001)
 # resultexp = optimize.minimize(fun, x0=[1500, 800], args=(True,), options=options, method='Nelder-Mead')
 
-def snrmax(tau=_default_tau, bslen=8000, plot=True):
+def snrmax(tau=_default_tau, bslen=8000, plot=True, hint_delta_ma=None):
     """
     Find the maximum SNR varying delta for each tau. "Delta" is the offset from
     the trigger. Also plot the results.
     
     Parameters
     ----------
-    tau : 1D array
+    tau : array (ntau,)
         Values of the length parameter of the filters.
     bslen : int
         The number of samples used for the baseline.
     plot : bool
         If False, do not plot. Use snrmaxplot() separately.
+    hint_delta_ma : array (ntau,), optional
+        A guess on the maximum position for the moving average.
     
     Returns
     -------
@@ -326,13 +328,22 @@ def snrmax(tau=_default_tau, bslen=8000, plot=True):
         for j, kind in enumerate(['ma', 'exp', 'mf']):
             args = (t, kind, waveform)
             bracket = (66 + t * 0.8, 66 + t * 1.2)
+            if kind == 'mf':
+                bracket = (t - 20, t, t + 20)
+            elif kind == 'ma' and hint_delta_ma is not None:
+                c = hint_delta_ma[i]
+                bracket = (c, 1.1 * c)
             options = dict(xtol=1, maxiter=20)
-            result = optimize.minimize_scalar(fun, bracket=bracket, args=args, options=options, method='golden')
-            if not result.success:
-                print(f'i={i}, j={j}, max: {result}')
-            deltamax = result.x
-            deltarange[j, i, 1] = deltamax
-            snrmax[j, i] = -result.fun
+            kw = dict(bracket=bracket, args=args, options=options, method='golden')
+            try:
+                result = optimize.minimize_scalar(fun, **kw)
+                if not result.success:
+                    print(f'i={i}, j={j}, max: {result}')
+                deltamax = result.x
+                deltarange[j, i, 1] = deltamax
+                snrmax[j, i] = -result.fun
+            except ValueError: # "Not a bracketing interval."
+                continue
         
             f = lambda *args: fun(*args) - (1 - snrmax[j, i])
             kw = dict(args=args, options=options, method='bisect')
@@ -390,7 +401,7 @@ def snrmaxplot(tau, snrmax, deltarange):
         x = tau + 12 * (i - 1)
 
         ax = axs[0]
-        line, = ax.plot(x, snrmax[i], '.--', label=label)
+        line, = ax.plot(tau, snrmax[i], '.--', label=label)
         color = line.get_color()
         ax.legend(loc='best')
         ax.grid(True)
@@ -406,7 +417,7 @@ def snrmaxplot(tau, snrmax, deltarange):
         ax.grid(True)
         
         ax = axs[2]
-        ax.plot(x, dr[2] - dr[0], '.--', color=color)
+        ax.plot(tau, dr[2] - dr[0], '.--', color=color)
         ax.grid(True)
 
     fig.tight_layout()
