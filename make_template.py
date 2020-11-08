@@ -1,10 +1,11 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from scipy import linalg
 
 import integrate
 from single_filter_analysis import single_filter_analysis
 
-def make_template(data, ignore=None, length=2000, fig=None):
+def make_template(data, ignore=None, length=2000, noisecorr=False, fig=None, figcov=None, norm=True):
     """
     Make a template waveform for the matched filter.
     
@@ -16,13 +17,20 @@ def make_template(data, ignore=None, length=2000, fig=None):
         Flag events to be ignored.
     length : int
         Number of samples of the waveform.
+    noisecorr : bool
+        If True, optimize the filter for the noise spectrum.
     fig : matplotlib figure, optional
         If given, plot the waveform.
+    figcov : matplotlib figure, optional
+        If given, plot the covariance matrix of the noise as a bitmap.
+    norm : bool
+        If True, normalize the output to unit sum, so that applying it behaves
+        like a weighted mean.
     
     Return
     ------
     waveform : array (length,)
-        The waveform. It is normalized to unit sum.
+        The waveform.
     """
     
     if ignore is None:
@@ -45,22 +53,67 @@ def make_template(data, ignore=None, length=2000, fig=None):
     data1pe = data[selection, 0, t:t + length] - baseline[selection].reshape(-1, 1)
     
     # Compute the waveform as the median of the signals.
-    waveform, bottom, top = np.quantile(data1pe, [0.5, 0.25, 0.75], axis=0)
+    waveform = np.median(data1pe, axis=0)
     # waveform = np.mean(data1pe, axis=0)
-    # std = np.std(data1pe, axis=0)
-    # bottom = waveform - std
-    # top = waveform + std
+    
+    if noisecorr:
+        # Select baseline data and compute covariance matrix over a slice with
+        # the same length of the template.
+        bsend = t - 100
+        N = 2 * (length + length % 2)
+        databs = data[~ignore, 0, bsend - N:bsend]
+        cov = np.cov(databs, rowvar=False)
+        cov = toeplitze(cov)
+        s = slice(N // 4, N // 4 + length)
+        cov = cov[s, s]
+        # could be improved by using stationarity,
+        # and cov(fweights=) to avoid using ~ignore
+        
+        # Correct the waveform.
+        wnocov = waveform
+        waveform = linalg.solve(cov, waveform, assume_a='pos')
+        waveform *= linalg.norm(cov) / len(waveform)
     
     if fig is not None:
         ax = fig.subplots(1, 1)
 
-        ax.fill_between(np.arange(length), bottom, top, facecolor='lightgray', label='25%-75% quantiles')
-        ax.plot(waveform, 'k-', label='median')
+        if noisecorr:
+            ax.plot(wnocov, label='assuming white noise')
+            ax.plot(waveform, label='corrected for actual noise')
+        else:
+            # std = np.std(data1pe, axis=0)
+            # bottom = waveform - std
+            # top = waveform + std
+            bottom, top = np.quantile(data1pe, [0.25, 0.75], axis=0)
+            ax.fill_between(np.arange(length), bottom, top, facecolor='lightgray', label='25%-75% quantiles')
+            ax.plot(waveform, 'k-', label='median')
         
         ax.grid()
         ax.legend(loc='best')
         ax.set_xlabel('Sample number')
         ax.set_ylabel('ADC value')
-        ax.set_title('Template for matched filter (unnormalized)')
+        ax.set_title('Template for matched filter')
     
-    return waveform / np.sum(waveform)
+    if noisecorr and figcov is not None:
+        ax = figcov.subplots(1, 1)
+        
+        m = np.max(np.abs(cov))
+        ax.imshow(cov, vmin=-m, vmax=m, cmap='PiYG')
+        
+        ax.set_title('Noise covariance matrix')
+        ax.set_xlabel('Sample number [ns]')
+        ax.set_ylabel('Sample number [ns]')
+    
+    if norm:
+        waveform /= np.sum(waveform)
+    return waveform
+
+def toeplitze(a):
+    rowsum = np.zeros(len(a))
+    for i in range(len(a)):
+        rowsum += np.roll(a[i], -i)
+    rowsum /= len(a)
+    b = np.empty(a.shape)
+    for i in range(len(a)):
+        b[i] = np.roll(rowsum, i)
+    return b

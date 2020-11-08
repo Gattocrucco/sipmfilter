@@ -3,7 +3,15 @@ import numpy as np
 
 _asarray1d = lambda a, d: np.asarray(a, d).reshape(-1)
 
-def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_exp=None, delta_mf=None, waveform_mf=None, length_mf=None):
+def _asarray1d_fullifnone(a, v, d):
+    if a is None:
+        return np.full(a.size, v, d)
+    else:
+        return _asarray1d(a, d)
+
+_emptyint = np.empty(0, int)
+
+def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_exp=None, delta_mf=None, waveform_mf=None, length_mf=None, start_mf=None):
     """
     Filter LNGS laser data.
     
@@ -28,10 +36,11 @@ def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_
         the trigger impulse.
     waveform_mf : 1D array
         The waveform correlated to compute the matched filter.
-    length_mf : array (K,) or scalar
-        The waveform is truncated to this length for each delta. If the waveform
-        is too short it is padded with zeroes. After the truncation, the
-        waveform is normalized to unity.
+    length_mf, start_mf : array (K,) or scalar
+        The waveform is truncated to the slice start_mf:start_mf+length_mf.
+        After the truncation, the waveform is normalized to unity. These
+        parameters can be None even if delta_mf and waveform_mf are specified.
+        delta_mf is still relative to the beginning of the untruncated waveform.
     
     Returns
     -------
@@ -58,28 +67,30 @@ def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_
         delta_ma = _asarray1d(delta_ma, int)
         length_ma = _asarray1d(length_ma, int)
     else:
-        delta_ma = np.empty(0, int)
-        length_ma = np.empty(0, int)
+        delta_ma = _emptyint
+        length_ma = _emptyint
 
     compute_exp = delta_exp is not None and tau_exp is not None
     if compute_exp:
         delta_exp = _asarray1d(delta_exp, int)
         tau_exp = _asarray1d(tau_exp, int)
     else:
-        delta_exp = np.empty(0, int)
-        tau_exp = np.empty(0, int)
+        delta_exp = _emptyint
+        tau_exp = _emptyint
     
-    compute_mf = delta_mf is not None and waveform_mf is not None and length_mf is not None
+    compute_mf = delta_mf is not None and waveform_mf is not None
     if compute_mf:
         delta_mf = _asarray1d(delta_mf, int)
         waveform_mf = np.asarray(waveform_mf, float)
-        length_mf = _asarray1d(length_mf, int)
+        length_mf = _asarray1d_fullifnone(length_mf, len(waveform_mf), int)
+        start_mf = _asarray1d_fullifnone(start_mf, 0, int)
     else:
-        delta_mf = np.empty(0, int)
+        delta_mf = _emptyint
         waveform_mf = np.empty(0, float)
-        length_mf = np.empty(0, int)
+        length_mf = _emptyint
+        start_mf = _emptyint
     
-    start, baseline, ma, exp, mf = _filter(data, bslen, delta_ma, length_ma, delta_exp, tau_exp, delta_mf, waveform_mf, length_mf)
+    start, baseline, ma, exp, mf = _filter(data, bslen, delta_ma, length_ma, delta_exp, tau_exp, delta_mf, waveform_mf, length_mf, start_mf)
     
     output = (start, baseline)
     if compute_ma:
@@ -91,7 +102,7 @@ def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_
     return output
 
 @numba.jit(cache=True, nopython=True)
-def _filter(data, bslen, delta_ma, length_ma, delta_exp, tau_exp, delta_mf, waveform_mf, length_mf):
+def _filter(data, bslen, delta_ma, length_ma, delta_exp, tau_exp, delta_mf, waveform_mf, length_mf, start_mf):
     """
     Compiled internal for filter(). Parameters are the same but non optional.
     
@@ -129,7 +140,9 @@ def _filter(data, bslen, delta_ma, length_ma, delta_exp, tau_exp, delta_mf, wave
         for j in range(M):
             exp[i, j] = _filter_exp(wsig, trigger[i] + delta_exp[j], tau_exp[j])
         for j in range(K):
-            mf[i, j] = _filter_matched(wsig, trigger[i] + delta_mf[j], waveform_mf, length_mf[j])
+            w = waveform_mf[start_mf[j] : start_mf[j] + length_mf[j]]
+            t = trigger[i] + delta_mf[j] + start_mf[j]
+            mf[i, j] = _filter_matched(wsig, t, w)
     
     return trigger, baseline, ma, exp, mf
 
@@ -161,9 +174,36 @@ def _filter_exp(x, t, l):
     return out
 
 @numba.jit(cache=True, nopython=True)
-def _filter_matched(x, t, w, l):
-    w = w[:l]
+def _filter_matched(x, t, w):
     return np.sum(x[t - len(w) + 1:t + 1] * w) / np.sum(w)
+
+def make_start_mf(waveform_mf, length_mf):
+    """
+    Find the optimal start_mf parameter for filter() given the waveform and the
+    truncation length, in the sense of finding the slice that maximizes the
+    sum of the slice.
+    
+    Parameters
+    ----------
+    waveform_mf, length_mf : arrays
+        See filter().
+    
+    Return
+    ------
+    start_mf : array
+        See filter().
+    """
+    waveform_mf = _asarray1d(waveform_mf, float)
+    length_mf = _asarray1d(length_mf, int)
+
+    start_mf = np.empty(len(length_mf), int)
+    cs = np.concatenate([[0], np.cumsum(waveform_mf)])
+    for i, l in enumerate(length_mf):
+        assert l <= len(waveform_mf)
+        s = cs[l:] - cs[:-l] # s[j] = sum(waveform_mf[j:j+l])
+        start_mf[i] = np.argmax(s)
+    
+    return start_mf
 
 @numba.jit(cache=True, nopython=True)
 def integrate(data, bslen=6900):

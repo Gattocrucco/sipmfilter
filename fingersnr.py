@@ -115,10 +115,13 @@ def snrseries(tau=_default_tau, ndelta=_default_ndelta, bslen=8000, plot=True):
     tau, delta_ma, delta_exp, delta_mf = make_tau_delta(tau, ndelta, flat=True)
     
     print('make template for matched filter...')
-    waveform = make_template(data, ignore, np.max(tau))
+    w0 = make_template(data, ignore, np.max(tau) + 200, noisecorr=False)
+    start_mf = integrate.make_start_mf(w0, tau)
+    # waveform = make_template(data, ignore, np.max(tau + start_mf), noisecorr=True)
+    waveform = w0
     
     print('computing filters...')
-    start, baseline, vma, vexp, vmf = integrate.filter(data, bslen, delta_ma, tau, delta_exp, tau, delta_mf, waveform, tau)
+    start, baseline, vma, vexp, vmf = integrate.filter(data, bslen, delta_ma, tau, delta_exp, tau, delta_mf, waveform, tau, start_mf)
 
     snr = np.empty((3, len(tau)))
 
@@ -199,6 +202,34 @@ def snrplot(tau, delta_ma, delta_exp, delta_mf, waveform, snr):
     
     return fig1, fig2
 
+def templateplot(n=2048):
+    """
+    Compute the template for the matched filter and plot it.
+    
+    Parameters
+    ----------
+    n : int
+        Length of the template. The template starts with the trigger.
+
+    Return
+    ------
+    fig1, fig2 : matplotlib figures
+    """
+    
+    fig1 = plt.figure('fingersnr-templateplot-1')
+    fig2 = plt.figure('fingersnr-templateplot-2')
+    fig1.clf()
+    fig2.clf()
+    
+    make_template(data, ignore, n, True,  fig1, fig2)
+    
+    fig1.tight_layout()
+    fig2.tight_layout()
+    fig1.show()
+    fig2.show()
+    
+    return fig1, fig2
+
 def fingerplot(tau, delta, kind='ma', bslen=8000):
     """
     Make a fingerplot with a specific filter and print the SNR.
@@ -211,7 +242,7 @@ def fingerplot(tau, delta, kind='ma', bslen=8000):
         Offset from the trigger where the filter is evaluated.
     kind : str
         One of 'ma' = moving average, 'exp' = exponential moving average,
-        'mf' = matched filter.
+        'mf' = matched filter, 'mfn' = matched filter with noise correction.
     bslen : int
         Number of samples used for the baseline.
     
@@ -224,9 +255,14 @@ def fingerplot(tau, delta, kind='ma', bslen=8000):
         start, baseline, value = integrate.filter(data, bslen, delta_ma=delta, length_ma=tau)
     elif kind == 'exp':
         start, baseline, value = integrate.filter(data, bslen, delta_exp=delta, tau_exp=tau)
-    elif kind == 'mf':
-        waveform = make_template(data, ignore)
-        start, baseline, value = integrate.filter(data, bslen, delta_mf=delta, waveform_mf=waveform, length_mf=tau)
+    elif kind in ('mf', 'mfn'):
+        w0 = make_template(data, ignore, tau + 200, noisecorr=False)
+        start_mf = integrate.make_start_mf(w0, tau)
+        if kind == 'mfn':
+            waveform = make_template(data, ignore, tau + start_mf[0], noisecorr=True)
+        else:
+            waveform = w0
+        start, baseline, value = integrate.filter(data, bslen, delta_mf=delta, waveform_mf=waveform, length_mf=tau, start_mf=start_mf)
     else:
         raise KeyError(kind)
     
@@ -236,7 +272,7 @@ def fingerplot(tau, delta, kind='ma', bslen=8000):
     fig1.clf()
     fig2.clf()
     snr = single_filter_analysis(corr_value, fig1, fig2)
-    print(f'snr = {snr:.1f}')
+    print(f'snr = {snr:.2f}')
     fig1.tight_layout()
     fig2.tight_layout()
     fig1.show()
@@ -296,14 +332,14 @@ def snrmax(tau=_default_tau, bslen=8000, plot=True, hint_delta_ma=None):
     
     """
     # Function to be minimized, returns -snr.
-    def fun(delta, tau, kind, waveform):
+    def fun(delta, tau, kind, waveform, start_mf):
         try:
             if kind == 'exp':
                 start, baseline, value = integrate.filter(data, bslen, delta_exp=delta, tau_exp=tau)
             elif kind == 'ma':
                 start, baseline, value = integrate.filter(data, bslen, delta_ma=delta, length_ma=tau)
             elif kind == 'mf':
-                start, baseline, value = integrate.filter(data, bslen, delta_mf=delta, length_mf=tau, waveform_mf=waveform)
+                start, baseline, value = integrate.filter(data, bslen, delta_mf=delta, length_mf=tau, waveform_mf=waveform, start_mf=start_mf)
             else:
                 raise KeyError(kind)
         except ZeroDivisionError:
@@ -315,7 +351,8 @@ def snrmax(tau=_default_tau, bslen=8000, plot=True, hint_delta_ma=None):
     ntau = len(tau)
     
     print('make template for matched filter...')
-    waveform = make_template(data, ignore, np.max(tau))
+    waveform = make_template(data, ignore, np.max(tau) + 200)
+    start_mf = integrate.make_start_mf(waveform, tau)
 
     print('maximizing SNR for each tau...')
     snrmax = np.full((3, ntau), np.nan)
@@ -326,7 +363,7 @@ def snrmax(tau=_default_tau, bslen=8000, plot=True, hint_delta_ma=None):
     for i in tqdm.tqdm(range(ntau)):
         t = tau[i]
         for j, kind in enumerate(['ma', 'exp', 'mf']):
-            args = (t, kind, waveform)
+            args = (t, kind, waveform, start_mf)
             bracket = (66 + t * 0.8, 66 + t * 1.2)
             if kind == 'mf':
                 bracket = (t - 20, t, t + 20)
@@ -429,3 +466,4 @@ print('now call interactively any of:')
 print('fingerplot(<tau>, <delta>, "ma" or "exp" or "mf", <bslen>)')
 print('snrseries(<taus>, <ndelta>, <bslen>)')
 print('snrmax(<taus>, <bslen>)')
+print('templateplot(<n>)')

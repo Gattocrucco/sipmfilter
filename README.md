@@ -8,9 +8,9 @@ The scripts read files which are not included in the repository due to size. [So
 
 ## Scripts
 
-  * `fingersnr.py`: compute the SNR for moving average and exponential moving average filter varying their parameters. You have to run this script in ipython and then call functions interactively.
+  * `fingersnr.py`: compute the SNR for moving average, exponential moving average and matched filter varying their parameters. You have to run this script in ipython and then call functions interactively.
   
-  * `fingersnrmf.py`: like `fingersnr.py` but for the matched filter.
+  * `fingersnrmf.py`: test for `fingersnr.py`.
 
   * `plotwav.py`: plot a pair of things to check the wav file is read correctly and makes sense.
   
@@ -32,6 +32,10 @@ The scripts read files which are not included in the repository due to size. [So
   * `single_filter_analysis.py`: make a fingerplot and compute the SNR.
   
   * `make_template.py`: make a template for the matched filter.
+ 
+## Output
+
+  * `fingersnr-changebaseline`: the output from `fingersnr.py` for the 2020-11-03 slides.
 
 ## Dependencies
 
