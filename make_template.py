@@ -1,6 +1,6 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy import linalg
+from scipy import linalg, signal
 
 import integrate
 from single_filter_analysis import single_filter_analysis
@@ -66,8 +66,7 @@ def make_template(data, ignore=None, length=2000, noisecorr=False, fig=None, fig
         cov = toeplitze(cov)
         s = slice(N // 4, N // 4 + length)
         cov = cov[s, s]
-        # could be improved by using stationarity,
-        # and cov(fweights=) to avoid using ~ignore
+        # use cov(fweights=~ignore) to avoid using ~ignore
         
         # Correct the waveform.
         wnocov = waveform
@@ -75,11 +74,12 @@ def make_template(data, ignore=None, length=2000, noisecorr=False, fig=None, fig
         waveform *= linalg.norm(cov) / len(waveform)
     
     if fig is not None:
-        ax = fig.subplots(1, 1)
+        axs = fig.subplots(2, 1)
 
+        ax = axs[0]
         if noisecorr:
-            ax.plot(wnocov, label='assuming white noise')
-            ax.plot(waveform, label='corrected for actual noise')
+            ax.plot(wnocov / np.max(np.abs(wnocov)), label='assuming white noise')
+            ax.plot(waveform / np.max(np.abs(waveform)), label='corrected for actual noise', zorder=-1)
         else:
             # std = np.std(data1pe, axis=0)
             # bottom = waveform - std
@@ -87,12 +87,27 @@ def make_template(data, ignore=None, length=2000, noisecorr=False, fig=None, fig
             bottom, top = np.quantile(data1pe, [0.25, 0.75], axis=0)
             ax.fill_between(np.arange(length), bottom, top, facecolor='lightgray', label='25%-75% quantiles')
             ax.plot(waveform, 'k-', label='median')
+            ax.set_ylabel('ADC value')
         
         ax.grid()
         ax.legend(loc='best')
         ax.set_xlabel('Sample number')
-        ax.set_ylabel('ADC value')
         ax.set_title('Template for matched filter')
+        
+        ax = axs[1]
+        
+        f, s = signal.periodogram(wnocov if noisecorr else waveform, window='hann')
+        ax.plot(f[1:], np.sqrt(s[1:]), label='spectrum of template')
+        
+        f, ss = signal.periodogram(data1pe, axis=-1)
+        s = np.median(ss, axis=0)
+        ax.plot(f[1:], np.sqrt(s[1:]), label='spectrum of template sources')
+        
+        ax.set_ylabel('Spectral density [GHz$^{-1/2}$]')
+        ax.set_xlabel('Frequency [GHz]')
+        ax.grid()
+        ax.set_yscale('log')
+        ax.legend(loc='best')
     
     if noisecorr and figcov is not None:
         ax = figcov.subplots(1, 1)

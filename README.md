@@ -36,6 +36,10 @@ The scripts read files which are not included in the repository due to size. [So
 ## Output
 
   * `fingersnr-changebaseline`: the output from `fingersnr.py` for the 2020-11-03 slides.
+  
+  * `fingersnr-changebaseline-mf`: the same after adding the matched filter.
+  
+  * `fingersnr-mftemplate`: plot of the matched filter template and its spectrum.
 
 ## Dependencies
 
