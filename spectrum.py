@@ -33,19 +33,25 @@ print(f'ignoring {np.sum(ignore)} events with values < 700 in baseline zone')
 # indices1 = start[selection].reshape(-1, 1) + np.arange(1000)
 # nosignal = data[indices0, 0, indices1]
 
-kw = dict()
+kw = dict() # arguments for signal.periodogram()
+
+print('computing noise file spectrum...')
 counts = np.unique(noise.counts)
 assert len(counts) == 2 and counts[0] == 0
 noise_array = noise._content.reshape(-1, counts[-1])
-print('computing noise file spectrum...')
 f1, s1s = signal.periodogram(noise_array, 125e6, **kw)
+s1 = np.median(s1s, axis=0)
+s1 *= (2 / 2 ** 14) ** 2 # 2 Vpp, 14 bit
+
 print('computing signal file baseline spectrum...')
 f2, s2s = signal.periodogram(baseline_zone[~ignore], 1e9, **kw)
-s1 = np.median(s1s, axis=0)
 s2 = np.median(s2s, axis=0)
-
-s1 *= (2 / 2 ** 14) ** 2 # 2 Vpp, 14 bit
 s2 *= (1 / 2 ** 10) ** 2 # 1 Vpp, 10 bit
+
+print('computing signal file global spectrum...')
+flatdata = data[:, 0, :].reshape(-1)
+f3, s3 = signal.welch(flatdata, 1e9, nperseg=2 ** 13, average='median')
+s3 *= (1 / 2 ** 10) ** 2 # 1 Vpp, 10 bit
 
 fig = fighelp.figwithsize([11.8, 7.19], resetfigcount=True)
 
@@ -56,11 +62,13 @@ for i, ax in enumerate(axs):
     ax.plot(f1[1:] / 1e6, np.sqrt(s1[1:]) * 1e3, label='SiPM under threshold')
     sel = f2 < f1[-1] if i == 0 else slice(None)
     ax.plot(f2[sel][1:] / 1e6, np.sqrt(s2[sel][1:]) * 1e3, label='baseline before signals')
+    sel = f3 < f1[-1] if i == 0 else slice(None)
+    ax.plot(f3[sel][1:] / 1e6, np.sqrt(s3[sel][1:]) * 1e3, label='complete signal file')
 
-    if i == 0:
+    if ax.is_first_row():
         ax.set_title('Noise spectrum')
         ax.legend(loc='best')
-    if i == 1:
+    if ax.is_last_row():
         ax.set_xlabel('Frequency [MHz]')
     ax.set_ylabel('Spectral density [Arb. un. MHz$^{-1/2}$]')
     # ax.set_ylabel('Spectral density [V MHz$^{-1/2}$]')
