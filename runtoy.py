@@ -119,24 +119,24 @@ def plot_localization():
     filt_signal = toy.Filter(simulated_signal, template.baseline)
     signal = filt_signal.all(mf_templ)
     sim = signal + noise_sigma * noise
-    simulation = simulated_signal + noise_sigma * simulated_noise
 
     temp_loc = np.argmin(sim, axis=-1)
     temp_loc = np.array(temp_loc, float)
-    temp_loc[2] += mf_offset
+    temp_loc[3] += mf_offset
 
     fig = plt.figure('runtoy-localization')
     fig.clf()
 
     ax = fig.subplots(1, 1)
 
-    ax.plot(simulation[0], label='simulation')
-    line, = ax.plot(sim[0, 0], label='moving average')
+    line, = ax.plot(sim[0, 0], label='simulation')
     ax.axvline(temp_loc[0, 0], color=line.get_color())
-    line, = ax.plot(sim[1, 0], label='exponential moving average')
+    line, = ax.plot(sim[1, 0], label='moving average')
     ax.axvline(temp_loc[1, 0], color=line.get_color())
-    line, = ax.plot(np.arange(event_length) + mf_offset, sim[2, 0], label='matched filter')
+    line, = ax.plot(sim[2, 0], label='exponential moving average')
     ax.axvline(temp_loc[2, 0], color=line.get_color())
+    line, = ax.plot(np.arange(event_length) + mf_offset, sim[3, 0], label='matched filter')
+    ax.axvline(temp_loc[3, 0], color=line.get_color())
 
     ax.legend(loc='best')
     ax.set_title('Simulated signal and filtering')
@@ -146,3 +146,5 @@ def plot_localization():
 
     fig.tight_layout()
     fig.show()
+
+default_tau = [4, 8, 16, 24, 32, 40, 48, 64, 96, 128, 192, 256]

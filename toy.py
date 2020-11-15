@@ -8,7 +8,7 @@ class Noise:
     
     def generate(self, nevents, event_length, generator=None):
         """
-        Generate noise.
+        Generate noise with unitary variance.
         
         Parameters
         ----------
@@ -85,8 +85,12 @@ class Template:
         bs = baseline[mask]
         self.baseline = np.mean(bs)
         self.baseline_std = np.std(bs)
+        
+        # Compute the noise standard deviation.
+        STDs = np.std(data[:, 0, :t - 100], axis=1)
+        self.noise_std = np.sum(STDs, where=mask) / np.count_nonzero(mask)
     
-    def generate(self, event_length, signal_loc, generator=None):
+    def generate(self, event_length, signal_loc, generator=None, baseline=True, randampl=True):
         """
         Simulate signals, including the baseline.
         
@@ -100,6 +104,10 @@ class Template:
             beginning of the template.
         generator : np.random.Generator, optional
             Random number generator.
+        baseline : bool
+            If True (default), add a baseline to the signal.
+        randampl : bool
+            If True (default), vary the amplitude of signals.
         
         Return
         ------
@@ -112,7 +120,8 @@ class Template:
             generator = np.random.default_rng()
         
         # Convert the template from 1 GSa/s to 125 MSa/s.
-        # TODO interpolation
+        # TODO interpolation, use Gaussian processes, or something quick from
+        # scipy
         tlen1ghz = (len(self.template) // 8) * 8
         template = np.mean(self.template[:tlen1ghz].reshape(-1, 8), axis=1)
         
@@ -121,9 +130,11 @@ class Template:
         indices0 = np.arange(nevents)[:, None]
         indices1 = np.array(np.rint(signal_loc), int)[:, None] + np.arange(len(template))
         out[indices0, indices1] = template
-        out *= 1 + self.template_rel_std * generator.standard_normal((nevents, 1))
-        out += self.baseline
-        out += self.baseline_std * generator.standard_normal((nevents, 1))
+        if randampl:
+            out *= 1 + self.template_rel_std * generator.standard_normal((nevents, 1))
+        if baseline:
+            out += self.baseline
+            out += self.baseline_std * generator.standard_normal((nevents, 1))
         
         # TODO digitalization
         return out
@@ -275,14 +286,18 @@ class Filter:
         
         Return
         ------
-        out : float array (3, nevents, event_length)
-            The first axis is over filters (moving average, exponential m.a.,
-            matched filter).
+        out : float array (4, nevents, event_length)
+            The first axis is over filters in this order:
+                no filter
+                moving average
+                exponential moving average
+                matched filter
         """
-        out = np.empty((3,) + self.events.shape)
-        self.moving_average(len(template), out[0])
-        self.exponential_moving_average(len(template), out[1])
-        self.matched(template, out[2])
+        out = np.empty((4,) + self.events.shape)
+        out[0] = self.events
+        self.moving_average(len(template), out[1])
+        self.exponential_moving_average(len(template), out[2])
+        self.matched(template, out[3])
         return out
 
 @numba.jit(cache=True, nopython=True, parallel=True)
@@ -341,6 +356,60 @@ def apply_threshold(events, threshold):
         signal_indices[i, 2] = end
     
     return signal_indices, signal_found
+
+def min_snr_ratio(data, tau, mask=None, nnoise=128, generator=None):
+    """
+    Compute the signal amplitude over noise rms needed to obtain a given
+    filtered signal amplitude over filtered noise rms.
+    
+    Parameters
+    ----------
+    data : array (nevents, 2, 15001)
+        LNGS data as read by readwav.readwav().
+    tau : array (ntau,)
+        The length parameter for filters @ 125 MSa/s.
+    mask : bool array (nevents,), optional
+        A mask for the first axis of `data`.
+    nnoise : int
+        Approximate effective sample size of generated noise to compute the
+        filtered noise standard deviation. The default should give a result
+        with at least 3 % precision.
+    
+    Return
+    ------
+    snrs : float array (4, ntau)
+        The required unfiltered SNR if the filtered SNR is 1. Multiply it by the
+        target filtered SNR. The first axis is over filters as in
+        toy.Filter.all().
+    """
+    
+    # the following @ 125 MSa/s
+    dead_time = 3 * np.max(tau)
+    template_length = 512
+    noise_event_length = dead_time + nnoise * np.max(tau)
+    signal_event_length = dead_time + max(template_length, np.max(tau))
+    
+    # The noise event length is somewhat high because the filtered noise has
+    # an O(tau) autocorrelation length.
+
+    noise = Noise().generate(1, noise_event_length, generator)
+    template = Template()
+    template.make(data, template_length * 8, mask)
+    signal = template.generate(signal_event_length, [dead_time], generator, False, False)
+    filt_noise = Filter(noise)
+    filt_signal = Filter(signal)
+
+    snrs = np.empty((len(tau), 4))
+    for i, t in enumerate(tau):
+        mftemp, mfoffset = template.matched_filter_template(t)
+        fnoise = filt_noise.all(mftemp)
+        fsignal = filt_signal.all(mftemp)
+        fnrms = np.std(fnoise[:, 0, dead_time:], axis=-1)
+        fsmin = np.abs(np.min(fsignal[:, 0, dead_time:], axis=-1))
+        snrs0 = template.maximum
+        snrs[i] = snrs0 * fnrms / fsmin
+
+    return snrs
 
 class Toy:
     
