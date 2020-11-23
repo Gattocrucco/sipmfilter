@@ -269,3 +269,38 @@ def plot_locall():
     
     fig.tight_layout()
     fig.show()
+
+def plot_val(itau, isnr):
+    fig = plt.figure('runtoy-val')
+    fig.clf()
+    
+    noise = toy.Noise().generate(1, len(out) + tau[itau])
+    sigma = out['sigma'][0, itau, isnr]
+    filt = toy.Filter(sigma * noise)
+    templ, _ = t.template.matched_filter_template(tau[itau])
+    fn = filt.all(templ)[:, 0, tau[itau]:]
+
+    axs = fig.subplots(2, 2).reshape(-1)
+    
+    names = [
+        f'No filter. tau = {tau[itau]}, SNR = {snr[itau, isnr]:.2f}',
+        'Moving average',
+        'Exponential moving average',
+        'Matched filter'
+    ]
+    
+    for ifilter, (ax, name) in enumerate(zip(axs, names)):
+        data = out['value'][:, ifilter, itau, isnr]
+        ax.hist(data, bins='auto', histtype='step', label='filtered signal+noise\n(min. in each event)')
+        ax.hist(fn[ifilter], bins='auto', histtype='step', label='filtered noise')
+        if ax.is_last_row():
+            ax.set_xlabel('filter output [ADC 10 bit]')
+        if ax.is_first_col():
+            ax.set_ylabel('Bin count')
+        if ifilter == 0:
+            ax.legend(loc='best', fontsize='small')
+        ax.grid()
+        ax.set_title(name)
+
+    fig.tight_layout()
+    fig.show()
