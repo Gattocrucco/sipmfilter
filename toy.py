@@ -2,6 +2,7 @@ import numpy as np
 from numpy.lib import format as nplf
 import numba
 import tqdm
+from matplotlib import pyplot as plt
 
 import integrate
 from single_filter_analysis import single_filter_analysis
@@ -315,6 +316,19 @@ class Filter:
         self.exponential_moving_average(len(template), out[2])
         self.matched(template, out[3])
         return out
+    
+    @staticmethod
+    def name(ifilter):
+        """
+        Return the name of a filter based on the indexing used in Filter.all().
+        """
+        names = [
+            'No filter',
+            'Moving average',
+            'Exponential moving average',
+            'Matched filter'
+        ]
+        return names[ifilter]
 
 @numba.jit(cache=True, nopython=True)
 def _exponential_moving_average(events, a, boundary, out):
@@ -501,9 +515,15 @@ class Toy:
         Methods
         -------
         run : generate the events
+        plot_event : plot a single event
+        plot_loc_all : plot temporal localization precision vs. parameters
+        plot_loc : plot temporal localization histogram
+        plot_val : plot filtered signal value histogram
         
         Members
         -------
+        tau : array (ntau,)
+            The values of the length parameters of the filters.
         snr : array (ntau, nsnr)
             The ranges of SNR values used for each tau.
         
@@ -517,8 +537,8 @@ class Toy:
         if mask is None:
             mask = np.ones(len(data), bool)
         
-        self.template = Template()
         template_length = max(np.max(tau) + 32, 256) # @ 125 MSa/s
+        self.template = Template()
         self.template.make(data, template_length * 8, mask)
 
         if np.isscalar(snr):
@@ -676,3 +696,207 @@ class Toy:
         output_event['signal'] = simulated_signal
         output_event['noise'] = simulated_noise
         output_event['loctrue'] = signal_loc
+    
+    def plot_event(self, output, output_event, ievent, ifilter, itau, isnr):
+        """
+        Plot a simulated event.
+        
+        Parameters
+        ----------
+        output, output_event : array (nevents,)
+            The output from Toy.run().
+        ievent, ifilter, itau, isnr : int
+            The indices indicating the event, filter, tau and SNR respectively.
+        
+        Return
+        ------
+        fig : matplotlib.figure.Figure
+            A figure with a single plot.
+        """
+        out = output[ievent]
+        oute = output_event[ievent]
+        
+        tau = self.tau[itau]
+        snr = self.snr[itau, isnr]
+        sigma = out['sigma'][itau, isnr]
+        unfilt = oute['signal'] + sigma * oute['noise']
+        templ, _ = self.template.matched_filter_template(tau)
+        sim = Filter(unfilt[None, :], self.template.baseline).all(templ)[ifilter, 0]
+        
+        fig = plt.figure('toy.Toy.plot_event')
+        fig.clf()
+    
+        ax = fig.subplots(1, 1)
+    
+        ax.plot(unfilt, label=f'signal (snr = {snr:.2f})')
+        ax.plot(sim, label=f'{Filter.name(ifilter)} (tau = {tau})')
+        
+        ax.axvline(out['loctrue'], label='signal template start', color='black')
+        ax.axvline(out['loc'][ifilter, itau, isnr], label='localization (uncalib.)', color='red', linestyle='--')
+        ax.axhline(out['baseline'][ifilter, itau, isnr], label='baseline', color='black', linestyle='--')
+        
+        ax.grid()
+        ax.legend(loc='best', fontsize='small')
+        ax.set_title(f'Event {ievent}')
+        ax.set_xlabel('Sample number @125 Msa/s')
+        ax.set_ylabel('ADC scale [10 bit]')
+    
+        fig.tight_layout()
+        fig.show()
+        
+        return fig
+
+    def plot_loc_all(self, output):
+        """
+        Plot temporal localization precision vs filter, filter length, SNR.
+        
+        Parameters
+        ----------
+        output : array (nevents,)
+            The first output from Toy.run().
+        
+        Return
+        ------
+        fig : matplotlib.figure.Figure
+            A figure with an axis for each filter.
+        """
+        loctrue = output['loctrue'][:, None, None, None]
+        loc = output['loc']
+        quantiles = np.quantile(loc - loctrue, [0.5 - 0.68/2, 0.5 + 0.68/2], axis=0)
+        width = (quantiles[1] - quantiles[0]) / 2
+        assert width.shape == (4,) + self.snr.shape
+    
+        fig = plt.figure('toy.Toy.plot_loc_all', figsize=[10.95,  7.19])
+        fig.clf()
+
+        axs = fig.subplots(2, 2, sharex=True, sharey=True).reshape(-1)
+    
+        for ifilter, ax in enumerate(axs):
+            if ifilter > 0:
+                for itau in range(len(self.tau)):
+                    alpha = (itau + 1) / len(self.tau)
+                    tauname = 'tau' if ifilter == 2 else 'nsamples'
+                    label = f'{tauname} = {self.tau[itau]}'
+                    ax.plot(self.snr[itau], width[ifilter, itau], color='black', alpha=alpha, label=label)
+                ax.legend(loc='upper right', fontsize='small', title='(@ 125 MSa/s)')
+            else:
+                x = self.snr.reshape(-1)
+                y = width[0].reshape(-1)
+                isort = np.argsort(x)
+                ax.plot(x[isort], y[isort], color='black')
+        
+            if ax.is_last_row():
+                ax.set_xlabel('Unfiltered SNR')
+            if ax.is_first_col():
+                ax.set_ylabel('Temporal localization precision [8 ns]\n("1$\\sigma$" interquantile range)')
+            ax.grid()
+            ax.set_title(Filter.name(ifilter))
+    
+        axs[0].set_yscale('symlog', linthreshy=1, linscaley=0.5)
+    
+        fig.tight_layout()
+        fig.show()
+        
+        return fig
+
+    def plot_loc(self, output, itau, isnr):
+        """
+        Plot temporal localization histograms for all filters.
+        
+        Parameters
+        ----------
+        output : array (nevents,)
+            The first output from Toy.run().
+        itau, isnr : int
+            Indices indicating the tau and SNR values to use.
+        
+        Return
+        ------
+        fig : matplotlib.figure.Figure
+            A figure with an axis for each filter.
+        """
+        fig = plt.figure('toy.Toy.plot_loc', figsize=[10.95,  7.19])
+        fig.clf()
+
+        axs = fig.subplots(2, 2).reshape(-1)
+    
+        for ifilter, ax in enumerate(axs):
+            data = output['loc'][:, ifilter, itau, isnr]
+            if ifilter == 0:
+                label = f'SNR = {self.snr[itau, isnr]:.2f}'
+            elif ifilter == 2:
+                label = f'tau = {self.tau[itau]}'
+            else:
+                label = f'nsamples = {self.tau[itau]}'
+            ax.hist(data, bins='auto', histtype='step', label=label)
+            if ax.is_last_row():
+                ax.set_xlabel('Signal localization [8 ns]')
+            if ax.is_first_col():
+                ax.set_ylabel('Bin count')
+            ax.grid()
+            ax.legend(loc='best')
+            ax.set_title(Filter.name(ifilter))
+        
+        fig.tight_layout()
+        fig.show()
+
+        return fig
+
+    def plot_val(self, output, itau, isnr):
+        """
+        Plot a histogram of the baseline corrected filtered value at signal
+        detection point for each filter.
+        
+        Parameters
+        ----------
+        output : array (nevents,)
+            The first output from Toy.run().
+        itau, isnr : int
+            Indices indicating the tau and SNR values to use.
+        
+        Return
+        ------
+        fig : matplotlib.figure.Figure
+            A figure with an axis for each filter.
+        """
+        fig = plt.figure('toy.Toy.plot_val', figsize=[10.95,  7.19])
+        fig.clf()
+        
+        tau = self.tau[itau]
+        snr = self.snr[itau, isnr]
+        noise = Noise().generate(1, len(output) + tau)
+        sigma = output['sigma'][0, itau, isnr]
+        filt = Filter(sigma * noise)
+        templ, _ = self.template.matched_filter_template(tau)
+        fn = filt.all(templ)[:, 0, tau:]
+
+        axs = fig.subplots(2, 2).reshape(-1)
+    
+        for ifilter, ax in enumerate(axs):
+
+            if ifilter == 0:
+                label1 = 'filtered signal+noise\n(min. in each event)'
+                label2 = 'filtered noise'
+                legendtitle = f'Unfiltered SNR = {snr:.2f}'
+            else:
+                tauname = 'tau' if ifilter == 2 else 'nsamples'
+                label1 = f'{tauname} = {tau}'
+                label2 = None
+                legendtitle = '(@ 125 MSa/s)'
+            
+            data = output['value'][:, ifilter, itau, isnr]
+            ax.hist(data, bins='auto', histtype='step', label=label1)
+            ax.hist(fn[ifilter], bins='auto', histtype='step', label=label2)
+            
+            if ax.is_last_row():
+                ax.set_xlabel('Filter output [ADC 10 bit]')
+            if ax.is_first_col():
+                ax.set_ylabel('Bin count')
+            ax.legend(loc='best', title=legendtitle)
+            ax.grid()
+            ax.set_title(Filter.name(ifilter))
+
+        fig.tight_layout()
+        fig.show()
+        
+        return fig
