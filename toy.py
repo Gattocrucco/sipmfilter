@@ -1,3 +1,19 @@
+"""
+Module to run a simulation of SiPM signals and test various filters.
+
+Classes
+-------
+Toy : the main class to run the simulations
+Noise : class to generate noise
+Template : class to make a signal template and get other properties
+Filter : class to apply filters
+
+Functions
+---------
+apply_threshold : function to find where a threshold is crossed
+min_snr_ratio : function to compute the unfiltered-to-filtered SNR ratio
+"""
+
 import numpy as np
 from numpy.lib import format as nplf
 import numba
@@ -487,7 +503,7 @@ class Toy:
     
     def __init__(self, data, mask, tau, snr=10, bslen=1024, bsoffset=32):
         """
-        A toy object simulates 1 p.e. signals with noise, each signal in a
+        A Toy object simulates 1 p.e. signals with noise, each signal in a
         separate "event", and localize the signal with filters, for a range of
         values of the filter parameters and the SNR.
         
