@@ -102,6 +102,15 @@ class Template:
         
         # TODO smooth and window the template
         
+        # Convert the template from 1 GSa/s to 125 MSa/s. Make a template for
+        # each possible 1 GSa/s -> 125 GSa/s sample alignment.
+        tlen1ghz = (len(self.template) // 8) * 8
+        padded_template = np.concatenate([np.zeros(7), self.template])
+        self.templates125 = np.stack([
+            np.mean(padded_template[i:tlen1ghz + i].reshape(-1, 8), axis=1)
+            for i in range(7, -1, -1)
+        ])
+        
         # Compute the baseline distribution.
         bs = baseline[mask]
         self.baseline = np.mean(bs)
@@ -136,21 +145,22 @@ class Template:
             Simulated signals.
         """
         nevents = len(signal_loc)
+        tlen = self.templates125.shape[1]
         
         if generator is None:
             generator = np.random.default_rng()
-        
-        # Convert the template from 1 GSa/s to 125 MSa/s.
-        # TODO interpolation, use Gaussian processes, or something quick from
-        # scipy
-        tlen1ghz = (len(self.template) // 8) * 8
-        template = np.mean(self.template[:tlen1ghz].reshape(-1, 8), axis=1)
-        
+                
         out = np.zeros((nevents, event_length))
         
-        indices0 = np.arange(nevents)[:, None]
-        indices1 = np.array(np.rint(signal_loc), int)[:, None] + np.arange(len(template))
-        out[indices0, indices1] = template
+        loc_int = np.array(np.floor(signal_loc), int)
+        loc_subsample = np.array(np.floor((signal_loc % 1) * 8), int)
+                
+        for i in range(8):
+            selection = loc_subsample == i
+            idx = np.flatnonzero(selection)
+            indices0 = idx[:, None]
+            indices1 = loc_int[idx][:, None] + np.arange(tlen)
+            out[indices0, indices1] = self.templates125[i]
         if randampl:
             out *= 1 + self.template_rel_std * generator.standard_normal((nevents, 1))
         if baseline:
@@ -663,8 +673,9 @@ class Toy:
     def _run(self, output, output_event, bslen, bsoffset, generator, margin):
         nevents = len(output)
         event_length = output_event.dtype.fields['signal'][0].shape[0]
-            
-        signal_loc = bslen + bsoffset + margin // 2 + np.zeros(nevents)
+        
+        signal_loc = generator.uniform(size=nevents)
+        signal_loc += bslen + bsoffset + margin // 2
         simulated_signal = self.template.generate(event_length, signal_loc, generator)
         simulated_noise = Noise().generate(nevents, event_length, generator)
 
@@ -674,9 +685,15 @@ class Toy:
         bs_noise = filt_noise.moving_average(bslen)
         bs_signal = filt_signal.moving_average(bslen)
 
-        minima = np.empty((4,) + self.snr.shape + (nevents,), int)
+        minima = np.empty((4,) + self.snr.shape + (nevents,))
         minval = np.empty(minima.shape)
         mfoffset = np.empty(len(self.tau))
+        
+        indices = (
+            np.arange(4)[:, None, None],
+            np.arange(self.snr.shape[1])[None, :, None],
+            np.arange(nevents)[None, None, :]
+        ) # used in the cycle
         
         for i in range(len(self.tau)):
             mf_templ, mf_offset = self.template.matched_filter_template(self.tau[i])
@@ -688,12 +705,24 @@ class Toy:
             sigma = self.template.maximum / self.snr[i]
             sim = signal[:, None, :, :] + sigma[None, :, None, None] * noise[:, None, :, :]
             assert sim.shape == (4, self.snr.shape[1], nevents, event_length)
+            
+            # interpolate the minimum with a parabola
+            x0 = np.argmin(sim, axis=-1)
+            xp = np.minimum(x0 + 1, event_length - 1)
+            xm = np.maximum(x0 - 1, 0)
+            
+            y0 = sim[indices + (x0,)]
+            yp = sim[indices + (xp,)]
+            ym = sim[indices + (xm,)]
+            
+            num = yp - ym
+            denom = yp + ym - 2 * y0
     
-            minima[:, i] = np.argmin(sim, axis=-1)
-            minval[:, i] = np.min(sim, axis=-1)
+            minima[:, i] = x0 - 1/2 * num / denom
+            minval[:, i] = y0 - 1/8 * num ** 2 / denom
     
         idx0 = np.arange(nevents)
-        idx1 = minima - bsoffset - self.tau[:, None, None]
+        idx1 = np.array(np.rint(minima), int) - bsoffset - self.tau[:, None, None]
         sigma = self.template.maximum / self.snr[..., None]
         baseline = bs_signal[idx0, idx1] + sigma * bs_noise[idx0, idx1]
 
@@ -754,7 +783,7 @@ class Toy:
         ax.grid()
         ax.legend(loc='best', fontsize='small')
         ax.set_title(f'Event {ievent}')
-        ax.set_xlabel('Sample number @125 Msa/s')
+        ax.set_xlabel('Sample number @ 125 MSa/s')
         ax.set_ylabel('ADC scale [10 bit]')
     
         fig.tight_layout()
@@ -804,11 +833,13 @@ class Toy:
             if ax.is_last_row():
                 ax.set_xlabel('Unfiltered SNR')
             if ax.is_first_col():
-                ax.set_ylabel('Temporal localization precision [8 ns]\n("1$\\sigma$" interquantile range)')
+                ax.set_ylabel('"1$\\sigma$" interquantile range of\ntemporal localization error [8 ns]')
             ax.grid()
             ax.set_title(Filter.name(ifilter))
     
         axs[0].set_yscale('symlog', linthreshy=1, linscaley=0.5)
+        lims = axs[0].get_ylim()
+        axs[0].set_ylim(min(0, lims[0]), lims[1])
     
         fig.tight_layout()
         fig.show()
@@ -837,7 +868,7 @@ class Toy:
         axs = fig.subplots(2, 2).reshape(-1)
     
         for ifilter, ax in enumerate(axs):
-            data = output['loc'][:, ifilter, itau, isnr]
+            data = output['loc'][:, ifilter, itau, isnr] - output['loctrue']
             if ifilter == 0:
                 label = f'SNR = {self.snr[itau, isnr]:.2f}'
             elif ifilter == 2:
@@ -846,7 +877,7 @@ class Toy:
                 label = f'nsamples = {self.tau[itau]}'
             ax.hist(data, bins='auto', histtype='step', label=label)
             if ax.is_last_row():
-                ax.set_xlabel('Signal localization [8 ns]')
+                ax.set_xlabel('Temporal localization error (uncalib.) [8 ns]')
             if ax.is_first_col():
                 ax.set_ylabel('Bin count')
             ax.grid()
