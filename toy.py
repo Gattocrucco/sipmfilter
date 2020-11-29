@@ -4,7 +4,7 @@ Module to run a simulation of SiPM signals and test various filters.
 Classes
 -------
 Toy : the main class to run the simulations
-Noise : class to generate noise
+Noise : abstract class to generate noise, see concrete subclasses
 Template : class to make a signal template and get other properties
 Filter : class to apply filters
 
@@ -19,12 +19,27 @@ from numpy.lib import format as nplf
 import numba
 import tqdm
 from matplotlib import pyplot as plt
+import uproot
+import abc
 
 import integrate
 from single_filter_analysis import single_filter_analysis
 
-class Noise:
+class Noise(metaclass=abc.ABCMeta):
+    """
+    Abstract base class for generating noise for simulations.
     
+    Concrete subclasses
+    -------------------
+    WhiteNoise
+    DataCycleNoise
+    
+    Methods
+    -------
+    generate : generate an array of noise
+    """
+    
+    @abc.abstractmethod
     def generate(self, nevents, event_length, generator=None):
         """
         Generate noise with unitary variance.
@@ -43,18 +58,127 @@ class Noise:
         events : array (nevents, event_length)
             Simulated noise.
         """
-        if generator is None:
-            generator = np.random.default_rng()
-        return generator.standard_normal((nevents, event_length))
-    
-    def compute_spectrum(self, proto0_root_file):
         pass
+
+class LoadableNoise(Noise):
+    """
+    Abstract subclass of Noise defining interface to load and save noise
+    information from a file.
+    
+    Methods
+    -------
+    save
+    load
+    """
+
+    @abc.abstractmethod
+    def save(self, filename):
+        """
+        Save the noise information to a file that can be later reloaded with
+        `load`.
+        
+        Parameters
+        ----------
+        filename : str
+            The file path.
+        """
+        pass
+        
+    @abc.abstractmethod
+    def load(self, filename):
+        """
+        Load the noise information from a file that was written by `save`.
+        
+        Parameters
+        ----------
+        filename : str
+            The file path.
+        """
+        pass
+        
+class DataCycleNoise(LoadableNoise):
+    """
+    Class to generate noise cycling through actual noise data.
+    
+    Methods
+    -------
+    generate
+    load_proto0_root_file
+    save
+    load
+    
+    Properties
+    ----------
+    noise_array
+    """
+    
+    def __init__(self):
+        self.cycle = 0
+
+    @property
+    def noise_array(self):
+        """
+        An array (nchunks, chunk_length) of noise. `generate` uses a chunk for
+        each event generated, cycling in order through chunks.
+        """
+        if not hasattr(self, '_noise_array'):
+            raise RuntimeError('Noise information not loaded')
+        return self._noise_array
+    
+    @noise_array.setter
+    def noise_array(self, val):
+        mean = np.mean(val, axis=1, keepdims=True)
+        std = np.std(val, axis=1, keepdims=True)
+        self._noise_array = (val - mean) / std
+        
+    def generate(self, nevents, event_length, generator=None):
+        maxlen = self.noise_array.shape[1]
+        if event_length > maxlen:
+            raise ValueError(f'Event length {event_length} > maximum {maxlen}')
+        
+        indices = (1 + self.cycle + np.arange(nevents)) % len(self.noise_array)
+        self.cycle = indices[-1]
+        return self.noise_array[:, :event_length][indices]
+    
+    def load_proto0_root_file(self, filename, channel):
+        """
+        Load noise from a specific file that Simone Stracka gave me. It's not
+        on the repository.
+        
+        Parameters
+        ----------
+        filename : str
+            File name.
+        channel : str
+            ADC channel to read. Must choose the correct one depending on the
+            SiPM used.
+        """
+        root = uproot.open(filename)
+        tree = root['midas_data']
+        noise = tree.array(channel)
+        counts = np.unique(noise.counts)
+        assert len(counts) == 2 and counts[0] == 0, 'inconsistent array lengths'
+        self.noise_array = noise._content.reshape(-1, counts[-1])
     
     def save(self, filename):
-        pass
+        np.save(filename, self.noise_array)
     
     def load(self, filename):
-        pass
+        self.noise_array = np.load(filename)
+
+class WhiteNoise(Noise):
+    """
+    Class to generate white noise.
+    
+    Methods
+    -------
+    generate
+    """
+    
+    def generate(self, nevents, event_length, generator=None):
+        if generator is None:
+            generator = np.random.default_rng()
+        return generator.standard_normal(size=(nevents, event_length))
 
 class Template:
     
@@ -413,7 +537,7 @@ def apply_threshold(events, threshold):
     
     return signal_indices, signal_found
 
-def min_snr_ratio(data, tau, mask=None, nnoise=128, generator=None):
+def min_snr_ratio(data, tau, mask=None, nnoise=128, generator=None, noisegen=WhiteNoise()):
     """
     Compute the signal amplitude over noise rms needed to obtain a given
     filtered signal amplitude over filtered noise rms.
@@ -431,7 +555,9 @@ def min_snr_ratio(data, tau, mask=None, nnoise=128, generator=None):
         filtered noise standard deviation. The default should give a result
         with at least 3 % precision.
     generator : np.random.Generator, optional
-        A random number generator used to simulate the noise.
+        A random number generator.
+    noisegen : Noise
+        An instance of a subclass of Noise. Default white noise.
     
     Return
     ------
@@ -450,7 +576,7 @@ def min_snr_ratio(data, tau, mask=None, nnoise=128, generator=None):
     # The noise event length is somewhat high because the filtered noise has
     # an O(tau) autocorrelation length.
 
-    noise = Noise().generate(1, noise_event_length, generator)
+    noise = noisegen.generate(1, noise_event_length, generator)
     template = Template()
     template.make(data, template_length * 8, mask)
     signal = template.generate(signal_event_length, [dead_time], generator, False, False)
@@ -472,20 +598,19 @@ def min_snr_ratio(data, tau, mask=None, nnoise=128, generator=None):
 class Toy:
     
     @staticmethod
-    def makesnr(data, mask, tau, generator, template, nsnr, min_filtered_snr=6, max_snr_ratio=1.4):
+    def makesnr(data, mask, tau, template, nsnr, min_filtered_snr=6, max_snr_ratio=1.4, **kw):
         """
-        Generate the `snr` argument for the initialization of Toy().
+        Generate the `snr` argument for the initialization of Toy(). For each
+        tau, the range of SNR has a minimum which is chosen to get a target
+        filtered SNR with the moving average and a maximum which is a multiple
+        of the maximum SNR observed in LNGS data.
         
         Parameters
         ----------
         data : array (nevents, 2, 15001)
             LNGS data as read by readwav.readwav().
-        mask : bool array (nevents,)
-            Mask for `data`.
         tau : array (ntau,)
             The values of filter length parameters.
-        generator : np.random.Generator
-            Random generator used to generate noise.
         template : toy.Template
             A template object used to get the signal to noise ratio of 1 p.e.
             signals.
@@ -498,20 +623,22 @@ class Toy:
             The maximum snr is the snr obtained from the template object times
             this constant.
         
+        Additional keyword arguments are passed to `min_snr_ratio`.
+        
         Return
         ------
         snr : array (ntau, nsnr)
             The unfiltered snr ranges for each tau.
             
         """
-        snrs = min_snr_ratio(data, tau, mask, generator=generator)
+        snrs = min_snr_ratio(data, tau, **kw)
         snr0 = template.snr
         return np.array([
             np.linspace(snrs[i, 1] * min_filtered_snr, snr0 * max_snr_ratio, nsnr)
             for i in range(len(snrs))
         ])
     
-    def __init__(self, data, mask, tau, snr=10, bslen=1024, bsoffset=32):
+    def __init__(self, data, tau, mask=None, snr=10, bslen=1024, bsoffset=32, noisegen=WhiteNoise()):
         """
         A Toy object simulates 1 p.e. signals with noise, each signal in a
         separate "event", and localize the signal with filters, for a range of
@@ -523,10 +650,10 @@ class Toy:
         ----------
         data : array (N, 2, 15001)
             LNGS data as read by readwav.readwav().
-        mask : bool array (N,) or None
-            Mask for the `data` array.
         tau : array (ntau,)
             The values of the filter length parameters.
+        mask : bool array (N,), optional
+            Mask for the `data` array.
         snr : int or array (ntau, nsnr)
             If an integer, for each tau value an appropriate range of SNR values
             is generated and the number of such values is `snr`. If an array, it
@@ -537,6 +664,8 @@ class Toy:
             The offset (number of samples) between the last sample used to
             compute the baseline and the sample `tau` samples before the one
             where the minimum value of the filter in the event is achieved.
+        noisegen : Noise
+            An instance of a subclass of Noise. Default white noise.
         
         Methods
         -------
@@ -568,7 +697,7 @@ class Toy:
         self.template.make(data, template_length * 8, mask)
 
         if np.isscalar(snr):
-            snr = Toy.makesnr(data, mask, tau, generator, self.template, snr)
+            snr = Toy.makesnr(data, tau, self.template, snr, mask=mask, generator=generator, noisegen=noisegen)
         else:
             assert snr.shape == (len(tau), snr.shape[1])
         
@@ -577,8 +706,9 @@ class Toy:
         self.bsoffset = bsoffset
         self.tau = tau
         self.snr = snr
+        self.noisegen = noisegen
 
-    def run(self, nevents, outfile=None, bslen=None, bsoffset=None, pbar=None, seed=0):
+    def run(self, nevents, outfile=None, bslen=None, bsoffset=None, pbar=None, seed=0, noisegen=None):
         """
         Simulate signals and localize them.
         
@@ -594,7 +724,10 @@ class Toy:
         pbar : int, optional
             If given, a progress bar is shown that ticks every `pbar` events.
         seed : int
-            Seed for the random number generator.
+            Seed for the random number generator (default 0).
+        noisegen : Noise, optional
+            Overrides the noise generator object given at initialization
+            (default white noise).
         
         Return
         ------
@@ -628,10 +761,11 @@ class Toy:
             'loctrue', float :
                 A copy of the field in `output`.
         """
-        generator = np.random.default_rng(0)
+        generator = np.random.default_rng(seed)
         
         bslen = self.bslen if bslen is None else bslen
         bsoffset = self.bsoffset if bsoffset is None else bsoffset
+        noisegen = self.noisegen if noisegen is None else noisegen
 
         margin = 64
         event_length = bslen + bsoffset + self.template_length + margin
@@ -666,18 +800,18 @@ class Toy:
             start = i * n
             end = min((i + 1) * n, nevents)
             s = slice(start, end)
-            self._run(output[s], output_event[s], bslen, bsoffset, generator, margin)
+            self._run(output[s], output_event[s], bslen, bsoffset, generator, margin, noisegen)
 
         return output, output_event
 
-    def _run(self, output, output_event, bslen, bsoffset, generator, margin):
+    def _run(self, output, output_event, bslen, bsoffset, generator, margin, noisegen):
         nevents = len(output)
         event_length = output_event.dtype.fields['signal'][0].shape[0]
         
         signal_loc = generator.uniform(size=nevents)
         signal_loc += bslen + bsoffset + margin // 2
         simulated_signal = self.template.generate(event_length, signal_loc, generator)
-        simulated_noise = Noise().generate(nevents, event_length, generator)
+        simulated_noise = noisegen.generate(nevents, event_length, generator)
 
         filt_noise = Filter(simulated_noise)
         filt_signal = Filter(simulated_signal, self.template.baseline)
@@ -790,10 +924,13 @@ class Toy:
         fig.show()
         
         return fig
-
-    def plot_loc_all(self, output):
+    
+    def templocres(self, output):
         """
-        Plot temporal localization precision vs filter, filter length, SNR.
+        Compute the temporal localization resolution as the half interquantile
+        range from 0.16 to 0.84, which is approximately a standard deviation for
+        the normal distribution, of the localization error, in units of samples
+        (8 ns).
         
         Parameters
         ----------
@@ -802,44 +939,72 @@ class Toy:
         
         Return
         ------
-        fig : matplotlib.figure.Figure
-            A figure with an axis for each filter.
+        error : array (4, ntau, nsnr)
+            The temporal localization error for each filter, tau and SNR.
         """
         loctrue = output['loctrue'][:, None, None, None]
         loc = output['loc']
         quantiles = np.quantile(loc - loctrue, [0.5 - 0.68/2, 0.5 + 0.68/2], axis=0)
-        width = (quantiles[1] - quantiles[0]) / 2
-        assert width.shape == (4,) + self.snr.shape
+        error = (quantiles[1] - quantiles[0]) / 2
+        assert error.shape == (4,) + self.snr.shape
+        return error
+
+    def plot_loc_all(self, output, logscale=True):
+        """
+        Plot temporal localization precision vs filter, filter length, SNR.
+        
+        Parameters
+        ----------
+        output : array (nevents,)
+            The first output from Toy.run().
+        logscale : bool
+            If True (default), use a vertical logarithmic scale instead of a
+            linear one.
+        
+        Return
+        ------
+        fig : matplotlib.figure.Figure
+            A figure with an axis for each filter.
+        """
+        width = self.templocres(output)
     
         fig = plt.figure('toy.Toy.plot_loc_all', figsize=[10.95,  7.19])
         fig.clf()
 
         axs = fig.subplots(2, 2, sharex=True, sharey=True).reshape(-1)
-    
+        
+        linekw = dict(color='#600000')
         for ifilter, ax in enumerate(axs):
             if ifilter > 0:
                 for itau in range(len(self.tau)):
                     alpha = (itau + 1) / len(self.tau)
                     tauname = 'tau' if ifilter == 2 else 'nsamples'
                     label = f'{tauname} = {self.tau[itau]}'
-                    ax.plot(self.snr[itau], width[ifilter, itau], color='black', alpha=alpha, label=label)
+                    ax.plot(self.snr[itau], width[ifilter, itau], alpha=alpha, label=label, **linekw)
                 ax.legend(loc='upper right', fontsize='small', title='(@ 125 MSa/s)')
             else:
                 x = self.snr.reshape(-1)
                 y = width[0].reshape(-1)
                 isort = np.argsort(x)
-                ax.plot(x[isort], y[isort], color='black')
+                ax.plot(x[isort], y[isort], **linekw)
         
             if ax.is_last_row():
-                ax.set_xlabel('Unfiltered SNR')
+                ax.set_xlabel('Unfiltered SNR\n(avg signal peak over noise rms)')
             if ax.is_first_col():
-                ax.set_ylabel('"1$\\sigma$" interquantile range of\ntemporal localization error [8 ns]')
-            ax.grid()
+                ax.set_ylabel('half "$\\pm 1 \\sigma$" interquantile range of\ntemporal localization error [8 ns]')
+            ax.grid(True, which='major', axis='both', linestyle='--')
+            if logscale:
+                ax.grid(True, which='minor', axis='y', linestyle=':')
             ax.set_title(Filter.name(ifilter))
-    
-        axs[0].set_yscale('symlog', linthreshy=1, linscaley=0.5)
-        lims = axs[0].get_ylim()
-        axs[0].set_ylim(min(0, lims[0]), lims[1])
+        
+        if logscale:
+            # axs[0].set_yscale('symlog', linthreshy=1, linscaley=0.5)
+            axs[0].set_yscale('log')
+        else:
+            lims = axs[0].get_ylim()
+            axs[0].set_ylim(min(0, lims[0]), lims[1])
+        lims = axs[0].get_xlim()
+        axs[0].set_xlim(lims[0], lims[1] + (lims[1] - lims[0]) * 0.4)
     
         fig.tight_layout()
         fig.show()
@@ -862,6 +1027,9 @@ class Toy:
         fig : matplotlib.figure.Figure
             A figure with an axis for each filter.
         """
+        tau = self.tau[itau]
+        snr = self.snr[itau, isnr]
+        
         fig = plt.figure('toy.Toy.plot_loc', figsize=[10.95,  7.19])
         fig.clf()
 
@@ -870,19 +1038,22 @@ class Toy:
         for ifilter, ax in enumerate(axs):
             data = output['loc'][:, ifilter, itau, isnr] - output['loctrue']
             if ifilter == 0:
-                label = f'SNR = {self.snr[itau, isnr]:.2f}'
+                label = f'SNR={snr:.2f}'
             elif ifilter == 2:
-                label = f'tau = {self.tau[itau]}'
+                label = f'$\\tau$={tau}'
             else:
-                label = f'nsamples = {self.tau[itau]}'
-            ax.hist(data, bins='auto', histtype='step', label=label)
+                label = f'Nsamples={tau}'
+            h, _, _ = ax.hist(data, bins='auto', histtype='step')
+            left, center, right = np.quantile(data, [0.5 - 0.68/2, 0.5, 0.5 + 0.68/2])
+            xerr = [[center - left], [right - center]]
+            ax.errorbar(center, np.max(h) / 2, xerr=xerr, capsize=4, fmt='k.', label='"$\\pm 1 \\sigma$" quantiles')
             if ax.is_last_row():
                 ax.set_xlabel('Temporal localization error (uncalib.) [8 ns]')
             if ax.is_first_col():
                 ax.set_ylabel('Bin count')
             ax.grid()
             ax.legend(loc='best')
-            ax.set_title(Filter.name(ifilter))
+            ax.set_title(f'{Filter.name(ifilter)} ({label})')
         
         fig.tight_layout()
         fig.show()
@@ -911,7 +1082,7 @@ class Toy:
         
         tau = self.tau[itau]
         snr = self.snr[itau, isnr]
-        noise = Noise().generate(1, len(output) + tau)
+        noise = self.noisegen.generate(1, len(output) + tau)
         sigma = output['sigma'][0, itau, isnr]
         filt = Filter(sigma * noise)
         templ, _ = self.template.matched_filter_template(tau)
