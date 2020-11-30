@@ -166,5 +166,5 @@ noise.load('merged_000866.npy')
 
 snr = np.empty(tau.shape + snr128.shape)
 snr[:] = snr128
-t = toy.Toy(data, tau, mask=~ignore, snr=snr, bslen=1024, bsoffset=32, noisegen=noise)
+t = toy.Toy(data, tau, mask=~ignore, snr=snr, bslen=1024, bsoffset=32, noisegen=noise, wlen=[64, 128, 192, 256], wtau=[64, 256])
 out, oute = t.run(1000, 'runtoy.npy', pbar=10, seed=0)
