@@ -33,6 +33,7 @@ def plot_mf_template():
     ax.set_ylabel('ADC scale [10 bit]')
     ax.legend(title='Template length\n(number of samples)', loc='best')
     ax.grid()
+    ax.set_ylim(-90, 0)
 
     fig.tight_layout()
     fig.show()

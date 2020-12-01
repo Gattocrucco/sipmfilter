@@ -1,12 +1,20 @@
 # sipmfilter
 
-This repository contains some code to study the signal/noise ratio of the SiPM output.
+This repository contains some code to study filtering of the SiPM output.
 
 ## Data
 
 The scripts read files which are not included in the repository due to size. [Source](http://ds50tb.lngs.infn.it:2180/SiPM/Tiles/FBK/NUV/MB2-LF-3x/NUV-LF_3x_57/).
 
+  * `merged_000866.npy`: branch `adc_W201_Ch00` from `merged_000866.root` (not in the repo).
+  
+  * `toycomparison-lngs.npy`: noise from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav` downsampled to 125 MSa/s.
+
 ## Scripts
+
+  * `runtoy.py`: run a simulation of to study time resolution.
+  
+  * `toycomparison.py`: a comparison of time resolution for various filters.
 
   * `fingersnr.py`: compute the SNR for moving average, exponential moving average and matched filter varying their parameters. You have to run this script in ipython and then call functions interactively.
   
@@ -22,17 +30,19 @@ The scripts read files which are not included in the repository due to size. [So
   
 ## Modules
 
+  * `toy.py`: classes and functions to do a Monte Carlo.
+
   * `readwav.py`: function to read the wav files. See also sstracka/dsfe on
     bitbucket.
   
   * `integrate.py`: function to compute filters on the signals.
   
-  * `fighelp.py`: convenience functions for matplotlib figures.
-  
   * `single_filter_analysis.py`: make a fingerplot and compute the SNR.
   
   * `make_template.py`: make a template for the matched filter.
  
+  * `fighelp.py`: convenience functions for matplotlib figures.
+  
 ## Output
 
   * `fingersnr-changebaseline`: the output from `fingersnr.py` for the 2020-11-03 slides.
