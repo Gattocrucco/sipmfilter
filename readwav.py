@@ -1,7 +1,7 @@
 from scipy.io import wavfile
 import numpy as np
 
-def readwav(filename, maxevents=None, mmap=True):
+def readwav(filename, maxevents=None, mmap=True, quiet=False):
     """
     Read a wav file, one of those like nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav.
     
@@ -11,13 +11,16 @@ def readwav(filename, maxevents=None, mmap=True):
         Maximum number of events read from the file. Default no limit.
     mmap : bool
         If True, the array is memory mapped i.e. it is not actually on RAM.
+    quiet : bool
+        Default False. If True, do not print a log message.
     
     Return
     ------
     data : array (nevents, nchannels=2, nsamples=15001)
         The first channel is the signal and the second channel is the trigger.
     """
-    print(f'reading {filename}...')
+    if not quiet:
+        print(f'reading {filename}...')
     _, data = wavfile.read(filename, mmap=True)
     # mmap = memory map, no RAM used
     data = data.reshape(-1, 30022)[:, 20:].reshape(-1, 2, 15001)

@@ -14,16 +14,19 @@ apply_threshold : function to find where a threshold is crossed
 min_snr_ratio : function to compute the unfiltered-to-filtered SNR ratio
 """
 
+import abc
+
 import numpy as np
 from numpy.lib import format as nplf
-import numba
-import tqdm
 from matplotlib import pyplot as plt
+import numba
+
+import tqdm
 import uproot
-import abc
 
 import integrate
 from single_filter_analysis import single_filter_analysis
+import readwav
 
 class Noise(metaclass=abc.ABCMeta):
     """
@@ -97,23 +100,37 @@ class LoadableNoise(Noise):
         pass
         
 class DataCycleNoise(LoadableNoise):
-    """
-    Class to generate noise cycling through actual noise data.
     
-    Methods
-    -------
-    generate
-    load_proto0_root_file
-    save
-    load
+    def __init__(self, allow_break=False):
+        """
+        Class to generate noise cycling through actual noise data.
     
-    Properties
-    ----------
-    noise_array
-    """
+        Parameters
+        ----------
+        allow_break : bool
+            Default False. If True, the event length can be longer than the
+            noise chuncks obtained from data, but there may be breaks in the
+            events where one sample is not properly correlated with the next.
+
+        Members
+        -------
+        allow_break : bool
+            The parameter given at initialization. Can be changed directly.
+        
+        Methods
+        -------
+        generate
+        load_proto0_root_file
+        load_LNGS_wav
+        save
+        load
     
-    def __init__(self):
+        Properties
+        ----------
+        noise_array
+        """
         self.cycle = 0
+        self.allow_break = allow_break
 
     @property
     def noise_array(self):
@@ -133,12 +150,18 @@ class DataCycleNoise(LoadableNoise):
         
     def generate(self, nevents, event_length, generator=None):
         maxlen = self.noise_array.shape[1]
-        if event_length > maxlen:
+        if not self.allow_break and event_length > maxlen:
             raise ValueError(f'Event length {event_length} > maximum {maxlen}')
         
-        indices = (1 + self.cycle + np.arange(nevents)) % len(self.noise_array)
-        self.cycle = indices[-1]
-        return self.noise_array[:, :event_length][indices]
+        multiple = int(np.ceil(event_length / maxlen))
+        assert multiple <= len(self.noise_array)
+        length = (len(self.noise_array) // multiple) * multiple
+        noise_array = self.noise_array[:length].reshape(length // multiple, multiple * maxlen)
+        
+        cycle = self.cycle // multiple
+        indices = (1 + cycle + np.arange(nevents)) % len(noise_array)
+        self.cycle = (indices[-1] * multiple) % len(self.noise_array)
+        return noise_array[:, :event_length][indices]
     
     def load_proto0_root_file(self, filename, channel):
         """
@@ -160,6 +183,24 @@ class DataCycleNoise(LoadableNoise):
         assert len(counts) == 2 and counts[0] == 0, 'inconsistent array lengths'
         self.noise_array = noise._content.reshape(-1, counts[-1])
     
+    def load_LNGS_wav(self, filename, maxevents=None):
+        """
+        Load noise from a LNGS wav file. THERE SOME ASSUMPTIONS HERE ON WHAT'S
+        IN THE FILE, RECHECK IT WORKS IF I CHANGE THE FILE.
+        
+        Parameters
+        ----------
+        filename : str
+            The wav file path.
+        maxevents : int, optional
+            The maximum number of events loaded from the wav file.
+        """
+        data = readwav.readwav(filename, maxevents=maxevents, mmap=False, quiet=True)
+        baseline_zone = data[:, 0, :(8900 // 8) * 8]
+        ignore = np.any((0 <= baseline_zone) & (baseline_zone < 700), axis=-1)
+        downsampled = np.mean(baseline_zone.reshape(len(ignore), -1, 8), axis=-1)
+        self.noise_array = downsampled[~ignore]
+
     def save(self, filename):
         np.save(filename, self.noise_array)
     
@@ -839,6 +880,8 @@ class Toy:
         event_length = output_event.dtype.fields['signal'][0].shape[0]
         
         signal_loc = generator.uniform(size=nevents)
+        signal_loc = np.rint(signal_loc * 8) / 8
+        # TODO remove 1/8 discretization if/when Template.generate drops it.
         signal_loc += bslen + bsoffset + margin // 2
         simulated_signal = self.template.generate(event_length, signal_loc, generator)
         simulated_noise = noisegen.generate(nevents, event_length, generator)
@@ -1093,7 +1136,8 @@ class Toy:
         ax = fig.subplots(1, 1)
     
         ax.plot(unfilt, label=f'signal (snr = {snr:.2f})')
-        ax.plot(sim, label=f'{Filter.name(ifilter)} (tau = {tau})')
+        tauname = 'tau' if ifilter == 2 else 'Nsamples'
+        ax.plot(sim, label=f'{Filter.name(ifilter)} ({tauname} = {tau})')
         
         ax.axvline(out['loctrue'], label='signal template start', color='black')
         ax.axvline(out['loc'][ifilter, itau, isnr], label='localization (uncalib.)', color='red', linestyle='--')

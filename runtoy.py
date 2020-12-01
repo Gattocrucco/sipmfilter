@@ -24,13 +24,14 @@ def plot_mf_template():
         template.matched_filter_template(length, norm=False)
         for length in [4, 8, 16, 32, 64]
     ]
-    for y, offset in reversed(template_offset):
-        ax.plot(np.arange(len(y)) + offset, y, label=str(len(y)))
+    for i, (y, offset) in enumerate(reversed(template_offset)):
+        kw = dict(linewidth=i + 1, color='#060', alpha=(i + 1) / len(template_offset))
+        ax.plot(np.arange(len(y)) + offset, y, label=str(len(y)), **kw)
 
     ax.set_title('Matched filter template for different lengths')
     ax.set_xlabel('Sample number @ 125 MSa/s')
-    ax.set_ylabel('ADC scale')
-    ax.legend(loc='best')
+    ax.set_ylabel('ADC scale [10 bit]')
+    ax.legend(title='Template length\n(number of samples)', loc='best')
     ax.grid()
 
     fig.tight_layout()
