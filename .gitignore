@@ -7,6 +7,8 @@
 *.wav
 __pycache__
 toycomparison-output.npz
+*.png
+!*/*.png
 
 # Node artifact files
 node_modules/
