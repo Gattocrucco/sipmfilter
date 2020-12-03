@@ -72,7 +72,7 @@ def plot_filters():
     event_length = 2 ** 11 # @ 125 MSa/s
     signal_loc = generator.integers(event_length - template_length, size=1)
     simulated_signal = template.generate(event_length, signal_loc, generator)
-    simulated_noise = toy.Noise().generate(len(signal_loc), event_length, generator)
+    simulated_noise = toy.WhiteNoise().generate(len(signal_loc), event_length, generator)
     simulation = simulated_signal + 5 * simulated_noise
 
     filt = toy.Filter(simulation, template.baseline)
@@ -148,26 +148,3 @@ def plot_localization():
 
     fig.tight_layout()
     fig.show()
-
-tau = np.array([4, 8, 16, 24, 32, 40, 48, 64, 96, 128, 192, 256, 384])
-
-# snr hardcoded here. To compute it again, do:
-# t = toy.Toy(..., tau=np.array([128]), snr=10)
-# snr128 = t.snr[0]
-snr128 = np.array([1.7658007 , 2.06268908, 2.35957745, 2.65646583, 2.9533542 ,
-                   3.25024257, 3.54713095, 3.84401932, 4.1409077 , 4.43779607])
-
-# Uncomment this to reread the noise from the original file
-# noise = toy.DataCycleNoise()
-# noise.load_proto0_root_file('merged_000886.root', 'adc_W201_Ch00')
-# # look at PDMadcCh.png to match the channel to the wav file
-# noise.save('merged_000866.npy')
-
-noise = toy.DataCycleNoise()
-noise.load('merged_000866.npy')
-
-snr = np.empty(tau.shape + snr128.shape)
-snr[:] = snr128
-t = toy.Toy(data, tau, mask=~ignore, snr=snr, bslen=1024, bsoffset=32, noisegen=noise)
-out, oute = t.run(1000, 'runtoy.npy', pbar=10, seed=0)
-outw = t.run_window(out, oute, wlen=[64, 128, 192, 256], wtau=[64, 256], pbar=10)
