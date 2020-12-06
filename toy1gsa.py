@@ -79,7 +79,7 @@ def plot_comparison(locfield='loc'):
     print()
     print(f'range of mf3072 at LNGS SNR: {min(lngssnrvalues):.1f}--{max(lngssnrvalues):.1f} ns')
 
-    fig = plt.figure('toycomparison', figsize=[7.14, 4.8])
+    fig = plt.figure('toy1gsa', figsize=[7.14, 4.8])
     fig.clf()
 
     ax = fig.subplots(1, 1)
@@ -91,7 +91,6 @@ def plot_comparison(locfield='loc'):
     kw = dict(linestyle='-')
     ax.plot(snr, emabestlngs, label='Exp. mov. avg, N best for each SNR, LNGS noise', marker='.', **kw)
     ax.plot(snr, mabestlngs, label='Moving average, N best for each SNR, LNGS noise', marker='+', **kw)
-    # ax.plot(snr, ma64proto0, label='Moving average, N=64, Proto0 noise', marker='x', **kw)
     ax.plot(snr, mf512lngs, label='Matched, N=512, LNGS noise', marker='x', **kw)
     ax.plot(snr, mf3072lngs, label='Matched, N=3072, LNGS noise', marker='^', **kw)
     ax.plot(snr, mf3072white, label='Matched, N=3072, white noise', marker='*', **kw)

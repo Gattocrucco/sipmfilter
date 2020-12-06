@@ -14,6 +14,9 @@ tau = np.array([4, 8, 16, 24, 32, 40, 48, 64, 96, 128, 192, 256, 384])
 snr = np.linspace(1.8, 6, 15)
 snr2d = np.tile(snr, (len(tau), 1))
 
+wlen = 64 * np.array([2, 3, 4, 5, 6, 7])
+wlmargin = np.full_like(wlen, 64)
+
 noise_proto0 = toy.DataCycleNoise()
 noise_proto0.load('merged_000886-adc_W201_Ch00.npz')
 noise_LNGS = toy.DataCycleNoise(allow_break=True)
@@ -25,10 +28,13 @@ noise_name = ['proto0',     'LNGS',     'white'    ]
 t = toy.Toy(data, tau, mask=~ignore, snr=snr2d, bslen=1000, bsoffset=100)
 
 output = []
+output_window = []
 for name, noise in zip(noise_name, noise_obj):
     print(f'running with {name} noise...')
     output.append(t.run(1000, pbar=10, seed=0, noisegen=noise, upsampling=False))
     # upsampling=True reduces speed dramatically
+    print(f'running with {name} noise (windowed)...')
+    output_window.append(t.run_window(*output[-1], wlen, wlmargin, pbar=10))
 
 savefile = 'toycomparison-output.npz'
 print(f'saving output to {savefile}...')
@@ -39,12 +45,23 @@ kw = {
     'outevlngs':   output[1][1],
     'outwhite':    output[2][0],
     'outevwhite':  output[2][1],
+    'woutproto0':  output_window[0],
+    'woutlngs':    output_window[1],
+    'woutwhite':   output_window[2],
 }
 np.savez(savefile, **kw)
 
+def isomething(a, x):
+    i = np.searchsorted(a, x)
+    assert a[i] == x
+    return i
+itau  = lambda t: isomething(tau, t)
+iwlen = lambda w: isomething(wlen, w)
+isnr  = lambda s: min(np.searchsorted(snr, s), len(snr) - 1)
+
 snrs = t.filteredsnr(output[0][0])
-filt_snr = snrs[1, np.searchsorted(tau, 128)]
-raw_snr = t.snr[np.searchsorted(tau, 128)]
+filt_snr = snrs[1, itau(128)]
+raw_snr = t.snr[itau(128)]
 interp = interpolate.interp1d(filt_snr, raw_snr, fill_value='extrapolate')
 snr10, snr12 = interp([10, 12])
 
@@ -54,19 +71,19 @@ def plot_comparison(locfield='loc'):
     """
     out = output[0][0]
     r = t.templocres(out['loctrue'], out[locfield])
-    mf384proto0 = r[-1, np.searchsorted(tau, 384)] * 8
+    mf384proto0 = r[-1, itau(384)] * 8
 
     out = output[1][0]
     r = t.templocres(out['loctrue'], out[locfield])
-    mf384lngs = r[-1, np.searchsorted(tau, 384)] * 8
+    mf384lngs = r[-1, itau(384)] * 8
 
     out = output[2][0]
     r = t.templocres(out['loctrue'], out[locfield])
-    mf384white = r[-1, np.searchsorted(tau, 384)] * 8
+    mf384white = r[-1, itau(384)] * 8
 
     out = output[0][0]
     r = t.templocres(out['loctrue'], out[locfield])
-    mf64proto0 = r[-1, np.searchsorted(tau, 64)] * 8
+    mf64proto0 = r[-1, itau(64)] * 8
 
     out = output[0][0]
     r = t.templocres(out['loctrue'], out[locfield])
@@ -120,18 +137,27 @@ def plot_comparison(locfield='loc'):
     fig.tight_layout()
     fig.show()
 
-def doplots(locfield='loc'):
+def doplots(locfield='loc', inoise=0):
     """
     as locfield use one of
     'loc'      : parabolic interpolation
     'locraw'   : no interpolation
     'locup'    : upsampling to 1 GSa/s + interpolation
     'locupraw' : upsampling only
+    
+    inoise = 0 (proto0), 1 (lngs), 2 (white)
     """
     out = output[0][0]
     t.plot_loc_all(out, snrspan=(snr10, snr12), logscale=True, sampleunit=False, locfield=locfield)
-    t.plot_loc(out, np.searchsorted(tau, 64), np.searchsorted(snr, 4.5), locfield=locfield)
-    t.plot_event(*output[0], 42, 3, np.searchsorted(tau, 384), np.searchsorted(snr, 4.5))
+    t.plot_loc(out, itau(64), np.searchsorted(snr, 4.5), locfield=locfield)
+    t.plot_event(*output[0], 42, 3, itau(384), np.searchsorted(snr, 4.5))
     plot_comparison(locfield)
 
+def doplotsw(inoise=0, tau=64, wlen=128, snr=3.0, ievent=42):
+    out, oute = output[inoise]
+    outw = output_window[inoise]
+    t.plot_event_window(out, oute, outw, ievent, isnr(snr), itau(tau), iwlen(wlen))
+    t.plot_loc_window(out, outw, itau(tau), logscale=False)
+
 doplots('loc')
+doplotsw(0)

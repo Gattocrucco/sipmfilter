@@ -842,7 +842,6 @@ class Toy:
         plot_loc : plot temporal localization histogram
         plot_val : plot filtered signal value histogram
         templocres : compute temporal localization resolution
-        make_event : compute a simulated event
         plot_event_window : plot an event with the windowed matched filter
         plot_loc_window : plot temporal localization resolution after windowing
         filteredsnr : compute the SNR after filtering
@@ -919,6 +918,8 @@ class Toy:
             'timebase', int :
                 The duration of a sample in nanoseconds, the same for each
                 event.
+            'event_length', int :
+                The number of samples in each event.
             'tau', int, (ntau,) :
                 A copy of the tau array, the same for each event.
             'snr', float, (ntau, nsnr) :
@@ -927,10 +928,11 @@ class Toy:
                 The standard deviation of the noise, for each value of tau
                 and SNR. The same for each event.
             'filter_start', int, (ntau,) :
-                The sample number where the filtering starts.
+                The sample number where the filtering starts, the same for each
+                event.
             'filter_skip', int, (ntau,) :
                 The number of initial samples from the filtered zone not used
-                to compute results.
+                to compute results, the same for each event.
             'loctrue', float :
                 The sample number where the signal is generated. See
                 toy.Template.generate.
@@ -978,6 +980,7 @@ class Toy:
         
         dtype=[
             ('timebase', int),
+            ('event_length', int),
             ('tau', int, self.tau.shape),
             ('snr', float, self.snr.shape),
             ('sigma', float, self.snr.shape),
@@ -995,6 +998,7 @@ class Toy:
             dtype.append(('locupraw', float, (4,) + self.snr.shape))
         output = np.empty(nevents, dtype=dtype)
         output['timebase'] = self.timebase
+        output['event_length'] = event_length
         output['tau'] = self.tau
         output['snr'] = self.snr
         
@@ -1159,19 +1163,20 @@ class Toy:
         output_event['noise'] = simulated_noise
         output_event['loctrue'] = signal_loc
     
-    def run_window(self, run_output, run_output_event, wlen, wtau, pbar=None):
+    def run_window(self, run_output, run_output_event, wlen, wlmargin, pbar=None):
         """
         Extract a subset of samples from simulated signals and relocalize the
-        signal filtering only in the window.
-        
+        signal filtering only in the window with the matched filter.
+                
         Parameters
         ----------
         run_output, run_output_event : array (nevents,)
             The output from run().
         wlen : int array (nwin,)
             Lengths for windows that are extracted around the localized signal.
-        wtau : int array (nwtau,)
-            Length of the matched filter template used on the windows.
+        wlmargin : int array (nwin,)
+            The window starts `wlmargin` samples before the signal template
+            start.
         pbar : int, optional
             If given, a progress bar is shown that ticks every `pbar` events.
         
@@ -1179,47 +1184,34 @@ class Toy:
         ------
         output : array (nevents,)
             A structured numpy array with these fields:
-            'wtau', int, (nwtau,) :
-                A copy of the parameter wtau, the same for all events.
             'wlen', int, (nwin,) :
                 A copy of the parameter wlen, the same for all events.
             'wstart', int, (nwin,) :
-                The sample number where the window starts, for each window
-                length.
-            'wloc', float, (nwtau, nwin, nsnr) :
+                The sample number where the window starts.
+            'wloc', float, (ntau, nwin, nsnr) :
                 The localization from the window (the sample number is still
                 relative to the whole event).
         """
         wlen = np.asarray(wlen)
-        wtau = np.asarray(wtau)
-        
-        woffset = []
-        for wl in wlen:
-            _, offset = self.template.matched_filter_template(wl)
-            woffset.append(offset)
-        woffset = np.array(woffset)
-        
-        wtempls = [self.template.matched_filter_template(t) for t in wtau]
-
+        wlmargin = np.asarray(wlmargin)
+                
         output = np.empty(len(run_output), dtype=[
-            ('wtau', int, len(wtau)),
             ('wlen', int, len(wlen)),
             ('wstart', int, len(wlen)),
-            ('wloc', float, (len(wtau), len(wlen), self.snr.shape[1]))
+            ('wloc', float, (len(self.tau), len(wlen), self.snr.shape[1]))
         ])
-        output['wtau'] = wtau
         output['wlen'] = wlen
         
         def fun(s):
-            self._run_window(output[s], run_output[s], run_output_event[s], wlen, wtau, woffset, wtempls)
+            self._run_window(output[s], run_output[s], run_output_event[s], wlen, wlmargin)
         run_sliced(fun, len(run_output), pbar)
 
         return output
 
-    def _run_window(self, output, run_output, run_output_event, wlen, wtau, woffset, wtempls):
+    def _run_window(self, output, run_output, run_output_event, wlen, wlmargin):
         
         # Get lengths of things.
-        nwtau = len(wtau)
+        ntau = len(self.tau)
         nwin = len(wlen)
         nevents = len(output)
         nsnr = self.snr.shape[1]
@@ -1229,34 +1221,34 @@ class Toy:
         simulated_signal = run_output_event['signal']
         simulated_noise = run_output_event['noise']
         signal_loc = run_output['loctrue']
-        sigma = run_output['sigma'][0, 0]
+        sigma = run_output[0]['sigma']
         
         # Things used in the cycle.
-        minima = np.empty((nwtau, nwin, nsnr, nevents))
-        wstart = np.array(np.rint(signal_loc + woffset[:, None]), int)
+        minima = np.empty((ntau, nwin, nsnr, nevents))
+        wstart = np.array(np.rint(signal_loc - wlmargin[:, None]), int)
         indices = np.ix_(np.arange(nsnr), np.arange(nevents))
         
         for i, wlen in enumerate(wlen):
             
             # Extract window.
             idx0 = np.arange(nevents)[:, None]
-            idx1 = wstart[i][:, None] + np.arange(wlen)
+            idx1 = wstart[i, :, None] + np.arange(wlen)
             wsignal = simulated_signal[idx0, idx1]
             wnoise = simulated_noise[idx0, idx1]
             assert wsignal.shape == (nevents, wlen)
             
             # Make filter objects.
-            rmargin = np.max(wtau) - wlen + 64
+            rmargin = np.max(self.tau) - wlen + 64
             filt_wnoise = Filter(wnoise, 0, rmargin)
             filt_wsignal = Filter(wsignal, self.template.baseline, rmargin)
             
-            for j, tau in enumerate(wtau):
+            for j, tau in enumerate(self.tau):
                 
                 # Run the matched filter.
-                templ, offset = wtempls[j]
+                templ, _ = self.templs[j]
                 noise = filt_wnoise.matched(templ)
                 signal = filt_wsignal.matched(templ)
-                sim = signal + sigma[:, None, None] * noise
+                sim = signal + sigma[j, :, None, None] * noise
         
                 # Interpolate the minimum with a parabola.
                 x0 = np.argmin(sim, axis=-1)
@@ -1275,46 +1267,12 @@ class Toy:
         # Compute temporal localization.
         wloc = minima
         wloc += wstart[None, :, None, :]
-        wloc -= wtau[:, None, None, None]
-        wloc += np.array([t[1] for t in wtempls])[:, None, None, None]
+        wloc -= self.tau[:, None, None, None]
+        wloc += np.array([t[1] for t in self.templs])[:, None, None, None]
         
         # Save results.
         output['wstart'] = np.moveaxis(wstart, -1, 0)
         output['wloc'] = np.moveaxis(wloc, -1, 0)
-
-    def make_event(self, output, output_event, ievent, ifilter, tau, snr):
-        """
-        THIS METHOD IS USED JUST BY PLOT_EVENT_WINDOW, DROP IT
-        
-        Compute a simulated event.
-        
-        Parameters
-        ----------
-        output, output_event : array (nevents,)
-            The output from Toy.run().
-        ievent, ifilter: int
-            The indices indicating the event and filter.
-        tau : int
-            The length parameter of the filter. No effect if ifilter == 0.
-        snr : scalar
-            The unfiltered SNR.
-        
-        Return
-        ------
-        unfilt : array (event_length,)
-            The unfiltered waveform.
-        sim : array (event_length,)
-            The filtered waveform.
-        """
-        out = output[ievent]
-        oute = output_event[ievent]
-        
-        sigma = self.template.maximum / snr
-        unfilt = oute['signal'] + sigma * oute['noise']
-        templ, _ = self.template.matched_filter_template(tau)
-        sim = Filter(unfilt[None, :], self.template.baseline).all(templ)[ifilter, 0]
-        
-        return unfilt, sim
     
     def sampling_str(self):
         """
@@ -1381,7 +1339,7 @@ class Toy:
         
         return fig
     
-    def plot_event_window(self, output, output_event, output_window, ievent, isnr, iwtau, iwlen):
+    def plot_event_window(self, output, output_event, output_window, ievent, isnr, itau, iwlen):
         """
         Plot a simulated event.
         
@@ -1391,7 +1349,7 @@ class Toy:
             The output from Toy.run().
         output_window : array (nevents,)
             The output from Toy.run_window().
-        ievent, isnr, iwtau, iwlen : int
+        ievent, isnr, itau, iwlen : int
             The indices indicating the event, SNR, tau and window length.
         
         Return
@@ -1403,15 +1361,18 @@ class Toy:
         oute = output_event[ievent]
         outw = output_window[ievent]
         
-        tau = outw['wtau'][iwtau]
-        snr = out['snr'][0, isnr]
+        tau = out['tau'][itau]
         wlen = outw['wlen'][iwlen]
-        
-        unfilt, sim = self.make_event(output, output_event, ievent, 3, tau, snr)
         wstart = outw['wstart'][iwlen]
-        filt = Filter(unfilt[None, wstart:wstart + wlen], self.template.baseline, len(unfilt) - wstart - wlen)
-        templ, _ = self.template.matched_filter_template(tau)
-        wsim = filt.matched(templ)[0]
+        snr = out['snr'][0, isnr]
+        sigma = out['sigma'][0, isnr]
+        
+        unfilt = oute['signal'] + sigma * oute['noise']
+        templ, _ = self.template.matched_filter_template(tau, timebase=self.timebase)
+        filt = Filter(unfilt[None, :], self.template.baseline)
+        sim = filt.matched(templ)[0]
+        wfilt = Filter(unfilt[None, wstart:wstart + wlen], self.template.baseline, len(unfilt) - wstart - wlen)
+        wsim = wfilt.matched(templ)[0]
         
         fig = plt.figure('toy.Toy.plot_event_window')
         fig.clf()
@@ -1423,14 +1384,14 @@ class Toy:
         ax.plot(wstart + np.arange(len(wsim)), wsim, label='filter from window', linestyle=':', color='black', zorder=10)
         
         ax.axvline(out['loctrue'], label='signal template start', color='black')
-        ax.axvline(outw['wloc'][iwtau, iwlen, isnr], label='loc. from window', color='red', linestyle='--')
-        ax.axvspan(wstart, wstart + wlen, label=f'window (N={wlen})', color='gray')
+        ax.axvline(outw['wloc'][itau, iwlen, isnr], label='loc. from window', color='red', linestyle='--')
+        ax.axvspan(wstart, wstart + wlen, label=f'window (N={wlen})', color='lightgray')
         ax.axhline(self.template.baseline, label='baseline', color='black', linestyle='--')
         
         ax.grid()
         ax.legend(loc='best', fontsize='small')
         ax.set_title(f'Event {ievent}')
-        ax.set_xlabel('Sample number @ 125 MSa/s')
+        ax.set_xlabel(f'Sample number @ {self.sampling_str()}')
         ax.set_ylabel('ADC scale [10 bit]')
     
         fig.tight_layout()
@@ -1457,10 +1418,9 @@ class Toy:
         
         Return
         ------
-        error : array (4, ntau, nsnr)
-            The temporal localization error for each filter, tau and SNR. If
-            window=True, the shape is (nwtau, nwin, nsnr) so it is for each
-            window tau, window length, SNR.
+        error : array
+            The temporal localization error. The shape depends on the input
+            arrays.
         """
         shape = (-1,) + (1,) * (len(loc.shape) - 1)
         loctrue = loctrue.reshape(shape)
@@ -1566,7 +1526,7 @@ class Toy:
         
         return fig
 
-    def plot_loc_window(self, output, output_window, iwtau, logscale=True):
+    def plot_loc_window(self, output, output_window, itau, logscale=True):
         """
         Plot temporal localization precision for matched filter on windows
         for each SNR and window length at fixed filter length.
@@ -1577,7 +1537,7 @@ class Toy:
             The first output from Toy.run().
         output_window : array (nevents,)
             The output of Toy.run_window().
-        iwtau : int
+        itau : int
             The index of the filter length.
         logscale : bool
             If True (default), use a vertical logarithmic scale instead of a
@@ -1588,11 +1548,22 @@ class Toy:
         fig : matplotlib.figure.Figure
             A figure with an axis for each filter.
         """
-        snr = output[0]['snr']
+        tau = output[0]['tau'][itau]
+        snr = output[0]['snr'][itau]
+        wlen = output_window[0]['wlen']
         
-        width = self.templocres(output['loctrue'], output_window['wloc'])[iwtau]
-        wlen = output_window['wlen'][0]
-        wtau = output_window['wtau'][0]
+        fstart = output[0]['filter_start'][itau]
+        wlen_orig = output[0]['event_length'] - fstart
+        wmargin_orig = int(np.rint(np.mean(output['loctrue'] - fstart)))
+        
+        diff = output['loctrue'][:, None] - output_window['wstart']
+        wmargin = np.array((np.rint(np.mean(diff, axis=0))), int)
+        
+        width = self.templocres(output['loctrue'], output_window['wloc'])[itau]
+        width *= self.timebase
+        
+        width_orig = self.templocres(output['loctrue'], output['loc'])[3, itau]
+        width_orig *= self.timebase
     
         fig = plt.figure('toy.Toy.plot_loc_window')
         fig.clf()
@@ -1601,24 +1572,26 @@ class Toy:
         
         for iwlen, wl in enumerate(wlen):
             alpha = (iwlen + 1) / len(wlen)
-            ax.plot(snr[0], width[iwlen], alpha=alpha, label=str(wl), color='#600000')
-        ax.legend(loc='upper right', title='Window length\n@ 125 MSa/s')
+            label = f'$-${wmargin[iwlen]}+{wl - wmargin[iwlen]}'
+            ax.plot(snr, width[iwlen], alpha=alpha, label=label, color='#600000')
+        ax.plot(snr, width_orig, 'k.', label=f'$-${wmargin_orig}+{wlen_orig - wmargin_orig}')
+        ax.legend(loc='upper right', title='Window [samples]\n$-$L+R of templ. start')
         
+        ax.axhspan(0, self.timebase, color='#ddd', zorder=-10, label=f'{self.timebase} ns')
+
         if ax.is_last_row():
-            ax.set_xlabel('Unfiltered SNR\n(avg signal peak over noise rms)')
+            ax.set_xlabel('Unfiltered SNR (avg signal peak over noise rms)')
         if ax.is_first_col():
-            ax.set_ylabel('half "$\\pm 1 \\sigma$" interquantile range of\ntemporal localization error [8 ns]')
+            ax.set_ylabel('Half "$\\pm 1 \\sigma$" interquantile range of\ntemporal localization error [ns]')
         ax.grid(True, which='major', axis='both', linestyle='--')
-        if logscale:
-            ax.grid(True, which='minor', axis='y', linestyle=':')
-        ax.set_title(f'Matched filter on window (Nsamples={wtau[iwtau]})')
+        ax.grid(True, which='minor', axis='both', linestyle=':')
+        ax.set_title(f'Matched filter on window (Nsamples={tau} @ {self.sampling_str()})')
         
         if logscale:
-            # ax.set_yscale('symlog', linthreshy=1, linscaley=0.5)
             ax.set_yscale('log')
         else:
             lims = ax.get_ylim()
-            ax.set_ylim(min(0, lims[0]), lims[1])
+            ax.set_ylim(0, lims[1])
     
         fig.tight_layout()
         fig.show()
