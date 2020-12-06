@@ -38,28 +38,37 @@ def plot_mf_template():
     fig.tight_layout()
     fig.show()
 
-def plot_signals():
+def plot_signals(signal_loc=None):
+    """
+    Test the subsample location of the template.
+    
+    Parameters
+    ----------
+    signal_loc : array
+        See toy.Template.generate().
+    """
     template = toy.Template()
     template_length = 512 # @ 125 MSa/s
     template.make(data, template_length * 8, ~ignore)
 
-    event_length = 2 ** 11 # @ 125 MSa/s
-    signal_loc = generator.integers(event_length - template_length, size=4)
-    simulated_signal = template.generate(event_length, signal_loc, generator)
-    simulated_noise = toy.Noise().generate(len(signal_loc), event_length, generator)
+    if signal_loc is None:
+        signal_loc = np.linspace(0, 1, 2 * 8 + 1)
+    event_length = template_length + int(np.max(np.ceil(signal_loc))) + 1
+    simulated_signal = template.generate(event_length, signal_loc, generator, baseline=False, randampl=False)
 
-    fig = plt.figure('runtoy-plot-signals')
+    fig = plt.figure('toytest.plot_signals')
     fig.clf()
 
     ax = fig.subplots(1, 1)
 
     for i in range(len(signal_loc)):
-        ax.plot(simulated_signal[i] + 5 * simulated_noise[i])
+        ax.plot(simulated_signal[i], linewidth=1, label=f'{signal_loc[i]:.2f}')
 
     ax.set_title('Simulated signals')
     ax.set_xlabel('Sample number @ 125 MSa/s')
-    ax.set_ylabel('ADC scale')
+    ax.set_ylabel('ADC scale [10 bit]')
     ax.grid()
+    ax.legend(loc='best', fontsize='small', title='signal_loc')
 
     fig.tight_layout()
     fig.show()

@@ -28,6 +28,44 @@ import integrate
 from single_filter_analysis import single_filter_analysis
 import readwav
 
+def downsample(a, n, axis=-1, dtype=None):
+    """
+    Downsample an array by averaging nearby elements.
+    
+    Parameters
+    ----------
+    a : array
+        The array to downsample.
+    n : int
+        The number of averaged elements per group.
+    axis : int
+        The axis along which the averaging is computed. Default last.
+    dtype : data-type, optional
+        The data type of the output.
+    
+    Return
+    ------
+    da : array
+        The downsampled array. The shape is the same as `a` apart from the
+        specified axis, which has size a.shape[axis] // n.
+    """
+    if n == 1:
+        return np.asarray(a, dtype=dtype)
+    
+    length = a.shape[axis]
+    axis %= len(a.shape)
+    trunc_length = length - length % n
+    
+    idx = (slice(None),) * axis
+    idx += (slice(0, trunc_length),)
+    idx += (slice(None),) * (len(a.shape) - axis - 1)
+    
+    shape = tuple(a.shape[i] for i in range(axis))
+    shape += (trunc_length // n, n)
+    shape += tuple(a.shape[i] for i in range(axis + 1, len(a.shape)))
+    
+    return np.mean(np.reshape(a[idx], shape), axis=axis + 1, dtype=dtype)
+
 class Noise(metaclass=abc.ABCMeta):
     """
     Abstract base class for generating noise for simulations.
@@ -42,6 +80,17 @@ class Noise(metaclass=abc.ABCMeta):
     generate : generate an array of noise
     """
     
+    def __init__(self, timebase=8):
+        """
+        Parameters
+        ----------
+        timebase : int
+            The duration of samples in nanoseconds. Default is 8, i.e. the
+            sampling frequency of the waveform returned by `generate` is
+            125 MSa/s.
+        """
+        self.timebase = timebase
+    
     @abc.abstractmethod
     def generate(self, nevents, event_length, generator=None):
         """
@@ -52,7 +101,7 @@ class Noise(metaclass=abc.ABCMeta):
         nevents : int
             Number of events i.e. independent chunks of simulated data.
         event_length : int
-            Number of samples of each event (@ 125 MSa/s).
+            Number of samples of each event.
         generator : np.random.Generator, optional
             Random number generator.
         
@@ -101,12 +150,16 @@ class LoadableNoise(Noise):
         
 class DataCycleNoise(LoadableNoise):
     
-    def __init__(self, allow_break=False):
+    def __init__(self, timebase=8, allow_break=False):
         """
         Class to generate noise cycling through actual noise data.
     
         Parameters
         ----------
+        timebase : int
+            The duration of samples in nanoseconds. Default is 8, i.e. the
+            sampling frequency of the waveform returned by `generate` is
+            125 MSa/s.
         allow_break : bool
             Default False. If True, the event length can be longer than the
             noise chuncks obtained from data, but there may be breaks in the
@@ -131,6 +184,7 @@ class DataCycleNoise(LoadableNoise):
         """
         self.cycle = 0
         self.allow_break = allow_break
+        self.timebase = timebase
 
     @property
     def noise_array(self):
@@ -163,7 +217,7 @@ class DataCycleNoise(LoadableNoise):
         self.cycle = (indices[-1] * multiple) % len(self.noise_array)
         return noise_array[:, :event_length][indices]
     
-    def load_proto0_root_file(self, filename, channel):
+    def load_proto0_root_file(self, filename, channel, maxevents=None):
         """
         Load noise from a specific file that Simone Stracka gave me. It's not
         on the repository.
@@ -175,13 +229,28 @@ class DataCycleNoise(LoadableNoise):
         channel : str
             ADC channel to read. Must choose the correct one depending on the
             SiPM used.
+        maxevents : int, optional
+            The maximum number of events loaded from the wav file.
         """
+        if self.timebase % 8 != 0:
+            raise RuntimeError(f'can not load `{filename}` data at 125 MSa/s with timebase={self.timebase}')
         root = uproot.open(filename)
         tree = root['midas_data']
-        noise = tree.array(channel)
+        
+        if maxevents is None:
+            maxevents = 2 ** 31
+        nsamples = tree.array('nsamples')
+        nz = np.flatnonzero(nsamples)
+        if maxevents < len(nz):
+            maxevents = nz[maxevents]
+        entrystop = min(tree.numentries, maxevents)
+        
+        noise = tree.array(channel, entrystop=entrystop)
         counts = np.unique(noise.counts)
         assert len(counts) == 2 and counts[0] == 0, 'inconsistent array lengths'
-        self.noise_array = noise._content.reshape(-1, counts[-1])
+        array = noise._content.reshape(-1, counts[-1])
+        
+        self.noise_array = downsample(array, self.timebase // 8, dtype=np.float32)
     
     def load_LNGS_wav(self, filename, maxevents=None):
         """
@@ -196,16 +265,23 @@ class DataCycleNoise(LoadableNoise):
             The maximum number of events loaded from the wav file.
         """
         data = readwav.readwav(filename, maxevents=maxevents, mmap=False, quiet=True)
-        baseline_zone = data[:, 0, :(8900 // 8) * 8]
+        baseline_zone = data[:, 0, :8900]
         ignore = np.any((0 <= baseline_zone) & (baseline_zone < 700), axis=-1)
-        downsampled = np.mean(baseline_zone.reshape(len(ignore), -1, 8), axis=-1)
+        downsampled = downsample(baseline_zone, self.timebase, dtype=np.float32)
         self.noise_array = downsampled[~ignore]
 
     def save(self, filename):
-        np.save(filename, self.noise_array)
+        np.savez(filename, noise_array=self.noise_array, timebase=self.timebase)
     
     def load(self, filename):
-        self.noise_array = np.load(filename)
+        arch = np.load(filename)
+        try:
+            timebase = arch['timebase'].item()
+            if self.timebase % timebase != 0:
+                raise ValueError(f'timebase={self.timebase} in object not a multiple of timebase={timebase} in file `{filename}`')
+            self.noise_array = downsample(arch['noise_array'], self.timebase // timebase)
+        finally:
+            arch.close()
 
 class WhiteNoise(Noise):
     """
@@ -265,16 +341,10 @@ class Template:
         self.template_rel_std = np.std(np.mean(data1pe, axis=1)) / np.mean(self.template)
         self.template_N = np.sum(selection)
         
-        # TODO smooth and window the template
+        # For the moving average.
+        self._cumsum_template = np.concatenate([[0], np.cumsum(self.template)])
         
-        # Convert the template from 1 GSa/s to 125 MSa/s. Make a template for
-        # each possible 1 GSa/s -> 125 GSa/s sample alignment.
-        tlen1ghz = (len(self.template) // 8) * 8
-        padded_template = np.concatenate([np.zeros(7), self.template])
-        self.templates125 = np.stack([
-            np.mean(padded_template[i:tlen1ghz + i].reshape(-1, 8), axis=1)
-            for i in range(7, -1, -1)
-        ])
+        # TODO smooth and window the template
         
         # Compute the baseline distribution.
         bs = baseline[mask]
@@ -285,14 +355,20 @@ class Template:
         STDs = np.std(data[:, 0, :t - 100], axis=1)
         self.noise_std = np.sum(STDs, where=mask) / np.count_nonzero(mask)
     
-    def generate(self, event_length, signal_loc, generator=None, baseline=True, randampl=True):
+    def _ma_template(self, n):
+        """apply a n-moving average to the 1 GSa/s template"""
+        cs = self._cumsum_template
+        x = (cs[n:] - cs[:-n]) / n
+        return x
+    
+    def generate(self, event_length, signal_loc, generator=None, baseline=True, randampl=True, timebase=8):
         """
         Simulate signals, including the baseline.
         
         Parameters
         ----------
         event_length : int
-            Number of samples in each event (@ 125 MSa/s).
+            Number of samples in each event.
         signal_loc : float array (nevents,)
             An array of positions of the signal in each event. The position is
             in unit of samples but it can be non-integer. The position is the
@@ -303,14 +379,16 @@ class Template:
             If True (default), add a baseline to the signal.
         randampl : bool
             If True (default), vary the amplitude of signals.
+        timebase : int
+            Duration of a sample in nanoseconds. Default is 8 i.e. 125 MSa/s.
         
         Return
         ------
         out : array (nevents, event_length)
             Simulated signals.
         """
+        signal_loc = np.asarray(signal_loc)
         nevents = len(signal_loc)
-        tlen = self.templates125.shape[1]
         
         if generator is None:
             generator = np.random.default_rng()
@@ -318,44 +396,53 @@ class Template:
         out = np.zeros((nevents, event_length))
         
         loc_int = np.array(np.floor(signal_loc), int)
-        loc_subsample = np.array(np.floor((signal_loc % 1) * 8), int)
+        loc_ns = np.array(np.floor(signal_loc * timebase), int) % timebase
+        loc_subns = (signal_loc * timebase) % 1
                 
-        for i in range(8):
-            selection = loc_subsample == i
-            idx = np.flatnonzero(selection)
-            indices0 = idx[:, None]
-            indices1 = loc_int[idx][:, None] + np.arange(tlen)
-            out[indices0, indices1] = self.templates125[i]
+        templ = self._ma_template(timebase)
+        tlen = ((len(templ) - 1) // timebase) * timebase
+
+        indices0 = np.arange(nevents)[:, None]
+        indices1 = loc_int[:, None] + np.arange(tlen // timebase)
+        
+        tindices = 1 - loc_ns[:, None] + np.arange(0, tlen, timebase)
+        weight = loc_subns[:, None]
+        out[indices0, indices1] = (1 - weight) * templ[tindices] + weight * templ[tindices - 1]
         if randampl:
             out *= 1 + self.template_rel_std * generator.standard_normal((nevents, 1))
         if baseline:
             out += self.baseline
             out += self.baseline_std * generator.standard_normal((nevents, 1))
         
-        # TODO digitalization
         return out
     
     @property
     def maximum(self):
         """
-        Average maximum amplitude of the signals generated by `generate`.
+        Average maximum amplitude of the signals generated by `generate`
+        at 1 GSa/s.
         """
         return np.max(np.abs(self.template))
     
     @property
     def snr(self):
         """
-        Average peak signal amplitude over noise rms.
+        Average peak signal amplitude over noise rms at 1 GSa/s.
         """
         return self.maximum / self.noise_std
     
-    def maxoffset(self):
+    def maxoffset(self, timebase=8):
         """
-        Time from the start of the template to the maximum, in units of 8 ns.
+        Time from the start of the template to the maximum.
+        
+        Parameters
+        ----------
+        timebase : int
+            The unit of time in nanoseconds.
         """
-        return np.argmax(np.abs(self.template)) / 8
+        return np.argmax(np.abs(self.template)) / timebase
     
-    def matched_filter_template(self, length, norm=True, downsampling=8):
+    def matched_filter_template(self, length, norm=True, timebase=8):
         """
         Return a template for the matched filter. The template is chosen to
         maximize its vector norm.
@@ -368,7 +455,7 @@ class Template:
             If True (default) the template is normalized to unit sum, so that
             the output from the matched filter is comparable to the output from
             a moving average filter.
-        downsampling : int
+        timebase : int
             The original template is at 1 GSa/s. The returned template is
             downsampled by this factor. Default is 8 (125 MSa/s).
         
@@ -381,14 +468,14 @@ class Template:
             the beginning of the template used to generate the fake signals to
             the beginning of the returned template.
         """
-        len1ghz = downsampling * length
+        len1ghz = timebase * length
         assert len1ghz <= len(self.template)
         cs = np.concatenate([[0], np.cumsum(self.template ** 2)])
         s = cs[len1ghz:] - cs[:-len1ghz] # s[j] = sum(template[j:j+len1ghz]**2)
         offset1ghz = np.argmax(s)
-        offset = offset1ghz / downsampling
+        offset = offset1ghz / timebase
         template = self.template[offset1ghz:offset1ghz + len1ghz]
-        template = np.mean(template.reshape(-1, downsampling), axis=1)
+        template = np.mean(template.reshape(-1, timebase), axis=1)
         if norm:
             template /= np.sum(template)
         return template, offset
@@ -714,26 +801,26 @@ class Toy:
             for i in range(len(snrs))
         ])
     
-    def __init__(self, data, tau, mask=None, snr=10, bslen=1024, bsoffset=32, noisegen=WhiteNoise()):
+    def __init__(self, data, tau, mask=None, snr=10, bslen=1024, bsoffset=32, noisegen=None, timebase=8):
         """
         A Toy object simulates 1 p.e. signals with noise, each signal in a
         separate "event", and localize the signal with filters, for a range of
         values of the filter parameters and the SNR.
-        
-        The time base is 125 MSa/s.
         
         Parameters
         ----------
         data : array (N, 2, 15001)
             LNGS data as read by readwav.readwav().
         tau : array (ntau,)
-            The values of the filter length parameters.
+            The values of the filter length parameters, in number of samples.
         mask : bool array (N,), optional
             Mask for the `data` array.
         snr : int or array (ntau, nsnr)
             If an integer, for each tau value an appropriate range of SNR values
             is generated and the number of such values is `snr`. If an array, it
-            must already contain such SNR values.
+            must already contain such SNR values. The SNR is the ratio of the
+            average signal peak height at 1 GSa/s over the noise standard
+            deviation at the actual timebase used.
         bslen : int
             The number of samples used to compute the baseline.
         bsoffset : int
@@ -742,6 +829,9 @@ class Toy:
             where the minimum value of the filter in the event is achieved.
         noisegen : Noise
             An instance of a subclass of Noise. Default white noise.
+        timebase : int
+            The duration of a sample in nanoseconds. Default is 8 i.e.
+            125 MSa/s.
         
         Methods
         -------
@@ -775,9 +865,12 @@ class Toy:
         if mask is None:
             mask = np.ones(len(data), bool)
         
-        template_length = max(np.max(tau) + 32, 256) # @ 125 MSa/s
+        if noisegen is None:
+            noisegen = WhiteNoise(timebase=timebase)
+        
+        template_length = max(np.max(tau) + 256 // timebase, 2048 // timebase)
         self.template = Template()
-        self.template.make(data, template_length * 8, mask)
+        self.template.make(data, template_length * timebase, mask)
 
         if np.isscalar(snr):
             snr = Toy.makesnr(data, tau, self.template, snr, mask=mask, generator=generator, noisegen=noisegen)
@@ -785,14 +878,15 @@ class Toy:
             snr = np.asarray(snr)
             assert snr.shape == (len(tau), snr.shape[1])
         
-        self.templs = [self.template.matched_filter_template(t) for t in tau]
-        self.uptempls = [self.template.matched_filter_template(t * 8, downsampling=1) for t in tau]
+        self.templs = [self.template.matched_filter_template(t, timebase=timebase) for t in tau]
+        self.uptempls = [self.template.matched_filter_template(t * timebase, timebase=1) for t in tau]
         self.template_length = template_length
         self.bslen = bslen
         self.bsoffset = bsoffset
         self.tau = tau
         self.snr = snr
         self.noisegen = noisegen
+        self.timebase = timebase
 
     def run(self, nevents, outfile=None, bslen=None, bsoffset=None, pbar=None, seed=0, noisegen=None, upsampling=False):
         """
@@ -816,12 +910,15 @@ class Toy:
             (default white noise).
         upsampling : bool
             Default False. If True, compute the temporal localization with
-            upsampling to 1 GSa/s.
+            upsampling to 1 GSa/s. 
         
         Return
         ------
         output : array (nevents,)
             A structured numpy array with these fields:
+            'timebase', int :
+                The duration of a sample in nanoseconds, the same for each
+                event.
             'tau', int, (ntau,) :
                 A copy of the tau array, the same for each event.
             'snr', float, (ntau, nsnr) :
@@ -829,6 +926,11 @@ class Toy:
             'sigma', float, (ntau, nsnr) :
                 The standard deviation of the noise, for each value of tau
                 and SNR. The same for each event.
+            'filter_start', int, (ntau,) :
+                The sample number where the filtering starts.
+            'filter_skip', int, (ntau,) :
+                The number of initial samples from the filtered zone not used
+                to compute results.
             'loctrue', float :
                 The sample number where the signal is generated. See
                 toy.Template.generate.
@@ -869,14 +971,18 @@ class Toy:
         bslen = self.bslen if bslen is None else bslen
         bsoffset = self.bsoffset if bsoffset is None else bsoffset
         noisegen = self.noisegen if noisegen is None else noisegen
+        assert self.timebase == noisegen.timebase, 'timebase of Noise object must match timebase of Toy object'
 
-        margin = 64
-        event_length = bslen + bsoffset + self.template_length + margin
+        margin = 512 // self.timebase
+        event_length = max(bslen + bsoffset, np.max(self.tau)) + self.template_length + margin
         
         dtype=[
+            ('timebase', int),
             ('tau', int, self.tau.shape),
             ('snr', float, self.snr.shape),
             ('sigma', float, self.snr.shape),
+            ('filter_start', int, self.tau.shape),
+            ('filter_skip', int, self.tau.shape),
             ('loctrue', float),
             ('loc', float, (4,) + self.snr.shape),
             ('locraw', int, (4,) + self.snr.shape),
@@ -888,6 +994,7 @@ class Toy:
             dtype.append(('locup', float, (4,) + self.snr.shape))
             dtype.append(('locupraw', float, (4,) + self.snr.shape))
         output = np.empty(nevents, dtype=dtype)
+        output['timebase'] = self.timebase
         output['tau'] = self.tau
         output['snr'] = self.snr
         
@@ -916,45 +1023,53 @@ class Toy:
         upsampling = 'locup' in output.dtype.names
         
         # Generate signal and noise arrays.
-        signal_loc_offset = bslen + bsoffset + margin // 2
+        signal_loc_offset = event_length - self.template_length - margin // 2
         signal_loc_cont = generator.uniform(size=nevents)
-        signal_loc = signal_loc_offset + np.rint(signal_loc_cont * 8) / 8
-        # TODO remove 1/8 discretization if/when Template.generate drops it.
-        simulated_signal = self.template.generate(event_length, signal_loc, generator)
+        signal_loc = signal_loc_offset + signal_loc_cont
+        simulated_signal = self.template.generate(event_length, signal_loc, generator, timebase=self.timebase)
         simulated_noise = noisegen.generate(nevents, event_length, generator)
         
-        # Filter objects.
+        # Filter with a moving average to compute the baseline.
         filt_noise = Filter(simulated_noise)
         filt_signal = Filter(simulated_signal, self.template.baseline)
+        bs_noise = filt_noise.moving_average(bslen)
+        bs_signal = filt_signal.moving_average(bslen)
         
         # Upsampled signal and noise (without baseline zone).
         if upsampling:
             upskip = signal_loc_offset - margin // 2
-            simulated_signal_up = np.repeat(simulated_signal[:, upskip:], 8, axis=-1)
-            simulated_noise_up = np.repeat(simulated_noise[:, upskip:], 8, axis=-1)
+            simulated_noise_up = np.repeat(simulated_noise[:, upskip:], self.timebase, axis=-1)
+            simulated_signal_up = np.repeat(simulated_signal[:, upskip:], self.timebase, axis=-1)
             filt_noise_up = Filter(simulated_noise_up)
             filt_signal_up = Filter(simulated_signal_up, self.template.baseline)
-        
-        # Filter with a moving average to compute the baseline.
-        bs_noise = filt_noise.moving_average(bslen)
-        bs_signal = filt_signal.moving_average(bslen)
         
         # Arrays filled in the cycle over tau.
         minima = np.empty((4, 4, ntau, nsnr, nevents))
         # first axis = (loc, locraw, locup, locupraw)
         minval = np.empty(minima.shape)
         sdev = np.empty((4, ntau, nevents))
+        filter_start, filter_skip = np.empty((2, ntau), int)
         
         # Indices used for the interpolation.
         indices = np.ix_(np.arange(4), np.arange(nsnr), np.arange(nevents))
         
         for itau in range(ntau):
+            tau = self.tau[itau]
+            
             # Get the matched filter template.
             mf_templ, _ = self.templs[itau]
             
+            # Filter objects.
+            skip = signal_loc_offset - margin // 2 - tau
+            filt_noise = Filter(simulated_noise[:, skip:])
+            filt_signal = Filter(simulated_signal[:, skip:], self.template.baseline)
+            filter_start[itau] = skip
+            
             # Filter the signal and noise separately.
-            noise = filt_noise.all(mf_templ)
-            signal = filt_signal.all(mf_templ)
+            noise = filt_noise.all(mf_templ)[..., tau:]
+            signal = filt_signal.all(mf_templ)[..., tau:]
+            skip += tau
+            filter_skip[itau] = tau
             
             # Compute the standard deviation of the filtered noise.
             sdev[:, itau] = np.std(noise, axis=-1)
@@ -962,11 +1077,11 @@ class Toy:
             # Combine the noise and signal with the given SNR.
             sigma = self.template.maximum / self.snr[itau]
             sim = signal[:, None, :, :] + sigma[None, :, None, None] * noise[:, None, :, :]
-            assert sim.shape == (4, nsnr, nevents, event_length)
+            assert sim.shape == (4, nsnr, nevents, event_length - skip)
             
             # Interpolate the minimum with a parabola.
             x0 = np.argmin(sim, axis=-1)
-            xp = np.minimum(x0 + 1, event_length - 1)
+            xp = np.minimum(x0 + 1, event_length - skip - 1)
             xm = np.maximum(x0 - 1, 0)
             
             y0 = sim[indices + (x0,)]
@@ -976,10 +1091,10 @@ class Toy:
             num = yp - ym
             denom = yp + ym - 2 * y0
     
-            minima[0, :, itau] = x0 - 1/2 * num / denom
+            minima[0, :, itau] = x0 - 1/2 * num / denom + skip
             minval[0, :, itau] = y0 - 1/8 * num ** 2 / denom
             
-            minima[1, :, itau] = x0
+            minima[1, :, itau] = x0 + skip
             minval[1, :, itau] = y0
             
             if upsampling:
@@ -992,11 +1107,11 @@ class Toy:
                         
                 # Combine the noise and signal with the given SNR.
                 sim = signal[:, None, :, :] + sigma[None, :, None, None] * noise[:, None, :, :]
-                assert sim.shape == (4, nsnr, nevents, (event_length - upskip) * 8)
+                assert sim.shape == (4, nsnr, nevents, (event_length - upskip) * self.timebase)
             
                 # Interpolate the minimum with a parabola.
                 x0 = np.argmin(sim, axis=-1)
-                xp = np.minimum(x0 + 1, (event_length - upskip) * 8 - 1)
+                xp = np.minimum(x0 + 1, (event_length - upskip) * self.timebase - 1)
                 xm = np.maximum(x0 - 1, 0)
             
                 y0 = sim[indices + (x0,)]
@@ -1006,10 +1121,10 @@ class Toy:
                 num = yp - ym
                 denom = yp + ym - 2 * y0
     
-                minima[2, :, itau] = (x0 - 1/2 * num / denom) / 8 + upskip
+                minima[2, :, itau] = (x0 - 1/2 * num / denom) / self.timebase + upskip
                 minval[2, :, itau] = y0 - 1/8 * num ** 2 / denom
 
-                minima[3, :, itau] = x0 / 8 + upskip
+                minima[3, :, itau] = x0 / self.timebase + upskip
                 minval[3, :, itau] = y0
 
         # Compute the baseline.
@@ -1021,7 +1136,7 @@ class Toy:
         # Compute the temporal localization.
         val = baseline - minval[0]
         loc = np.asarray(minima, float)
-        loc[[0, 2], :3] -= self.template.maxoffset()
+        loc[[0, 2], :3] -= self.template.maxoffset(self.timebase)
         loc[:, 1:] -= self.tau[:, None, None]
         mfoffset = np.array([t[1] for t in self.templs])
         loc[[0, 2], 3] += mfoffset[:, None, None]
@@ -1037,6 +1152,8 @@ class Toy:
             output['locupraw'] = np.moveaxis(loc[3], -1, 0)
         output['value'] = np.moveaxis(val, -1, 0)
         output['filtnoisesdev'] = np.moveaxis(sdev, -1, 0)
+        output['filter_start'] = filter_start
+        output['filter_skip'] = filter_skip
         
         output_event['signal'] = simulated_signal
         output_event['noise'] = simulated_noise
@@ -1167,6 +1284,8 @@ class Toy:
 
     def make_event(self, output, output_event, ievent, ifilter, tau, snr):
         """
+        THIS METHOD IS USED JUST BY PLOT_EVENT_WINDOW, DROP IT
+        
         Compute a simulated event.
         
         Parameters
@@ -1197,6 +1316,16 @@ class Toy:
         
         return unfilt, sim
     
+    def sampling_str(self):
+        """
+        A string representing the sampling frequency.
+        """
+        if self.timebase > 1:
+            freq = 1000 / self.timebase
+            return f'{freq:.0f} MSa/s'
+        else:
+            return '1 GSa/s'
+    
     def plot_event(self, output, output_event, ievent, ifilter, itau, isnr):
         """
         Plot a simulated event.
@@ -1213,13 +1342,19 @@ class Toy:
         fig : matplotlib.figure.Figure
             A figure with a single plot.
         """
+        # Get output for the event.
         out = output[ievent]
         oute = output_event[ievent]
         
         tau = out['tau'][itau]
         snr = out['snr'][itau, isnr]
+        sigma = out['sigma'][itau, isnr]
+        fstart = out['filter_start'][itau]
+        fskip = out['filter_skip'][itau]
         
-        unfilt, sim = self.make_event(output, output_event, ievent, ifilter, tau, snr)
+        unfilt = oute['signal'] + sigma * oute['noise']
+        templ, _ = self.template.matched_filter_template(tau, timebase=self.timebase)
+        sim = Filter(unfilt[None, fstart:], self.template.baseline).all(templ)[ifilter, 0]
         
         fig = plt.figure('toy.Toy.plot_event')
         fig.clf()
@@ -1228,8 +1363,9 @@ class Toy:
     
         ax.plot(unfilt, label=f'signal (snr = {snr:.2f})')
         tauname = 'tau' if ifilter == 2 else 'Nsamples'
-        ax.plot(sim, label=f'{Filter.name(ifilter)} ({tauname} = {tau})')
+        ax.plot(np.arange(fstart, len(unfilt)), sim, label=f'{Filter.name(ifilter)} ({tauname} = {tau})')
         
+        ax.axvspan(fstart + fskip, len(unfilt), label='samples used for localization', color='lightgray')
         ax.axvline(out['loctrue'], label='signal template start', color='black')
         ax.axvline(out['loc'][ifilter, itau, isnr], label='localization (uncalib.)', color='red', linestyle='--')
         ax.axhline(out['baseline'][ifilter, itau, isnr], label='baseline', color='black', linestyle='--')
@@ -1237,7 +1373,7 @@ class Toy:
         ax.grid()
         ax.legend(loc='best', fontsize='small')
         ax.set_title(f'Event {ievent}')
-        ax.set_xlabel('Sample number @ 125 MSa/s')
+        ax.set_xlabel(f'Sample number @ {self.sampling_str()}')
         ax.set_ylabel('ADC scale [10 bit]')
     
         fig.tight_layout()
@@ -1306,8 +1442,7 @@ class Toy:
         """
         Compute the temporal localization resolution as the half interquantile
         range from 0.16 to 0.84, which is approximately a standard deviation for
-        the normal distribution, of the localization error, in units of samples
-        (8 ns).
+        the normal distribution, of the localization error, in units of samples.
         
         Parameters
         ----------
@@ -1380,7 +1515,7 @@ class Toy:
         
         width = self.templocres(output['loctrue'], output[locfield])
         if not sampleunit:
-            width *= 8
+            width *= self.timebase
     
         fig = plt.figure('toy.Toy.plot_loc_all', figsize=[10.95,  7.19])
         fig.clf()
@@ -1395,7 +1530,7 @@ class Toy:
                     tauname = 'Tau' if ifilter == 2 else 'Nsamples'
                     label = f'{tau[itau]}'
                     ax.plot(snr[itau], width[ifilter, itau], alpha=alpha, label=label, **linekw)
-                ax.legend(loc='upper right', fontsize='small', title=f'{tauname}\n(125 MSa/s)')
+                ax.legend(loc='upper right', fontsize='small', title=f'{tauname}\n({self.sampling_str()})')
             else:
                 x = snr.reshape(-1)
                 y = width[0].reshape(-1)
@@ -1411,7 +1546,7 @@ class Toy:
             if ax.is_last_row():
                 ax.set_xlabel('Unfiltered SNR (avg signal peak over noise rms)')
             if ax.is_first_col():
-                unitname = '8 ns' if sampleunit else 'ns'
+                unitname = f'{self.timebase} ns' if sampleunit else 'ns'
                 ax.set_ylabel(f'half "$\\pm 1 \\sigma$" interquantile range of\ntemporal localization error [{unitname}]')
             ax.grid(True, which='major', axis='both', linestyle='--')
             if logscale:
@@ -1529,7 +1664,7 @@ class Toy:
             xerr = [[center - left], [right - center]]
             ax.errorbar(center, np.max(h) / 2, xerr=xerr, capsize=4, fmt='k.', label='"$\\pm 1 \\sigma$" quantiles')
             if ax.is_last_row():
-                ax.set_xlabel('Temporal localization error (uncalib.) [8 ns]')
+                ax.set_xlabel(f'Temporal localization error (uncalib.) [{self.timebase} ns]')
             if ax.is_first_col():
                 ax.set_ylabel('Bin count')
             ax.grid()
@@ -1567,7 +1702,7 @@ class Toy:
         noise = self.noisegen.generate(1, len(output) + tau)
         sigma = output['sigma'][0, itau, isnr]
         filt = Filter(sigma * noise)
-        templ, _ = self.template.matched_filter_template(tau)
+        templ, _ = self.template.matched_filter_template(tau, timebase=self.timebase)
         fn = filt.all(templ)[:, 0, tau:]
 
         axs = fig.subplots(2, 2).reshape(-1)
@@ -1582,7 +1717,7 @@ class Toy:
                 tauname = 'tau' if ifilter == 2 else 'nsamples'
                 label1 = f'{tauname} = {tau}'
                 label2 = None
-                legendtitle = '(@ 125 MSa/s)'
+                legendtitle = f'(@ {self.sampling_str()})'
             
             data = output['value'][:, ifilter, itau, isnr]
             ax.hist(data, bins='auto', histtype='step', label=label1)

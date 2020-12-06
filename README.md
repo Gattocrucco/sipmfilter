@@ -6,13 +6,16 @@ This repository contains some code to study filtering of the SiPM output.
 
 The scripts read files which are not included in the repository due to size. [Source](http://ds50tb.lngs.infn.it:2180/SiPM/Tiles/FBK/NUV/MB2-LF-3x/).
 
-  * `merged_000866.npy`: branch `adc_W201_Ch00` from `merged_000866.root` (the root file is not in the repo).
+  * `merged_000886-adc_W201_Ch00.npz`: branch `adc_W201_Ch00` from `merged_000866.root`, to be loaded with `toy.DataCycleNoise()`.
   
-  * `toycomparison-lngs.npy`: noise from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav` downsampled to 125 MSa/s.
+  * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz`: noise from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with `toy.DataCycleNoise()`.
 
 ## Scripts
 
   * `toycomparison.py`: a comparison of time resolution for various filters.
+  
+  * `toy1gsa.py`: like `toycomparison.py` but with 1 GSa/s timebase instead of
+    125 MSa/s.
 
   * `fingersnr.py`: compute the SNR for moving average, exponential moving
     average and matched filter varying their parameters. You have to run this
@@ -34,6 +37,9 @@ The scripts read files which are not included in the repository due to size. [So
   
   * `simplefilter.py`: signal finding. Probably does not work anymore with the
     rest of the code.
+    
+  * `savenoise.py`: save noise data from unversioned files, to be read back
+    by `toy.DataCycleNoise()`.
   
 ## Modules
 
@@ -70,6 +76,11 @@ The scripts read files which are not included in the repository due to size. [So
   * `figures/`: miscellaneous figures made with the scripts.
   
   * `toycomparison/`: figures made with `toycomparison.py`.
+  
+  * `toycomparison-old/`: likewise, but before some taking a smaller window for
+    filtering and localizing the signal.
+    
+  * `toy1gsa/`: figures made with `toy1gsa.py`.
 
 ## Dependencies
 

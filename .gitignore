@@ -3,12 +3,14 @@
 # Learn more about .gitignore:
 #     https://www.atlassian.com/git/tutorials/saving-changes/gitignore
 
+__pycache__
 *.root
 *.wav
-__pycache__
-toycomparison-output.npz
 *.png
 !*/*.png
+
+toycomparison-output.npz
+toy1gsa-output.npz
 
 # Node artifact files
 node_modules/
