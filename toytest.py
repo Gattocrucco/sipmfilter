@@ -12,6 +12,11 @@ ignore = readwav.spurious_signals(data)
 print(f'ignoring {np.sum(ignore)} events with signals in baseline zone')
 
 def plot_mf_template():
+    """
+    DEPRECATED
+
+    There's a plot similar to this made by savetemplate.py, use that.
+    """
     template = toy.Template()
     template.make(data, 4096, ~ignore)
 

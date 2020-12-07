@@ -298,6 +298,46 @@ class WhiteNoise(Noise):
         return generator.standard_normal(size=(nevents, event_length))
 
 class Template:
+    """
+    Class to make a signal template.
+    
+    Methods
+    -------
+    make : make a template from LNGS data.
+    generate : generate signal waveforms from the template.
+    matched_filter_template : make a template for the matched filter.
+    maxoffset : return the position of the peak of the template.
+    load : load the template from a file.
+    save : save the template to file.
+    
+    Properties
+    ----------
+    maximum : peak amplitude of the template.
+    snr : SNR observed in the LNGS data used to make the template.
+    """
+    
+    def _getvars(self):
+        selfdir = dir(self)
+        classdir = dir(type(self))
+        return [n for n in selfdir if n not in classdir and not n.startswith('__')]
+    
+    def save(self, filename):
+        """
+        Save the template to file as a `.npz` archive.
+        """
+        kw = {n: getattr(self, n) for n in self._getvars()}
+        np.savez(filename, **kw)
+    
+    def load(self, filename):
+        """
+        Load the template from a file which was written by `save`.
+        """
+        arch = np.load(filename)
+        for n, x in arch.items():
+            if x.shape == ():
+                x = x.item()
+            setattr(self, n, x)
+        arch.close()
     
     def make(self, data, length, mask=None):
         """
@@ -314,9 +354,7 @@ class Template:
         mask : bool array (nevents,), optional
             Mask for the data array.
         """
-        
-        # TODO this method should be a __init__ really man
-        
+                
         if mask is None:
             mask = np.ones(len(data), bool)
         
@@ -333,6 +371,7 @@ class Template:
         lower = (center[0] + center[1]) / 2
         upper = (center[1] + center[2]) / 2
         selection = (lower < corr_value) & (corr_value < upper) & mask
+        # TODO select based on each trigger instead of taking the median
         t = int(np.median(trigger))
         data1pe = data[selection, 0, t:t + length] - baseline[selection].reshape(-1, 1)
     
