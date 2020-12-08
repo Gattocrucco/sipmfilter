@@ -83,12 +83,12 @@ The scripts read files which are not included in the repository due to size. [So
   
   * `figures/`: miscellaneous figures made with the scripts.
   
-  * `toycomparison/`: figures made with `toycomparison.py`.
+  * `toycomparison/`: figures made with `toycomparison-plot.py`.
   
-  * `toycomparison-old/`: likewise, but before some taking a smaller window for
+  * `toycomparison-old/`: likewise, but before taking a smaller window for
     filtering and localizing the signal.
     
-  * `toy1gsa/`: figures made with `toy1gsa.py`.
+  * `toy1gsa/`: figures made with `toy1gsa-plot.py`.
 
 ## Dependencies
 

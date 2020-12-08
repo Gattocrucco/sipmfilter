@@ -656,17 +656,17 @@ class Filter:
         return out
     
     @staticmethod
-    def name(ifilter):
+    def name(ifilter, short=False):
         """
         Return the name of a filter based on the indexing used in Filter.all().
         """
         names = [
-            'No filter',
-            'Moving average',
-            'Exponential moving average',
-            'Matched filter'
+            ('No filter'                 , 'unfiltered'),
+            ('Moving average'            , 'movavg'    ),
+            ('Exponential moving average', 'expmovavg' ),
+            ('Matched filter'            , 'matched f.'),
         ]
-        return names[ifilter]
+        return names[ifilter][short]
 
 @numba.jit(cache=True, nopython=True)
 def _exponential_moving_average(events, a, boundary, out):
@@ -851,6 +851,7 @@ class Toy(NpzLoad):
         save : save to file.
         sampling_str : string describing the sampling frequency.
         mftempl : get a matched filter template.
+        window_center : helper function to make an argument to run_window.
         
         Class methods
         -------------
@@ -907,13 +908,17 @@ class Toy(NpzLoad):
         output_window : array (nevents,)
             A structured numpy array with these fields, filled after calling
             `run_window`:
-            'wstart', int, (nwin,) :
+            'wstart', int, (ncenter, nwin) :
                 The sample number where the window starts.
-            'wloc', float, (ntau, nwin, nsnr) :
+            'wloc', float, (ncenter, nwin, ntau, nsnr) :
                 The localization from the window (the sample number is still
                 relative to the whole event).
         wlen : array (nwin,)
             The window lengths used by `run_window`.
+        wlmargin : array (nwin,)
+            The left margin of the windows used by `run_window`.
+        wcenter : array (ncenter,)
+            The `wcenter` argument to `run_window` (see `window_center`).
         """        
         assert template.ready
         tau = np.asarray(tau)
@@ -1171,7 +1176,69 @@ class Toy(NpzLoad):
         output_event['signal'] = simulated_signal
         output_event['noise'] = simulated_noise
     
-    def run_window(self, wlen, wlmargin, pbar=None):
+    def window_center(self, ifilter, isnr, itau='best'):
+        """
+        Calibrate the temporal localization of a given filter centering the
+        median on the true location and return it in a format suitable as input
+        to run_window().
+        
+        Parameters
+        ----------
+        ifilter : int array (ncenter,)
+            The indices of the filter, see Filter.all.
+        isnr : int array (ncenter,)
+            The indices of the SNR.
+        itau : int array (ncenter,) or str
+            The indices of tau. If `best` (default), take the best temporal
+            resolution for each filter and SNR.
+        
+        Return
+        ------
+        wcenter : array (ncenter,)
+            A structured numpy array with these fields:
+                'ifilter', int
+                'itau', int
+                'isnr', int
+                'center', int, (nevents,)
+                    The calibrated temporal localization for given filter, tau,
+                    snr, rounded to nearest integer.
+            
+            The first entry in the array has the indices fields set to 9999 and
+            the 'center' field set to the true signal location.
+        """
+        locfield = 'loc'
+        ifilter = np.asarray(ifilter)
+        isnr = np.asarray(isnr)
+        
+        loctrue = self.output['loctrue']
+        locall = self.output[locfield]
+        
+        if isinstance(itau, str) and itau == 'best':
+            res = self.templocres(locfield)
+            itau2d = np.argmin(res, axis=1)
+            itau = itau2d[ifilter, isnr]
+        else:
+            itau = np.asarray(itau)
+        
+        loc = locall[:, ifilter, itau, isnr].T
+        corr = np.median(loc - loctrue, axis=-1)
+        center = loc - corr[:, None]
+        
+        wcenter = np.empty(1 + len(itau), dtype=[
+            ('ifilter', int),
+            ('itau', int),
+            ('isnr', int),
+            ('center', int, len(loctrue))
+        ])
+        wcenter[0] = (9999, 9999, 9999, np.rint(loctrue))
+        wcenter[1:]['ifilter'] = ifilter
+        wcenter[1:]['itau'] = itau
+        wcenter[1:]['isnr'] = isnr
+        wcenter[1:]['center'] = np.rint(center)
+        
+        return wcenter
+    
+    def run_window(self, wlen, wlmargin, wcenter=None, pbar=None):
         """
         Extract a subset of samples from simulated signals and relocalize the
         signal filtering only in the window with the matched filter.
@@ -1185,32 +1252,48 @@ class Toy(NpzLoad):
         wlmargin : int array (nwin,)
             The window starts `wlmargin` samples before the signal template
             start.
+        wcenter : array (ncenter,), optional
+            If specified, the window position is relative to the specified
+            sample for each event instead of the signal template start.
+            Use the method window_center() to compute this array.
         pbar : int, optional
             If given, a progress bar is shown that ticks every `pbar` events.
         
         """
+
         wlen = np.asarray(wlen)
         wlmargin = np.asarray(wlmargin)
+        if wcenter is None:
+            i = np.empty(0, int)
+            wcenter = self.window_center(i, i, i)
+        
+        nwin, = wlen.shape
+        assert wlmargin.shape == (nwin,)
+        nevents = len(self.output)
+        ncenter, = wcenter.shape
                 
-        output = np.empty(len(self.output), dtype=[
-            ('wstart', int, len(wlen)),
-            ('wloc', float, (len(self.tau), len(wlen), len(self.snr)))
+        output = np.empty(nevents, dtype=[
+            ('wstart', int, (ncenter, nwin)),
+            ('wloc', float, (ncenter, nwin, len(self.tau), len(self.snr)))
         ])
         
         def fun(s):
-            self._run_window(output[s], self.output[s], self.output_event[s], wlen, wlmargin)
+            self._run_window(output[s], self.output[s], self.output_event[s], wlen, wlmargin, wcenter['center'][:, s])
         run_sliced(fun, len(self.output), pbar)
 
         self.output_window = output
         self.wlen = wlen
+        self.wlmargin = wlmargin
+        self.wcenter = wcenter
 
-    def _run_window(self, output, run_output, run_output_event, wlen, wlmargin):
+    def _run_window(self, output, run_output, run_output_event, wlen, wlmargin, wcenter):
         
         # Get lengths of things.
         ntau = len(self.tau)
         nwin = len(wlen)
         nevents = len(output)
         nsnr = len(self.snr)
+        ncenter = len(wcenter)
         event_length = self.event_length
         
         # Extract simulated signals.
@@ -1220,35 +1303,39 @@ class Toy(NpzLoad):
         sigma = self.sigma
         
         # Things used in the cycle.
-        minima = np.empty((ntau, nwin, nsnr, nevents))
-        wstart = np.array(np.rint(signal_loc - wlmargin[:, None]), int)
-        indices = np.ix_(np.arange(nsnr), np.arange(nevents))
+        minima = np.empty((ncenter, nwin, ntau, nsnr, nevents))
+        wstart = wcenter[:, None, :] - wlmargin[None, :, None]
+        assert wstart.shape == (ncenter, nwin, nevents)
+        indices = np.ix_(np.arange(ncenter), np.arange(nsnr), np.arange(nevents))
         
         for i, wlen in enumerate(wlen):
             
             # Extract window.
-            idx0 = np.arange(nevents)[:, None]
-            idx1 = wstart[i, :, None] + np.arange(wlen)
+            idx0 = np.arange(nevents)[None, :, None]
+            idx1 = wstart[:, i, :, None] + np.arange(wlen)
+            idx1 = np.minimum(idx1, event_length - 1)
+            idx1 = np.maximum(idx1, 0)
             wsignal = simulated_signal[idx0, idx1]
             wnoise = simulated_noise[idx0, idx1]
-            assert wsignal.shape == (nevents, wlen)
+            assert wsignal.shape == (ncenter, nevents, wlen)
             
             # Make filter objects.
-            rmargin = np.max(self.tau) - wlen + 64
-            filt_wnoise = Filter(wnoise, 0, rmargin)
-            filt_wsignal = Filter(wsignal, 0, rmargin)
+            rmargin = max(0, np.max(self.tau) - wlen) + 64
+            filt_wnoise = Filter(wnoise.reshape(-1, wlen), 0, rmargin)
+            filt_wsignal = Filter(wsignal.reshape(-1, wlen), 0, rmargin)
             
             for j, tau in enumerate(self.tau):
                 
                 # Run the matched filter.
                 templ = self.mftempl(j)
-                noise = filt_wnoise.matched(templ)
-                signal = filt_wsignal.matched(templ)
-                sim = signal + sigma[:, None, None] * noise
+                noise = filt_wnoise.matched(templ).reshape(ncenter, nevents, wlen + rmargin)
+                signal = filt_wsignal.matched(templ).reshape(ncenter, nevents, wlen + rmargin)
+                sim = signal[:, None] + sigma[None, :, None, None] * noise[:, None]
+                assert sim.shape == (ncenter, nsnr, nevents, wlen + rmargin)
         
                 # Interpolate the minimum with a parabola.
                 x0 = np.argmin(sim, axis=-1)
-                xp = np.minimum(x0 + 1, wlen - 1)
+                xp = np.minimum(x0 + 1, wlen + rmargin - 1)
                 xm = np.maximum(x0 - 1, 0)
             
                 y0 = sim[indices + (x0,)]
@@ -1258,13 +1345,13 @@ class Toy(NpzLoad):
                 num = yp - ym
                 denom = yp + ym - 2 * y0
     
-                minima[j, i] = x0 - 1/2 * num / denom
+                minima[:, i, j] = x0 - 1/2 * num / denom
         
         # Compute temporal localization.
-        wloc = minima
-        wloc += wstart[None, :, None, :]
-        wloc -= self.tau[:, None, None, None]
-        wloc += self.templs['offset'][:, None, None, None]
+        wloc = minima # shape == (ncenter, nwin, ntau, nsnr, nevents)
+        wloc += wstart[:, :, None, None, :]
+        wloc -= self.tau[:, None, None]
+        wloc += self.templs['offset'][:, None, None]
         
         # Save results.
         output['wstart'] = np.moveaxis(wstart, -1, 0)
@@ -1331,7 +1418,19 @@ class Toy(NpzLoad):
         
         return fig
     
-    def plot_event_window(self, ievent, isnr, itau, iwlen):
+    def _win_center_str(self, icenter):
+        """
+        Return a string describing the filter used to center the windows.
+        """
+        if icenter == 0:
+            return 'signal template start'
+        jfilter, jtau, jsnr, _ = self.wcenter[icenter]
+        r = self.templocres()[jfilter, jtau, jsnr]
+        tauname = 'N' if jfilter != 2 else '$\\tau$'
+        taustr = f', {tauname}={self.tau[jtau]}' if jfilter != 0 else ''
+        return f'{Filter.name(jfilter, short=True)}{taustr}, SNR={self.snr[jsnr]} ($\\sigma$ = {r:.1f})'
+    
+    def plot_event_window(self, ievent, isnr, itau, iwlen, icenter=0):
         """
         Plot a simulated event with localization from window.
         
@@ -1339,6 +1438,9 @@ class Toy(NpzLoad):
         ----------
         ievent, isnr, itau, iwlen : int
             The indices indicating the event, SNR, tau and window length.
+        icenter : int
+            The index indicating the window centering. Default 0 i.e. centering
+            on the signal template start.
         
         Return
         ------
@@ -1351,7 +1453,8 @@ class Toy(NpzLoad):
         
         tau = self.tau[itau]
         wlen = self.wlen[iwlen]
-        wstart = outw['wstart'][iwlen]
+        wlmargin = self.wlmargin[iwlen]
+        wstart = outw['wstart'][icenter, iwlen]
         snr = self.snr[isnr]
         sigma = self.sigma[isnr]
         
@@ -1372,13 +1475,15 @@ class Toy(NpzLoad):
         ax.plot(wstart + np.arange(len(wsim)), wsim, label='filter from window', linestyle=':', color='black', zorder=10)
         
         ax.axvline(out['loctrue'], label='signal template start', color='black')
-        ax.axvline(outw['wloc'][itau, iwlen, isnr], label='loc. from window', color='red', linestyle='--')
-        ax.axvspan(wstart, wstart + wlen, label=f'window (N={wlen})', color='lightgray')
+        ax.axvline(outw['wloc'][icenter, iwlen, itau, isnr], label='loc. from window', color='red', linestyle='--')
+        window_label = f'window ($-${wlmargin}+{wlen - wlmargin}), centered with\n'
+        window_label += self._win_center_str(icenter)
+        ax.axvspan(wstart, wstart + wlen, label=window_label, color='lightgray')
         # ax.axhline(self.template.baseline, label='baseline', color='black', linestyle='--')
         
         ax.grid()
         ax.legend(loc='best', fontsize='small')
-        ax.set_title(f'Event {ievent}')
+        ax.set_title(f'Event {ievent}, location with window')
         ax.set_xlabel(f'Sample number @ {self.sampling_str()}')
         ax.set_ylabel('ADC scale [10 bit]')
     
@@ -1512,7 +1617,7 @@ class Toy(NpzLoad):
         
         return fig
 
-    def plot_loc_window(self, itau, logscale=True):
+    def plot_loc_window(self, itau, icenter=0, logscale=True):
         """
         Plot temporal localization precision for matched filter on windows
         for each SNR and window length at fixed filter length.
@@ -1521,6 +1626,9 @@ class Toy(NpzLoad):
         ----------
         itau : int
             The index of the filter length.
+        icenter : int
+            The index of the window centering. Default 0 i.e. centering on
+            signal template start.
         logscale : bool
             If True (default), use a vertical logarithmic scale instead of a
             linear one.
@@ -1533,6 +1641,7 @@ class Toy(NpzLoad):
         tau = self.tau[itau]
         snr = self.snr
         wlen = self.wlen
+        wmargin = self.wlmargin
         
         output = self.output
         output_window = self.output_window
@@ -1541,11 +1650,7 @@ class Toy(NpzLoad):
         wlen_orig = self.event_length - fstart
         wmargin_orig = int(np.rint(np.mean(output['loctrue'] - fstart)))
         
-        diff = output['loctrue'][:, None] - output_window['wstart']
-        wmargin = np.array((np.rint(np.mean(diff, axis=0))), int)
-        
-        width = self.templocres(output_window['wloc'], sampleunit=False)[itau]
-        
+        width = self.templocres(output_window['wloc'], sampleunit=False)[icenter, :, itau]
         width_orig = self.templocres(sampleunit=False)[3, itau]
     
         fig = plt.figure('toy.Toy.plot_loc_window')
@@ -1555,10 +1660,11 @@ class Toy(NpzLoad):
         
         for iwlen, wl in enumerate(wlen):
             alpha = (iwlen + 1) / len(wlen)
-            label = f'$-${wmargin[iwlen]}+{wl - wmargin[iwlen]}'
+            lenus = wl * self.timebase / 1000
+            label = f'$-${wmargin[iwlen]}+{wl - wmargin[iwlen]} ({lenus:.1f} $\\mu$s)'
             ax.plot(snr, width[iwlen], alpha=alpha, label=label, color='#600000')
         ax.plot(snr, width_orig, 'k.', label=f'$-${wmargin_orig}+{wlen_orig - wmargin_orig}')
-        ax.legend(loc='upper right', title='Window [samples]\n$-$L+R of templ. start')
+        ax.legend(loc='upper right', title='Window [samples]\n$-$L+R of center')
         
         ax.axhspan(0, self.timebase, color='#ddd', zorder=-10, label=f'{self.timebase} ns')
 
@@ -1568,7 +1674,9 @@ class Toy(NpzLoad):
             ax.set_ylabel('Half "$\\pm 1 \\sigma$" interquantile range of\ntemporal localization error [ns]')
         ax.grid(True, which='major', axis='both', linestyle='--')
         ax.grid(True, which='minor', axis='both', linestyle=':')
-        ax.set_title(f'Matched filter on window (Nsamples={tau} @ {self.sampling_str()})')
+        title = f'Matched filter on window (Nsamples={tau} @ {self.sampling_str()}),\nwindow centered with '
+        title += self._win_center_str(icenter)
+        ax.set_title(title)
         
         if logscale:
             ax.set_yscale('log')

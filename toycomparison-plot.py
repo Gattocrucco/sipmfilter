@@ -95,7 +95,7 @@ def plot_comparison(locfield='loc'):
     fig.tight_layout()
     fig.show()
 
-def doplots(locfield='loc', inoise=0):
+def doplots(locfield='loc', inoise=0, tau=64, ievent=42, ifilter=3, snr=3.0):
     """
     as locfield use one of
     'loc'      : parabolic interpolation
@@ -107,14 +107,14 @@ def doplots(locfield='loc', inoise=0):
     """
     t = toys[inoise]
     t.plot_loc_all(snrspan=(snr10, snr12), logscale=True, sampleunit=False, locfield=locfield)
-    t.plot_loc(itau(64), np.searchsorted(snr, 4.5), locfield=locfield)
-    t.plot_event(42, 3, itau(384), np.searchsorted(snr, 4.5))
+    t.plot_loc(itau(tau), isnr(snr), locfield=locfield)
+    t.plot_event(ievent, ifilter, itau(tau), isnr(snr))
     plot_comparison(locfield)
 
-def doplotsw(inoise=0, tau=64, wlen=128, snr=3.0, ievent=42):
+def doplotsw(inoise=0, tau=256, wlen=128, snr=3.0, ievent=42, icenter=0):
     t = toys[inoise]
-    t.plot_event_window(ievent, isnr(snr), itau(tau), iwlen(wlen))
-    t.plot_loc_window(itau(tau), logscale=False)
+    t.plot_event_window(ievent, isnr(snr), itau(tau), iwlen(wlen), icenter)
+    t.plot_loc_window(itau(tau), icenter, logscale=False)
 
 doplots('loc')
 doplotsw(0)
