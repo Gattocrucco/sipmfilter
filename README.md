@@ -8,20 +8,32 @@ The scripts read files which are not included in the repository due to size. [So
 
   * `merged_000886-adc_W201_Ch00.npz`: branch `adc_W201_Ch00` from `merged_000866.root`, to be loaded with `toy.DataCycleNoise()`.
   
-  * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz`: noise from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with `toy.DataCycleNoise()`.
+  * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz`: noise from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with `toy.DataCycleNoise`.
+  
+  * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz`: template made from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with `toy.Template`.
 
 ## Scripts
 
   * `toycomparison.py`: a comparison of time resolution for various filters.
   
+  * `toycomparison-plot.py`: do the plots for the script above.
+  
   * `toy1gsa.py`: like `toycomparison.py` but with 1 GSa/s timebase instead of
     125 MSa/s.
+    
+  * `toy1gsa-plot.py`: do the plots for the script above.
 
+  * `savenoise.py`: save noise data from unversioned files, to be read back
+    by `toy.DataCycleNoise`.
+    
+  * `savetemplate.py`: save template data from unversioned files, to be read
+    back by `toy.Template`.
+  
   * `fingersnr.py`: compute the SNR for moving average, exponential moving
     average and matched filter varying their parameters. You have to run this
     script in ipython and then call functions interactively.
   
-  * `toytest.py`: some functions to test the `toy.py` module.
+  * `toytest.py`: (OUTDATED) some functions to test the `toy.py` module.
   
   * `fingersnrmf.py`: test for `fingersnr.py`.
 
@@ -35,12 +47,8 @@ The scripts read files which are not included in the repository due to size. [So
   * `spectrum.py`: compute the spectra of Proto0 (the data file is not on the
     repository due to size) and of LNGS (wav file).
   
-  * `simplefilter.py`: signal finding. Probably does not work anymore with the
-    rest of the code.
+  * `simplefilter.py`: (OUTDATED) signal finding.
     
-  * `savenoise.py`: save noise data from unversioned files, to be read back
-    by `toy.DataCycleNoise()`.
-  
 ## Modules
 
   * `toy.py`: classes and functions to do a Monte Carlo to measure time
