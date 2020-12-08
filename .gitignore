@@ -9,8 +9,8 @@ __pycache__
 *.png
 !*/*.png
 
-toycomparison-output.npz
-toy1gsa-output.npz
+toycomparison-*.npz
+toy1gsa-*.npz
 
 # Node artifact files
 node_modules/

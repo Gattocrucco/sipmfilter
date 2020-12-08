@@ -14,13 +14,11 @@ dest = f'{prefix}-template.npz'
 
 data = readwav.readwav(source, mmap=False)
 ignore = readwav.spurious_signals(data)
-template = toy.Template()
-template.make(data, 7 * 512, ~ignore)
+template = toy.Template.from_lngs(data, 7 * 512, ~ignore)
 print(f'saving template to {dest}...')
 template.save(dest)
 
-template = toy.Template()
-template.load(dest)
+template = toy.Template.load(dest)
 
 fig = plt.figure('savetemplate', figsize=[6.4 , 6.93])
 fig.clf()
