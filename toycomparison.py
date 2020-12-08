@@ -5,8 +5,9 @@ import toy
 tau = np.array([4, 8, 16, 24, 32, 40, 48, 64, 96, 128, 192, 256, 384])
 snr = np.linspace(1.8, 6, 15)
 
-wlen = np.array(64 * np.array([2, 2.5, 3, 4, 5, 6, 7]), int) - 32
-wlmargin = np.full_like(wlen, 32)
+wlen = np.array(64 * np.array([1.5, 2, 2.5, 3, 4, 5, 6, 7]), int) - 32
+wlmargin = np.full_like(wlen, 64 - 32)
+wlmargin[0] = 16
 
 noise_proto0 = toy.DataCycleNoise()
 noise_proto0.load('merged_000886-adc_W201_Ch00.npz')
@@ -26,13 +27,13 @@ for name, noise in zip(noise_name, noise_obj):
     t.run(1000, pbar=10, seed=202012071818)
     
     # Make window center argument for Toy.run_window.
-    isnrlngs = np.searchsorted(snr, 3.1)
+    isnr = np.searchsorted(snr, 2.4)
     res = t.templocres() # shape == (nfilter, ntau, nsnr)
     ifilterisnritau = np.array([
-        (3, -1      , -1), # matched, high snr, high tau
-        (3, isnrlngs, 7), # matched, tau=64
-        (2, isnrlngs, np.argmin(res[2, :, isnrlngs])), # exp, best tau
-        (1, isnrlngs, np.argmin(res[1, :, isnrlngs])), # movavg, best tau
+        (3, -1, -1), # matched, high snr, high tau
+        (3, isnr, 7), # matched, tau=64
+        (2, isnr, np.argmin(res[2, :, isnr])), # exp, best tau
+        (1, isnr, np.argmin(res[1, :, isnr])), # movavg, best tau
     ])
     wcenter = t.window_center(*ifilterisnritau.T)
     
