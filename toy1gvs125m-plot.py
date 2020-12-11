@@ -3,27 +3,36 @@ from matplotlib import pyplot as plt
 
 import toy
 
-downsampling = 8 # <-- set this to 8, 16, or 32
+timebase = [8, 16]
+
+whitenoise = True
+
+prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 
 ######################################
 
-timebase = [downsampling, 1]
+timebase = list(reversed(sorted(timebase)))
 
 toys = []
 for i in range(len(timebase)):
-    filename = f'toy1gvs125m-{timebase[i]}.npz'
+    filename = f'toy1gvs125m-{timebase[i]}-white.npz'
     t = toy.Toy.load(filename)
     toys.append(t)
 
-prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
-noise_file = f'{prefix}-noise.npz'
-noise = []
-for i in range(len(timebase)):
-    n = toy.DataCycleNoise(allow_break=True, timebase=timebase[i])
-    n.load(noise_file)
-    noise.append(n)
+if whitenoise:
+    noise = [toy.WhiteNoise(timebase=t) for t in timebase]
+    noise_name = 'white'
+    noise_ratio = np.sqrt(toys[1].timebase / toys[0].timebase)
+else:
+    noise_file = f'{prefix}-noise.npz'
+    noise = []
+    for i in range(len(timebase)):
+        n = toy.DataCycleNoise(allow_break=True, timebase=timebase[i])
+        n.load(noise_file)
+        noise.append(n)
+    noise_name = 'LNGS'
+    noise_ratio = np.std(toy.downsample(noise[1].noise_array, toys[0].timebase // toys[1].timebase))
 
-noise_ratio = np.std(toy.downsample(noise[1].noise_array, timebase[0]))
 print(f'noise_ratio = {noise_ratio:.3f}')
 
 tau = toys[0].tau
@@ -42,19 +51,19 @@ def plot_noise():
     
     ax = fig.subplots(1, 1)
     
-    ax.set_title('LNGS noise')
+    ax.set_title(f'{noise_name} noise')
     ax.set_xlabel(f'Time [{toys[1].timebase} ns]')
     
-    n1 = noise[1].noise_array[0]
-    n0 = noise[0].noise_array[0]
+    N = 600
+    n1 = noise[1].generate(1, N // toys[1].timebase)[0]
+    n0 = noise[0].generate(1, N // toys[0].timebase)[0]
     tbr = toys[0].timebase // toys[1].timebase
     n0r = toy.downsample(n1, tbr)
     ax.plot(n1, label=toys[1].sampling_str())
-    x0 = tbr // 2 + tbr * np.arange(len(n0))
+    x0 = (tbr - 1) / 2 + tbr * np.arange(len(n0))
     ax.plot(x0, n0, label=toys[0].sampling_str())
     ax.plot(x0, n0r, '--', label=f'{toys[0].sampling_str()}, no rescaling')
     
-    ax.set_xlim(0, 600 // toys[1].timebase)
     ax.legend(loc='best')
     ax.grid()
     
@@ -79,7 +88,7 @@ def plot_comparison(locfield='loc', ifilter=1, tau=256):
 
     ax = fig.subplots(1, 1)
     
-    ax.set_title(f'Temporal localization resolution\n{toy.Filter.name(ifilter)}, tau={tau * toys[0].timebase} ns, LNGS noise')
+    ax.set_title(f'Temporal localization resolution\n{toy.Filter.name(ifilter)}, tau={tau * toys[0].timebase} ns, {noise_name} noise')
     ax.set_xlabel('Unfiltered SNR (avg signal peak over noise rms)')
     ax.set_ylabel('Half "$\\pm 1 \\sigma$" interquantile range of\ntemporal localization error [ns]')
 
