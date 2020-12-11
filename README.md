@@ -22,6 +22,11 @@ The scripts read files which are not included in the repository due to size. [So
     125 MSa/s.
     
   * `toy1gsa-plot.py`: do the plots for the script above.
+  
+  * `toy1gvs125m.py`: a comparison of time resolution at 1 GSa/s vs lower
+    sampling frequencies.
+    
+  * `toy1gvs125m-plot.py`: do the plots for the script above.
 
   * `savenoise.py`: save noise data from unversioned files, to be read back
     by `toy.DataCycleNoise`.
@@ -35,9 +40,9 @@ The scripts read files which are not included in the repository due to size. [So
   
   * `toytest.py`: (OUTDATED) some functions to test the `toy.py` module.
   
-  * `fingersnrmf.py`: test for `fingersnr.py`.
+  * `fingersnrmf.py`: (OUTDATED) test for `fingersnr.py`.
 
-  * `manine.py`: test for `fingersnr.py`.
+  * `manine.py`: (OUTDATED) test for `fingersnr.py`.
   
   * `plotwav.py`: plot a pair of things to check the wav file is read correctly
     and makes sense.

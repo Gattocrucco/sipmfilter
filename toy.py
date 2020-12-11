@@ -1674,6 +1674,7 @@ class Toy(NpzLoad):
             ax.set_ylabel('Half "$\\pm 1 \\sigma$" interquantile range of\ntemporal localization error [ns]')
         ax.grid(True, which='major', axis='both', linestyle='--')
         ax.grid(True, which='minor', axis='both', linestyle=':')
+        ax.minorticks_on()
         title = f'Matched filter on window (Nsamples={tau} @ {self.sampling_str()}),\nwindow centered with '
         title += self._win_center_str(icenter)
         ax.set_title(title)
