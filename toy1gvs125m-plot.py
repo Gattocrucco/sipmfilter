@@ -3,66 +3,71 @@ from matplotlib import pyplot as plt
 
 import toy
 
-timebase = [8, 16]
-
-whitenoise = True
+timebase = [1, 8, 16]
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 
 ######################################
 
-timebase = list(reversed(sorted(timebase)))
+timebase = np.array(list(sorted(timebase)))
+# index 0 = higher sampling frequency
 
 toys = []
-for i in range(len(timebase)):
-    filename = f'toy1gvs125m-{timebase[i]}-white.npz'
-    t = toy.Toy.load(filename)
-    toys.append(t)
-
-if whitenoise:
-    noise = [toy.WhiteNoise(timebase=t) for t in timebase]
-    noise_name = 'white'
-    noise_ratio = np.sqrt(toys[1].timebase / toys[0].timebase)
-else:
-    noise_file = f'{prefix}-noise.npz'
-    noise = []
+noise_labels = ['white', 'lngs']
+noise_names  = ['white', 'LNGS']
+for inoise in range(len(noise_labels)):
+    toys.append([])
     for i in range(len(timebase)):
-        n = toy.DataCycleNoise(allow_break=True, timebase=timebase[i])
-        n.load(noise_file)
-        noise.append(n)
-    noise_name = 'LNGS'
-    noise_ratio = np.std(toy.downsample(noise[1].noise_array, toys[0].timebase // toys[1].timebase))
+        filename = f'toy1gvs125m-{timebase[i]}-{noise_labels[inoise]}.npz'
+        t = toy.Toy.load(filename)
+        toys[inoise].append(t)
 
-print(f'noise_ratio = {noise_ratio:.3f}')
+noise = [None] * 2
+noise_ratio = [None] * 2
 
-tau = toys[0].tau
-snr = toys[0].snr
+noise[0] = [toy.WhiteNoise(timebase=t) for t in timebase]
+noise_ratio[0] = [np.sqrt(timebase[0] / tb) for tb in timebase]
+
+noise_file = f'{prefix}-noise.npz'
+noise[1] = []
+for i in range(len(timebase)):
+    n = toy.DataCycleNoise(allow_break=True, timebase=timebase[i])
+    n.load(noise_file)
+    noise[1].append(n)
+noise_ratio[1] = [np.std(toy.downsample(noise[1][0].noise_array, tb // timebase[0])) for i, tb in enumerate(timebase)]
+
+for inoise in range(len(noise_labels)):
+    print(f'noise_ratio ({noise_labels[inoise]}) =', ', '.join(f'{noise_ratio[inoise][i]:.3f} ({tb})' for i, tb in enumerate(timebase)))
+
+tau = toys[0][0].tau * toys[0][0].timebase
 
 def isomething(a, x):
     i = np.searchsorted(a, x)
     assert a[i] == x
     return i
 itau = lambda t: isomething(tau, t)
-isnr = lambda s: min(np.searchsorted(snr, s), len(snr) - 1)
+isnr = lambda snr, s: min(np.searchsorted(snr, s), len(snr) - 1)
 
-def plot_noise():
+def plot_noise(inoise=1):
+    """
+    inoise = 0 (white), 1 (lngs)
+    """
     fig = plt.figure('toy1gvs125m-noise')
     fig.clf()
     
     ax = fig.subplots(1, 1)
     
-    ax.set_title(f'{noise_name} noise')
-    ax.set_xlabel(f'Time [{toys[1].timebase} ns]')
+    ax.set_title(f'{noise_names[inoise]} noise')
+    ax.set_xlabel(f'Time [{timebase[0]} ns]')
     
     N = 600
-    n1 = noise[1].generate(1, N // toys[1].timebase)[0]
-    n0 = noise[0].generate(1, N // toys[0].timebase)[0]
-    tbr = toys[0].timebase // toys[1].timebase
-    n0r = toy.downsample(n1, tbr)
-    ax.plot(n1, label=toys[1].sampling_str())
-    x0 = (tbr - 1) / 2 + tbr * np.arange(len(n0))
-    ax.plot(x0, n0, label=toys[0].sampling_str())
-    ax.plot(x0, n0r, '--', label=f'{toys[0].sampling_str()}, no rescaling')
+    
+    n = noise[inoise][0].generate(1, N // timebase[0])[0]
+    for itb in range(len(timebase)):
+        tbr = timebase[itb] // timebase[0]
+        nr = toy.downsample(n, tbr)
+        x = (tbr - 1) / 2 + tbr * np.arange(len(nr))
+        ax.plot(x, nr, label=toys[inoise][itb].sampling_str())
     
     ax.legend(loc='best')
     ax.grid()
@@ -72,36 +77,39 @@ def plot_noise():
 
 def plot_comparison(locfield='loc', ifilter=1, tau=256):
     """
-    Compare temporal resolution at 1 GSa/s vs. 125 MSa/s.
+    Compare temporal resolution at different sampling frequencies and noises.
     
     locfield = 'loc' (interpolation) or 'locraw' (integer, no interpolation)
     ifilter = 0 (no filter), 1 (moving average), 2 (expmovavg), 3 (matched)
     tau is @ 1 GSa/s.
     """
-    tau //= toys[0].timebase
-    
-    r0 = toys[0].templocres(locfield, sampleunit=False)[ifilter, itau(tau)]
-    r1 = toys[1].templocres(locfield, sampleunit=False)[ifilter, itau(tau)]
-
     fig = plt.figure('toy1gvs125m', figsize=[7.14, 4.8])
     fig.clf()
 
     ax = fig.subplots(1, 1)
-    
-    ax.set_title(f'Temporal localization resolution\n{toy.Filter.name(ifilter)}, tau={tau * toys[0].timebase} ns, {noise_name} noise')
-    ax.set_xlabel('Unfiltered SNR (avg signal peak over noise rms)')
+
+    ax.set_title(f'Temporal localization resolution\n{toy.Filter.name(ifilter)}, tau={tau} ns')
+    ax.set_xlabel(f'Unfiltered SNR @ {toys[0][0].sampling_str()} (avg signal peak over noise rms)')
     ax.set_ylabel('Half "$\\pm 1 \\sigma$" interquantile range of\ntemporal localization error [ns]')
 
-    kw = dict(linestyle='-')
-    ax.plot(snr * noise_ratio, r0, label=f'{toys[0].sampling_str()} (SNR *= {noise_ratio:.3f})', marker='.', **kw)
-    ax.plot(snr, r1, label=toys[1].sampling_str(), marker='+', **kw)
-    ax.axhspan(0, toys[0].timebase, color='#ddd', zorder=-10)
-    ax.axhspan(0, toys[1].timebase, color='#999', zorder=-9)
+    for itb in range(len(timebase)):
+        kw = dict(linestyle='')
+        for inoise in range(len(noise)):
+            t = toys[inoise][itb]
+            r = t.templocres(locfield, sampleunit=False)[ifilter, itau(tau)]
+            nr = noise_ratio[inoise][itb]
+            snr_str = f' (SNR *= {nr:.3f})' if itb > 0 else ''
+            line, = ax.plot(t.snr * nr, r, label=f'{t.sampling_str()}, {noise_names[inoise]} noise{snr_str}', marker=['.', '+'][inoise], **kw)
+            kw['color'] = line.get_color()
+        dark = 0.6
+        light = 0.87
+        color = dark + (light - dark) * itb / (len(timebase) - 1)
+        ax.axhspan(0, timebase[itb], color=np.ones(3) * color, zorder=-10 - itb)
 
     ax.minorticks_on()
-    ax.grid(True, 'major', linestyle='--')
-    ax.grid(True, 'minor', linestyle=':')
-    ax.legend(title='Sampling frequency', loc='upper right', title_fontsize='medium')
+    ax.grid(True, 'major', linestyle='--', color='#000')
+    ax.grid(True, 'minor', linestyle=':', color='#000')
+    ax.legend(loc='upper right')
     
     ax.set_xscale('log')
     ax.set_yscale('log')
@@ -109,17 +117,18 @@ def plot_comparison(locfield='loc', ifilter=1, tau=256):
     fig.tight_layout()
     fig.show()
 
-def doplots(locfield='loc', itb=0, tau=64, ievent=42, ifilter=3, snr=3.0):
+def doplots(locfield='loc', itb=0, tau=512, ievent=42, ifilter=3, snr=3.0, inoise=0):
     """
     locfield = 'loc' (interpolation) or 'locraw' (integer, no interpolation)
-    itb = 0 (125 MSa/s), 1 (1 GSa/s)
-    tau is @ 125 MSa/s.
+    itb = 0 (low sampling frequency), 1 (high sampling frequency)
+    tau is @ 1 GSa/s
     ifilter = 0 (no filter), 1 (moving average), 2 (expmovavg), 3 (matched)
+    inoise = 0 (white), 1 (lngs)
     """
-    t = toys[itb]
+    t = toys[inoise][itb]
     t.plot_loc_all(logscale=True, sampleunit=False, locfield=locfield)
-    t.plot_loc(itau(tau), isnr(snr), locfield=locfield)
-    t.plot_event(ievent, ifilter, itau(tau), isnr(snr))
+    t.plot_loc(itau(tau), isnr(t.snr, snr), locfield=locfield)
+    t.plot_event(ievent, ifilter, itau(tau), isnr(t.snr, snr))
 
-plot_comparison()
-plot_noise()
+plot_comparison(ifilter=3, tau=2048)
+plot_noise(inoise=1)

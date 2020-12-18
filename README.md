@@ -6,7 +6,7 @@ This repository contains some code to study filtering of the SiPM output.
 
 The scripts read files which are not included in the repository due to size. [Source](http://ds50tb.lngs.infn.it:2180/SiPM/Tiles/FBK/NUV/MB2-LF-3x/).
 
-  * `merged_000886-adc_W201_Ch00.npz`: branch `adc_W201_Ch00` from `merged_000866.root`, to be loaded with `toy.DataCycleNoise()`.
+  * `merged_000886-adc_W201_Ch00.npz`: branch `adc_W201_Ch00` from `merged_000866.root`, to be loaded with `toy.DataCycleNoise`.
   
   * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz`: noise from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with `toy.DataCycleNoise`.
   
@@ -14,6 +14,12 @@ The scripts read files which are not included in the repository due to size. [So
 
 ## Scripts
 
+  * `savenoise.py`: save noise data from unversioned files, to be read back
+    by `toy.DataCycleNoise`.
+    
+  * `savetemplate.py`: save template data from unversioned files, to be read
+    back by `toy.Template`.
+  
   * `toycomparison.py`: a comparison of time resolution for various filters.
   
   * `toycomparison-plot.py`: do the plots for the script above.
@@ -28,12 +34,6 @@ The scripts read files which are not included in the repository due to size. [So
     
   * `toy1gvs125m-plot.py`: do the plots for the script above.
 
-  * `savenoise.py`: save noise data from unversioned files, to be read back
-    by `toy.DataCycleNoise`.
-    
-  * `savetemplate.py`: save template data from unversioned files, to be read
-    back by `toy.Template`.
-  
   * `fingersnr.py`: compute the SNR for moving average, exponential moving
     average and matched filter varying their parameters. You have to run this
     script in ipython and then call functions interactively.
