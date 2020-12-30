@@ -52,7 +52,7 @@ def plot_noise(inoise=1):
     """
     inoise = 0 (white), 1 (lngs)
     """
-    fig = plt.figure('toy1gvs125m-noise')
+    fig = plt.figure('toy1gvs125m-plot.plot_noise')
     fig.clf()
     
     ax = fig.subplots(1, 1)
@@ -75,7 +75,7 @@ def plot_noise(inoise=1):
     fig.tight_layout()
     fig.show()
 
-def plot_comparison(locfield='loc', ifilter=1, tau=256):
+def plot_templocres(locfield='loc', ifilter=1, tau=256):
     """
     Compare temporal resolution at different sampling frequencies and noises.
     
@@ -83,7 +83,7 @@ def plot_comparison(locfield='loc', ifilter=1, tau=256):
     ifilter = 0 (no filter), 1 (moving average), 2 (expmovavg), 3 (matched)
     tau is @ 1 GSa/s.
     """
-    fig = plt.figure('toy1gvs125m', figsize=[7.14, 4.8])
+    fig = plt.figure('toy1gvs125m-plot.plot_templocres', figsize=[7.14, 4.8])
     fig.clf()
 
     ax = fig.subplots(1, 1)
@@ -117,10 +117,48 @@ def plot_comparison(locfield='loc', ifilter=1, tau=256):
     fig.tight_layout()
     fig.show()
 
+def plot_filtsnr(ifilter=1, tau=256, logscale=True):
+    """
+    Compare filtered SNR at different sampling frequencies and noises.
+    
+    ifilter = 0 (no filter), 1 (moving average), 2 (expmovavg), 3 (matched)
+    tau is @ 1 GSa/s.
+    """
+    fig = plt.figure('toy1gvs125m-plot.plot_filtsnr', figsize=[7.14, 4.8])
+    fig.clf()
+
+    ax = fig.subplots(1, 1)
+
+    ax.set_title(f'Signal to noise ratio after vs. before filtering\n{toy.Filter.name(ifilter)}, tau={tau} ns')
+    ax.set_xlabel(f'Unfiltered SNR @ {toys[0][0].sampling_str()} (avg signal peak over noise rms)')
+    ax.set_ylabel('Filtered SNR (median filter peak over filtered noise rms)')
+
+    for itb in range(len(timebase)):
+        kw = dict(linestyle='')
+        for inoise in range(len(noise)):
+            t = toys[inoise][itb]
+            s = t.filteredsnr()[ifilter, itau(tau)]
+            nr = noise_ratio[inoise][itb]
+            snr_str = f' (SNR *= {nr:.3f})' if itb > 0 else ''
+            line, = ax.plot(t.snr * nr, s, label=f'{t.sampling_str()}, {noise_names[inoise]} noise{snr_str}', marker=['.', '+'][inoise], **kw)
+            kw['color'] = line.get_color()
+
+    ax.minorticks_on()
+    ax.grid(True, 'major', linestyle='--')
+    ax.grid(True, 'minor', linestyle=':')
+    ax.legend(loc='best')
+    
+    if logscale:
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+
+    fig.tight_layout()
+    fig.show()
+
 def doplots(locfield='loc', itb=0, tau=512, ievent=42, ifilter=3, snr=3.0, inoise=0):
     """
     locfield = 'loc' (interpolation) or 'locraw' (integer, no interpolation)
-    itb = 0 (low sampling frequency), 1 (high sampling frequency)
+    itb = 0 (high sampling frequency), 1, ...
     tau is @ 1 GSa/s
     ifilter = 0 (no filter), 1 (moving average), 2 (expmovavg), 3 (matched)
     inoise = 0 (white), 1 (lngs)
@@ -130,5 +168,6 @@ def doplots(locfield='loc', itb=0, tau=512, ievent=42, ifilter=3, snr=3.0, inois
     t.plot_loc(itau(tau), isnr(t.snr, snr), locfield=locfield)
     t.plot_event(ievent, ifilter, itau(tau), isnr(t.snr, snr))
 
-plot_comparison(ifilter=3, tau=2048)
+plot_templocres(ifilter=3, tau=2048)
+plot_filtsnr(ifilter=3, tau=2048, logscale=False)
 plot_noise(inoise=1)

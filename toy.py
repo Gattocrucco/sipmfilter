@@ -1524,7 +1524,7 @@ class Toy(NpzLoad):
             x *= self.timebase
         return x
     
-    def filteredsnr(self, output):
+    def filteredsnr(self):
         """
         Compute the SNR after filtering, i.e. the median peak filter output over
         the filtered noise rms.
@@ -1539,8 +1539,8 @@ class Toy(NpzLoad):
         fsnr : array (4, ntau, nsnr)
             The filtered SNR.
         """
-        val = np.median(output['value'], axis=0)
-        width = np.median(output['filtnoisesdev'], axis=0)[:, :, None] * self.sigma[None, None, :]
+        val = np.median(self.output['value'], axis=0)
+        width = np.median(self.output['filtnoisesdev'], axis=0)[:, :, None] * self.sigma[None, None, :]
         return val / width
 
     def plot_loc_all(self, logscale=True, sampleunit=True, snrspan=None, locfield='loc'):
