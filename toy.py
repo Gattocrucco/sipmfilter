@@ -415,7 +415,7 @@ class Template(NpzLoad):
     
     def generate(self, event_length, signal_loc, generator=None, randampl=True, timebase=8):
         """
-        Simulate signals, including the baseline.
+        Simulate signals.
         
         Parameters
         ----------
@@ -993,11 +993,7 @@ class Toy(NpzLoad):
         pbar : int, optional
             If given, a progress bar is shown that ticks every `pbar` events.
         seed : int
-            Seed for the random number generator (default 0).
-        noisegen : Noise, optional
-            Overrides the noise generator object given at initialization
-            (default white noise).
-        
+            Seed for the random number generator (default 0).        
         """
         generator = np.random.default_rng(seed)
         
