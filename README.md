@@ -53,6 +53,8 @@ The scripts read files which are not included in the repository due to size. [So
     repository due to size) and of LNGS (wav file).
   
   * `simplefilter.py`: (OUTDATED) signal finding.
+  
+  * `fig*.py`: scripts for figures in my thesis.
     
 ## Modules
 
@@ -71,6 +73,8 @@ The scripts read files which are not included in the repository due to size. [So
     accuracy issues).
  
   * `fighelp.py`: convenience functions for matplotlib figures.
+  
+  * `figlatex.py`: generate LaTeX command for including a matplotlib figure.
   
 ## Output
 

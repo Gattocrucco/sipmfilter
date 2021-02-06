@@ -3,7 +3,7 @@ from matplotlib import pyplot as plt
 
 import toy
 
-timebase = [1, 8, 16]
+timebase = [1, 8, 16, 32]
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 
