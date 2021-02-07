@@ -4,13 +4,18 @@ This repository contains some code to study filtering of the SiPM output.
 
 ## Data
 
-The scripts read files which are not included in the repository due to size. [Source](http://ds50tb.lngs.infn.it:2180/SiPM/Tiles/FBK/NUV/MB2-LF-3x/).
+The scripts read files which are not included in the repository due to size.
+[Source](http://ds50tb.lngs.infn.it:2180/SiPM/Tiles/FBK/NUV/MB2-LF-3x/).
 
-  * `merged_000886-adc_W201_Ch00.npz`: branch `adc_W201_Ch00` from `merged_000866.root`, to be loaded with `toy.DataCycleNoise`.
+  * `merged_000886-adc_W201_Ch00.npz`: branch `adc_W201_Ch00` from
+    `merged_000866.root`, to be loaded with `toy.DataCycleNoise`.
   
-  * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz`: noise from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with `toy.DataCycleNoise`.
+  * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz`: noise from
+    `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with
+    `toy.DataCycleNoise`.
   
-  * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz`: template made from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with `toy.Template`.
+  * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz`: template made from
+    `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with `toy.Template`.
 
 ## Scripts
 
@@ -78,11 +83,13 @@ The scripts read files which are not included in the repository due to size. [So
   
 ## Output
 
-  * `fingersnr-changebaseline/`: the output from `fingersnr.py` for the 2020-11-03 slides.
+  * `fingersnr-changebaseline/`: the output from `fingersnr.py` for the
+    2020-11-03 slides.
   
   * `fingersnr-changebaseline-mf/`: the same after adding the matched filter.
   
-  * `fingersnr-mftemplate/`: plot of the matched filter template and its spectrum.
+  * `fingersnr-mftemplate/`: plot of the matched filter template and its
+    spectrum.
   
   * `min_snr_ratio.py`: saved ratios filtered SNR/unfiltered SNR.
   
@@ -101,4 +108,6 @@ The scripts read files which are not included in the repository due to size. [So
 
 ## Dependencies
 
-Should work with Python >= 3.6 and the standard Python scientific stack. Just in case: developed on Python 3.8.2, required modules with version numbers are listed in `requirements.txt`.
+Should work with Python >= 3.6 and the standard Python scientific stack. Just
+in case: developed on Python 3.8.2, required modules with version numbers are
+listed in `requirements.txt`.

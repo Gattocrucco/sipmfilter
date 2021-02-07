@@ -2,6 +2,9 @@ from scipy import signal
 import numpy as np
 from matplotlib import pyplot as plt
 
+def plot_histogram(ax, counts, bins, **kw):
+    return ax.plot(np.concatenate([bins[:1], bins]), np.concatenate([[0], counts, [0]]), drawstyle='steps-post', **kw)
+
 def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
     """
     Compute the SNR i.e. ratio of signal amplitude over amplitude of noise for
@@ -77,12 +80,16 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
     if fig1 is not None:
         ax = fig1.subplots(1, 1)
         
-        ax.set_title('Histogram of baseline-corrected and inverted signal')
-        ax.set_xlabel('ADC scale')
-        ax.set_ylabel('Occurences')
+        ax.set_xlabel('Baseline-corrected filter output [ADC unit]')
+        ax.set_ylabel('Counts per bin')
 
-        ax.plot(bins[:-1], counts, drawstyle='steps-post', zorder=10, label='histogram')
-        ax.plot(peaks_loc, ph, 'x')
+        plot_histogram(ax, counts, bins, color='black', zorder=10, label='histogram')
+        ax.plot(peaks_loc, ph, 'o', color='#f55', zorder=11, label='auto-detected peaks')
+
+        kwvline = dict(linestyle=':', color='black', label='boundaries')
+        for i in range(len(window)):
+            ax.axvline(window[i], **kwvline)
+            kwvline.pop('label', None)
 
         kwvline = dict(linestyle='--', color='black', linewidth=1, label='median')
         kwvspan = dict(color='lightgray', label='symmetrized 68 % interquantile range')
@@ -92,14 +99,12 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
             kwvline.pop('label', None)
             kwvspan.pop('label', None)
 
-        kwvline = dict(linestyle=':', color='gray', label='boundaries')
-        for i in range(len(window)):
-            ax.axvline(window[i], **kwvline)
-            kwvline.pop('label', None)
-
+        ax.legend(loc='upper right')
         ax.set_xlim(L - 10, R + 10)
         ax.set_ylim(0, ax.get_ylim()[1])
-        ax.legend(loc='upper right')
+        ax.minorticks_on()
+        ax.grid(True, which='major', linestyle='--')
+        ax.grid(True, which='minor', linestyle=':')
     
     # Figure of centers and widths of peaks.
     if fig2 is not None:

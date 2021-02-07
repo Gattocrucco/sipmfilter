@@ -4,6 +4,7 @@ from matplotlib import pyplot as plt
 import readwav
 import single_filter_analysis
 import integrate
+import figlatex
 
 nphotons = [1, 3, 5]
 length = 2000
@@ -62,3 +63,6 @@ ax.grid(True, which='minor', linestyle=':')
 
 fig.tight_layout()
 fig.show()
+
+fig.savefig('../thesis/figures/' + fig.canvas.get_window_title() + '.pdf')
+print(figlatex.figlatex(fig))

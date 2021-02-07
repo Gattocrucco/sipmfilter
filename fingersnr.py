@@ -9,12 +9,6 @@ import integrate
 from single_filter_analysis import single_filter_analysis
 from make_template import make_template
 
-# Load wav file.
-filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
-data = readwav.readwav(filename, mmap=False)
-ignore = readwav.spurious_signals(data)
-print(f'ignoring {np.sum(ignore)} events with signals in baseline zone')
-
 def make_tau_delta(tau, ndelta, flat=True):
     """
     Make a range of delta (offset from trigger) for each tau (length parameter
@@ -141,22 +135,30 @@ def snrseries(tau=_default_tau, ndelta=_default_ndelta, bslen=8000, plot=True):
         snrplot(*output)
     return output
 
-def snrplot(tau, delta_ma, delta_exp, delta_mf, waveform, snr):
+def snrplot(tau, delta_ma, delta_exp, delta_mf, waveform, snr, fig1=None, fig2=None, plottemplate=True):
     """
     Plot SNR as a function of tau and delta. Called by snrseries().
     
     Parameters
     ----------
-    The output from snrseries().
+    tau, delta_ma, delta_exp, delta_mf, waveform, snr : arrays
+        The output from snrseries().
+    fig1, fig2 : matplotlib figure, optional
+        The figures where the plot is drawn.
+    plottemplate : bool
+        If True (default), plot the matched filter template.
     
     Returns
     -------
     fig1, fig2 : matplotlib figure
         The figures with the plots.
     """
-
-    fig = plt.figure('fingersnr-snrplot', figsize=[10.2, 7.1])
-    fig.clf()
+    
+    if fig1 is None:
+        fig = plt.figure('fingersnr-snrplot', figsize=[10.2, 7.1])
+        fig.clf()
+    else:
+        fig = fig1
     
     grid = gridspec.GridSpec(2, 2)
     ax0 = fig.add_subplot(grid[0, 0])
@@ -166,37 +168,43 @@ def snrplot(tau, delta_ma, delta_exp, delta_mf, waveform, snr):
 
     axs[0].set_title('Moving average')
     axs[1].set_title('Exponential moving average')
-    axs[2].set_title('Matched filter')
+    axs[2].set_title('Cross correlation')
     
     for i, (ax, d) in enumerate(zip(axs, [delta_ma, delta_exp, delta_mf])):
         for j in range(len(tau)):
             alpha = 1 - (j / len(tau))
-            label = f'tau = {tau[j]} ns'
+            label = f'{tau[j]}'
             ax.plot(d[j], snr[i, j], color='black', alpha=alpha, label=label)
         if ax.is_first_col():
             ax.set_ylabel('SNR')
         if ax.is_last_row():
             ax.set_xlabel('Offset from trigger [ns]')
-        ax.grid()
+        ax.minorticks_on()
+        ax.grid(True, which='major', linestyle='--')
+        ax.grid(True, which='minor', linestyle=':')
     
-    axs[2].legend(loc='best', fontsize='small')
+    axs[2].legend(loc='best', title='Filter length [ns]', ncol=2)
 
     fig.tight_layout()
     fig.show()
     
     fig1 = fig
     
-    fig = plt.figure('fingersnr-snrplot2')
-    fig.clf()
+    if plottemplate and fig2 is None:
+        fig = plt.figure('fingersnr-snrplot2')
+        fig.clf()
+    else:
+        fig = fig2
     
-    ax = fig.subplots(1, 1)
-    ax.set_title('Matched filter template')
-    ax.set_xlabel('Sample number [ns]')
-    ax.plot(waveform)
-    ax.grid()
+    if plottemplate:
+        ax = fig.subplots(1, 1)
+        ax.set_title('Matched filter template')
+        ax.set_xlabel('Sample number [ns]')
+        ax.plot(waveform)
+        ax.grid()
     
-    fig.tight_layout()
-    fig.show()
+        fig.tight_layout()
+        fig.show()
     
     fig2 = fig
     
@@ -408,62 +416,115 @@ def snrmax(tau=_default_tau, bslen=8000, plot=True, hint_delta_ma=None):
         snrmaxplot(*output)
     return output
 
-def snrmaxplot(tau, snrmax, deltarange):
+def snrmaxplot(tau, snrmax, deltarange, fig=None, plotoffset=True):
     """
     Plot the output from snrmax(). Called by snrmax().
     
     Parameters
     ----------
-    The things returned by snrmax().
+    tau, snrmax, deltarange : array
+        The things returned by snrmax().
+    fig : matplotlib figure, optional
+        The figure where the plot is drawn.
+    plotoffset : bool
+        If True (default), plot the offset from trigger that maximizes the SNR.
     
     Returns
     -------
     fig : matplotlib figure
     """
-    fig = plt.figure('fingersnr-snrmaxplot', figsize=[6.4, 7.1])
-    fig.clf()
-
-    axs = fig.subplots(3, 1, sharex=True)
-
-    axs[0].set_title('Maximum SNR')
-    axs[1].set_title('Offset from trigger that maximizes the SNR')
-    axs[2].set_title('Interval width -1 SNR relative to maximum')
-    axs[0].set_ylabel('SNR')
-    axs[1].set_ylabel('Offset from trigger [ns]')
-    axs[2].set_ylabel('Offset from trigger [ns]')
-    axs[2].set_xlabel('Filter duration parameter [ns]')
+    if fig is None:
+        fig = plt.figure('fingersnr-snrmaxplot', figsize=[6.4, 7.1])
+        fig.clf()
     
-    names = ['moving average', 'exponential moving average', 'matched filter']
-    for i, label in enumerate(names):
-        x = tau + 12 * (i - 1)
+    if plotoffset:
+        ax0, ax1, ax2 = fig.subplots(3, 1, sharex=True)
+    else:
+        ax0, ax2 = fig.subplots(2, 1, sharex=True)
+        ax1 = None
 
-        ax = axs[0]
-        line, = ax.plot(tau, snrmax[i], '.--', label=label)
-        color = line.get_color()
-        ax.legend(loc='best')
-        ax.grid(True)
+    _snrmaxplot_core(tau, snrmax, deltarange, ax0, ax1, ax2)
     
-        ax = axs[1]
-        dr = deltarange[i].T
-        yerr = np.array([
-            dr[1] - dr[0],
-            dr[2] - dr[1]
-        ])
-        sel = snrmax[i] > 0
-        ax.errorbar(x[sel], dr[1, sel], yerr=yerr[:, sel], fmt='.', color=color, capsize=4)
-        ax.grid(True)
-        
-        ax = axs[2]
-        ax.plot(tau, dr[2] - dr[0], '.--', color=color)
-        ax.grid(True)
-
     fig.tight_layout()
     fig.show()
     
     return fig
 
-print('now call interactively any of:')
-print('fingerplot(<tau>, <delta>, "ma" or "exp" or "mf", <bslen>)')
-print('snrseries(<taus>, <ndelta>, <bslen>)')
-print('snrmax(<taus>, <bslen>)')
-print('templateplot(<n>)')
+def snrmaxplot_multiple(fig, snrmaxout):
+    """
+    Plot the output from multiple snrmax() invocations.
+    
+    Parameters
+    ----------
+    fig : matplotlib figure, optional
+        The figure where the plot is drawn.
+    snrmaxout : list of tuples
+        The output(s) from snrmax.
+    
+    Return
+    ------
+    axs : matplotlib axes
+        A 2 x len(snrmaxout) array of axes.
+    """
+    axs = fig.subplots(2, len(snrmaxout), sharex=True, sharey='row')
+    
+    for i, (ax0, ax2) in enumerate(axs.T):
+        _snrmaxplot_core(*snrmaxout[i], ax0, None, ax2, legendkw=dict(fontsize='small', title_fontsize='medium'))
+    
+    return axs
+
+def _snrmaxplot_core(tau, snrmax, deltarange, ax0, ax1, ax2, legendkw={}):
+    if ax0.is_first_col():
+        ax0.set_ylabel('Maximum SNR')
+    if ax1 is not None and ax1.is_first_col():
+        ax1.set_ylabel('Offset from trigger\nthat maximizes the SNR [ns]')
+    if ax2.is_first_col():
+        ax2.set_ylabel('Width of maximum\n of SNR vs. offset [ns]')
+    ax2.set_xlabel('Filter length [ns]')
+    
+    kws = {
+        'moving average'            : dict(linestyle='-', color='black', marker='x'),
+        'exponential moving average': dict(linestyle='--', color='black', marker='.'),
+        'cross correlation'         : dict(linestyle=':', color='black', marker='o', markerfacecolor='white'),
+    }
+    
+    for i, (label, kw) in enumerate(kws.items()):
+        x = tau + 12 * (i - 1)
+
+        ax0.plot(tau, snrmax[i], label=label, **kw)
+    
+        dr = deltarange[i].T
+        if ax1 is not None:
+            sel = snrmax[i] > 0
+            ax1.plot(tau[sel], dr[1, sel], **kw)
+            # yerr = np.array([
+            #     dr[1] - dr[0],
+            #     dr[2] - dr[1]
+            # ])
+            # ax.errorbar(x[sel], dr[1, sel], yerr=yerr[:, sel], fmt='.', color=color, capsize=4)
+        
+        ax2.plot(tau, dr[2] - dr[0], **kw)
+    
+    if ax0.is_first_col():
+        ax0.legend(title='Filter', **legendkw)
+    for ax in [ax0, ax1, ax2]:
+        if ax is not None:
+            ax.minorticks_on()
+            ax.grid(True, which='major', linestyle='--')
+            ax.grid(True, which='minor', linestyle=':')
+    if ax1 is not None:
+        ax1.set_yscale('log')
+    ax2.set_yscale('log')
+
+if __name__ == '__main__':
+    # Load wav file.
+    filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
+    data = readwav.readwav(filename, mmap=False)
+    ignore = readwav.spurious_signals(data)
+    print(f'ignoring {np.sum(ignore)} events with signals in baseline zone')
+
+    print('now call interactively any of:')
+    print('fingerplot(<tau>, <delta>, "ma" or "exp" or "mf", <bslen>)')
+    print('snrseries(<taus>, <ndelta>, <bslen>)')
+    print('snrmax(<taus>, <bslen>)')
+    print('templateplot(<n>)')

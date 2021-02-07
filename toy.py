@@ -323,6 +323,10 @@ class Template(NpzLoad):
     snr : SNR observed in the LNGS data used to make the template.
     ready : True if the template object can be used.
     template_length : the length of the 1 GSa/s template.
+    
+    Instance variables
+    ------------------
+    baseline : the average baseline
     """
     
     def __init__(self):
@@ -664,7 +668,7 @@ class Filter:
             ('No filter'                 , 'unfiltered'),
             ('Moving average'            , 'movavg'    ),
             ('Exponential moving average', 'expmovavg' ),
-            ('Matched filter'            , 'matched f.'),
+            ('Cross correlation'         , 'crosscorr' ),
         ]
         return names[ifilter][short]
 
@@ -679,6 +683,7 @@ def _exponential_moving_average(events, a, boundary, out):
 
 @numba.jit(cache=True, nopython=True)
 def _correlate(events, template, out):
+    # TODO should use np.correlate which uses fft
     for i in numba.prange(len(events)):
         for j in range(out.shape[1]):
             out[i, j] = np.dot(events[i, j:j + len(template)], template)

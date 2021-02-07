@@ -208,7 +208,7 @@ def make_start_mf(waveform_mf, length_mf):
 @numba.jit(cache=True, nopython=True)
 def integrate(data, bslen=6900):
     """
-    OLD FUNCTION, USE `filter` INSTEAD
+    DEPRECATED, USE `filter` INSTEAD
     
     Take data from wav file and compute a 1000 samples average of the signal
     after each trigger pulse start.

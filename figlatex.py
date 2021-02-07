@@ -1,6 +1,6 @@
 from matplotlib import pyplot as plt
 
-def figlatex(fig=None):
+def figlatex(fig=None, indent=' '*4):
     if fig is None:
         fig = plt.gcf()
     title = fig.canvas.get_window_title()
@@ -11,4 +11,4 @@ def figlatex(fig=None):
         align = '\\centering'
     else:
         align = f'\\hspace{{{(1 - relwidth) / 2:.2f}\\textwidth}}'
-    return f'{align}\n\\includegraphics[width={relwidth:.2f}\\textwidth]{{{title}}}'
+    return f'{indent}{align}\n{indent}\\includegraphics[width={relwidth:.2f}\\textwidth]{{{title}}}'
