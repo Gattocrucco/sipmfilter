@@ -206,7 +206,8 @@ class DataCycleNoise(Noise):
     def generate(self, nevents, event_length, generator=None):
         # TODO reshape the noise_array to use the same chunk for more events,
         # because right now I've saved just 150 proto0 chunks and I'm using
-        # them for 1000 events
+        # them for 1000 events.
+        # TODO raise an error if cycled past the end (optional).
         maxlen = self.noise_array.shape[1]
         if not self.allow_break and event_length > maxlen:
             raise ValueError(f'Event length {event_length} > maximum {maxlen}')
@@ -326,7 +327,10 @@ class Template(NpzLoad):
     
     Instance variables
     ------------------
-    baseline : the average baseline
+    baseline : scalar
+        The average baseline.
+    template : 1D array
+        The source 1 GSa/s template used by methods.
     """
     
     def __init__(self):
@@ -671,6 +675,14 @@ class Filter:
             ('Cross correlation'         , 'crosscorr' ),
         ]
         return names[ifilter][short]
+    
+    @staticmethod
+    def tauname(ifilter):
+        """
+        Return the name of the filter length parameter (uses LaTeX).
+        """
+        names = [None, 'N', '$\\tau$', 'N']
+        return names[ifilter]
 
 @numba.jit(cache=True, nopython=True)
 def _exponential_moving_average(events, a, boundary, out):
@@ -887,16 +899,14 @@ class Toy(NpzLoad):
                 The sample number where the signal is generated. See
                 toy.Template.generate.
             'loc', float, (4, ntau, nsnr) :
-                Localized signal start. It is not calibrated, it is just
-                corrected to be roughly the same as `loctrue`. Computed with
+                Signal localization. It is not calibrated. Computed with
                 parabolic interpolation.
             'locraw' :
                 Like 'loc' but without interpolation.
             'locup' :
                 Like 'loc' but with upsampling. Present only if upsampling=True.
             'locupraw' :
-                Like 'locup' but without interpolation. Present only if
-                upsampling=True.
+                Like 'locup' but without interpolation.
             'value', float, (4, ntau, nsnr) :
                 The filtered value at the minimum, with inverted sign.
             'filtnoisesdev', float, (4, ntau) :
@@ -1006,8 +1016,8 @@ class Toy(NpzLoad):
         nsnr = len(self.snr)
         
         dtype = [
-            ('filter_start', int, ntau),
-            ('filter_skip', int, ntau),
+            ('filter_start', int, (ntau,)),
+            ('filter_skip', int, (ntau,)),
             ('loctrue', float),
             ('loc', float, (4, ntau, nsnr)),
             ('locraw', int, (4, ntau, nsnr)),
@@ -1155,12 +1165,14 @@ class Toy(NpzLoad):
         # idx1 = np.array(minima[1], int) - bsoffset - self.tau[:, None, None]
         # baseline = bs_signal[idx0, idx1] + self.sigma[None, :, None] * bs_noise[idx0, idx1]
         
-        # Compute the temporal localization.
+        # Get the temporal localization.
         val = -minval[0]
         loc = np.asarray(minima, float)
-        loc[[0, 2], :3] -= self.template.maxoffset(timebase)
-        loc[:, 1:] -= self.tau[:, None, None]
-        loc[[0, 2], 3] += self.templs['offset'][:, None, None]
+        
+        # Align approximately the localization.
+        # loc[[0, 2], :3] -= self.template.maxoffset(timebase)
+        # loc[:, 1:] -= self.tau[:, None, None]
+        # loc[[0, 2], 3] += self.templs['offset'][:, None, None]
         
         # Write results in the output arrays.
         output['loctrue'] = signal_loc
@@ -1364,21 +1376,27 @@ class Toy(NpzLoad):
         """
         if self.timebase > 1:
             freq = 1000 / self.timebase
-            return f'{freq:.0f} MSa/s'
+            return f'{freq:.3g} MSa/s'
         else:
             return '1 GSa/s'
     
-    def plot_event(self, ievent, ifilter, itau, isnr):
+    def plot_event(self, ievent, ifilter, itau, isnr, ax=None):
         """
         Plot a simulated event.
         
+        Parameters
+        ----------
         ievent, ifilter, itau, isnr : int
             The indices indicating the event, filter, tau and SNR respectively.
+            Set ifilter=None to plot all filters.
+        ax : matplotlib axis, optional
+            If provided, draw the plot on the given axis. Otherwise (default)
+            make a new figure and show it.
         
         Return
         ------
-        fig : matplotlib.figure.Figure
-            A figure with a single plot.
+        fig : matplotlib figure or None
+            The figure object, if ax is not specified.
         """
         # Get output for the event.
         out = self.output[ievent]
@@ -1392,32 +1410,51 @@ class Toy(NpzLoad):
         
         unfilt = oute['signal'] + sigma * oute['noise']
         templ = self.mftempl(itau)
-        sim = Filter(unfilt[None, fstart:]).all(templ)[ifilter, 0]
+        sim = Filter(unfilt[None, fstart:]).all(templ)[:, 0]
         
-        fig = plt.figure('toy.Toy.plot_event')
-        fig.clf()
+        if ax is None:
+            fig, ax = plt.subplots(num='toy.Toy.plot_event', clear=True)
+            returnfig = True
+        else:
+            returnfig = False
     
-        ax = fig.subplots(1, 1)
-    
-        ax.plot(unfilt, label=f'signal (snr = {snr:.2f})')
-        tauname = 'tau' if ifilter == 2 else 'Nsamples'
-        ax.plot(np.arange(fstart, len(unfilt)), sim, label=f'{Filter.name(ifilter)} ({tauname} = {tau})')
+        ax.plot(unfilt, label=f'Signal+noise (SNR={snr:.3g})', color='#f55')
         
-        ax.axvspan(fstart + fskip, len(unfilt), label='samples used for localization', color='lightgray')
-        ax.axvline(out['loctrue'], label='signal template start', color='black')
-        ax.axvline(out['loc'][ifilter, itau, isnr], label='localization (uncalib.)', color='red', linestyle='--')
-        # ax.axhline(out['baseline'][ifilter, itau, isnr], label='baseline', color='black', linestyle='--')
+        if ifilter is None:
+            ifilter = [1, 2, 3]
+        else:
+            ifilter = [ifilter]
+        kw = [
+            None,
+            dict(linestyle=':'),
+            dict(linestyle='--'),
+            dict(linestyle='-'),
+        ]
+        for ifilt in ifilter:
+            label = f'{Filter.name(ifilt)} ({Filter.tauname(ifilt)}={tau})'
+            x = np.arange(fstart, len(unfilt))
+            y = sim[ifilt]
+            ax.plot(x, y, label=label, color='black', **kw[ifilt])
+            
+            loc = out['loc'][ifilt, itau, isnr]
+            val = -out['value'][ifilt, itau, isnr]
+            ax.plot(loc, val, marker='o', color='black')
         
-        ax.grid()
-        ax.legend(loc='best', fontsize='small')
-        ax.set_title(f'Event {ievent}')
+        ax.axvspan(fstart + fskip, len(unfilt), label='Samples used for localization', color='#ddd')
+        ax.axvline(out['loctrue'], label='Signal template start', color='black', linestyle='-.')
+        # ax.axhline(out['baseline'][ifilter, itau, isnr], label='baseline', color='black', linestyle='--')        
+        
+        ax.legend(loc='upper left', fontsize='small', title=f'Event {ievent}')
         ax.set_xlabel(f'Sample number @ {self.sampling_str()}')
-        ax.set_ylabel('ADC scale [10 bit]')
+
+        ax.minorticks_on()
+        ax.grid(True, which='major', linestyle='--')
+        ax.grid(True, which='minor', linestyle=':')
     
-        fig.tight_layout()
-        fig.show()
-        
-        return fig
+        if returnfig:
+            fig.tight_layout()
+            fig.show()
+            return fig
     
     def _win_center_str(self, icenter):
         """

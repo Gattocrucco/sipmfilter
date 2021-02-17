@@ -81,6 +81,8 @@ The scripts read files which are not included in the repository due to size.
   
   * `figlatex.py`: generate LaTeX command for including a matplotlib figure.
   
+  * `num2si.py`: function to print a number with SI suffix.
+  
 ## Output
 
   * `fingersnr-changebaseline/`: the output from `fingersnr.py` for the
