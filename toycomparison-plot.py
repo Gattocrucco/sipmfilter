@@ -25,7 +25,7 @@ itau  = lambda t: isomething(tau, t)
 iwlen = lambda w: isomething(wlen, w)
 isnr  = lambda s: min(np.searchsorted(snr, s), len(snr) - 1)
 
-snrs = t.filteredsnr(toys[0].output)
+snrs = toys[0].filteredsnr()
 filt_snr = snrs[1, itau(128)]
 interp = interpolate.interp1d(filt_snr, snr, fill_value='extrapolate')
 snr10, snr12 = interp([10, 12])

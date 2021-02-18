@@ -953,6 +953,8 @@ class Toy(NpzLoad):
                 Like 'locup' but without interpolation.
             'value', float, (4, ntau, nsnr) :
                 The filtered value at the minimum, with inverted sign.
+            'valueclean', float, (4, ntau) :
+                Like 'value' but filtering only the signal without noise.
             'filtnoisesdev', float, (4, ntau) :
                 The standard deviation of filtered unitary variance noise for
                 each filter.
@@ -1066,7 +1068,8 @@ class Toy(NpzLoad):
             ('loc', float, (4, ntau, nsnr)),
             ('locraw', int, (4, ntau, nsnr)),
             ('value', float, (4, ntau, nsnr)),
-            ('filtnoisesdev', float, (4, ntau))
+            ('valueclean', float, (4, ntau)),
+            ('filtnoisesdev', float, (4, ntau)),
         ]
         # if self.dobaseline:
         #     dtype.append(('baseline', float, (4, ntau, nsnr)))
@@ -1077,7 +1080,7 @@ class Toy(NpzLoad):
         
         dtype = [
             ('signal', float, self.event_length),
-            ('noise', float, self.event_length)
+            ('noise', float, self.event_length),
         ]
         output_event = np.empty(nevents, dtype)
                 
@@ -1124,12 +1127,14 @@ class Toy(NpzLoad):
         # Arrays filled in the cycle over tau.
         minima = np.empty((4, 4, ntau, nsnr, nevents))
         # first axis = (loc, locraw, locup, locupraw)
-        minval = np.empty(minima.shape)
+        minval = np.empty_like(minima)
         sdev = np.empty((4, ntau, nevents))
+        cleanval = np.empty_like(sdev)
         filter_start, filter_skip = np.empty((2, ntau), int)
         
         # Indices used for the interpolation.
-        indices = np.ix_(np.arange(4), np.arange(nsnr), np.arange(nevents))
+        indices = tuple(np.ogrid[:4, :nsnr, :nevents])
+        indices_clean = tuple(np.ogrid[:4, :nevents])
         
         for itau in range(ntau):
             tau = self.tau[itau]
@@ -1155,6 +1160,20 @@ class Toy(NpzLoad):
             # Combine the noise and signal with the given SNR.
             sim = signal[:, None, :, :] + self.sigma[None, :, None, None] * noise[:, None, :, :]
             assert sim.shape == (4, nsnr, nevents, event_length - skip)
+            
+            # Interpolate the minimum with a parabola, without noise.
+            x0 = np.argmin(signal, axis=-1)
+            xp = np.minimum(x0 + 1, event_length - skip - 1)
+            xm = np.maximum(x0 - 1, 0)
+            
+            y0 = signal[indices_clean + (x0,)]
+            yp = signal[indices_clean + (xp,)]
+            ym = signal[indices_clean + (xm,)]
+            
+            num = yp - ym
+            denom = yp + ym - 2 * y0
+    
+            cleanval[:, itau] = y0 - 1/8 * num ** 2 / denom
             
             # Interpolate the minimum with a parabola.
             x0 = np.argmin(sim, axis=-1)
@@ -1208,24 +1227,22 @@ class Toy(NpzLoad):
         # idx0 = np.arange(nevents)
         # idx1 = np.array(minima[1], int) - bsoffset - self.tau[:, None, None]
         # baseline = bs_signal[idx0, idx1] + self.sigma[None, :, None] * bs_noise[idx0, idx1]
-        
-        # Get the temporal localization.
-        val = -minval[0]
-        loc = np.asarray(minima, float)
-        
+                
         # Align approximately the localization.
+        # loc = np.asarray(minima, float)
         # loc[[0, 2], :3] -= self.template.maxoffset(timebase)
         # loc[:, 1:] -= self.tau[:, None, None]
         # loc[[0, 2], 3] += self.templs['offset'][:, None, None]
         
         # Write results in the output arrays.
         output['loctrue'] = signal_loc
-        output['loc'] = np.moveaxis(loc[0], -1, 0)
-        output['locraw'] = np.moveaxis(loc[1], -1, 0)
+        output['loc'] = np.moveaxis(minima[0], -1, 0)
+        output['locraw'] = np.moveaxis(minima[1], -1, 0)
         if upsampling:
-            output['locup'] = np.moveaxis(loc[2], -1, 0)
-            output['locupraw'] = np.moveaxis(loc[3], -1, 0)
-        output['value'] = np.moveaxis(val, -1, 0)
+            output['locup'] = np.moveaxis(minima[2], -1, 0)
+            output['locupraw'] = np.moveaxis(minima[3], -1, 0)
+        output['value'] = np.moveaxis(-minval[0], -1, 0)
+        output['valueclean'] = np.moveaxis(-cleanval, -1, 0)
         output['filtnoisesdev'] = np.moveaxis(sdev, -1, 0)
         output['filter_start'] = filter_start
         output['filter_skip'] = filter_skip
@@ -1608,13 +1625,10 @@ class Toy(NpzLoad):
     
     def filteredsnr(self):
         """
-        Compute the SNR after filtering, i.e. the median peak filter output over
-        the filtered noise rms.
+        DEPRECATED, use snrratio().
         
-        Parameters
-        ----------
-        output : array (nevents,)
-            The first output from Toy.run().
+        Compute the SNR after filtering, i.e. the median peak filter output
+        over the filtered noise rms.
         
         Return
         ------
@@ -1625,9 +1639,29 @@ class Toy(NpzLoad):
         width = np.median(self.output['filtnoisesdev'], axis=0)[:, :, None] * self.sigma[None, None, :]
         return val / width
 
-    def plot_loc_all(self, logscale=True, sampleunit=True, snrspan=None, locfield='loc'):
+    def snrratio(self):
         """
-        Plot temporal localization precision vs filter, filter length, SNR.
+        Compute the ratio SNR after filtering over SNR before filtering,
+        where the SNR is the median peak signal amplitude over the noise rms.
+        
+        Return
+        ------
+        fsnr : array (4, ntau)
+            The SNR ratio for the various filters.
+        """
+        nofilter = np.median(self.output['valueclean'][:, 0], axis=0)
+        assert np.all(nofilter[0] == nofilter)
+        S = nofilter[0]
+        N = 1
+        SNR = S / N
+        FS = np.median(self.output['valueclean'], axis=0)
+        FN = np.median(self.output['filtnoisesdev'], axis=0)
+        FSNR = FS / FN
+        return FSNR / SNR
+
+    def plot_loc_all(self, logscale=True, sampleunit=True, snrspan=None, locfield='loc', axs=None):
+        """
+        Plot temporal localization resolution vs filter, filter length, SNR.
         
         Parameters
         ----------
@@ -1641,32 +1675,40 @@ class Toy(NpzLoad):
             Values to plot a vertical span between two SNR values.
         locfield : str
             The field in `output` used as temporal localization. Default 'loc'.
+        axs : 2x2 array of matplotlib axes, optional
+            If provided, draw the plot on the given axes. Otherwise (default)
+            make a new figure and show it.
         
         Return
         ------
-        fig : matplotlib.figure.Figure
-            A figure with an axis for each filter.
+        fig : matplotlib figure or None
+            The figure object, if axs is not specified.
         """
         tau = self.tau
         snr = self.snr
         output = self.output
         
         width = self.templocres(locfield, sampleunit)
-    
-        fig = plt.figure('toy.Toy.plot_loc_all', figsize=[10.95,  7.19])
-        fig.clf()
-
-        axs = fig.subplots(2, 2, sharex=True, sharey=True).reshape(-1)
         
-        linekw = dict(color='#600000')
+        if axs is None:
+            fig, axs = plt.subplots(2, 2, num='toy.Toy.plot_loc_all', figsize=[10.95, 7.19], clear=True)
+            returnfig = True
+        else:
+            returnfig = False
+
+        axs = axs.reshape(-1)
+        
+        linekw = dict(color='#600')
         for ifilter, ax in enumerate(axs):
             if ifilter > 0:
+                lines = []
                 for itau in range(len(tau)):
                     alpha = (itau + 1) / len(tau)
-                    tauname = 'Tau' if ifilter == 2 else 'Nsamples'
-                    label = f'{tau[itau]}'
-                    ax.plot(snr, width[ifilter, itau], alpha=alpha, label=label, **linekw)
-                ax.legend(loc='upper right', fontsize='small', title=f'{tauname}\n({self.sampling_str()})')
+                    labeltau = tau[itau]
+                    # if not sampleunit:
+                    #     labeltau *= self.timebase
+                    line, = ax.plot(snr, width[ifilter, itau], alpha=alpha, label=f'{labeltau}', **linekw)
+                    lines.append(line)
             else:
                 ax.plot(snr, width[0, 0], **linekw)
         
@@ -1681,23 +1723,30 @@ class Toy(NpzLoad):
             if ax.is_first_col():
                 unitname = f'{self.timebase} ns' if sampleunit else 'ns'
                 ax.set_ylabel(f'half "$\\pm 1 \\sigma$" interquantile range of\ntemporal localization error [{unitname}]')
-            ax.grid(True, which='major', axis='both', linestyle='--')
-            if logscale:
-                ax.grid(True, which='minor', axis='y', linestyle=':')
-            ax.set_title(Filter.name(ifilter))
+            
+            ax.minorticks_on()
+            ax.grid(True, which='major', linestyle='--')
+            ax.grid(True, which='minor', linestyle=':')
+            
+            textbox.textbox(ax, Filter.name(ifilter), loc='upper center', fontsize='medium')
+        
+        labels = [line.get_label() for line in lines]
+        legendtitle = 'N or $\\tau$ [samples]'
+        # legendtitle = 'N or $\\tau$ ' + ('[samples]' if sampleunit else '[ns]')
+        axs[0].legend(lines, labels, ncol=3, fontsize='small', title=legendtitle, loc='best', framealpha=0.9)
         
         if logscale:
             axs[0].set_yscale('log')
         else:
             lims = axs[0].get_ylim()
             axs[0].set_ylim(min(0, lims[0]), lims[1])
-        lims = axs[0].get_xlim()
-        axs[0].set_xlim(lims[0], lims[1] + (lims[1] - lims[0]) * 0.25)
-    
-        fig.tight_layout()
-        fig.show()
+        # lims = axs[0].get_xlim()
+        # axs[0].set_xlim(lims[0], lims[1] + (lims[1] - lims[0]) * 0.25)
         
-        return fig
+        if returnfig:
+            fig.tight_layout()
+            fig.show()
+            return fig
 
     def plot_loc_window(self, itau, icenter=0, logscale=True):
         """
@@ -1793,7 +1842,7 @@ class Toy(NpzLoad):
         Return
         ------
         fig : matplotlib figure or None
-            The figure object, if ax is not specified.
+            The figure object, if axs is not specified.
         """
         tau = self.tau[itau]
         snr = self.snr[isnr]

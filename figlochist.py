@@ -18,7 +18,7 @@ template = toy.Template.load(templfile)
 sim = toy.Toy(template, [tau], [snr], noise)
 sim.run(1000, pbar=10, seed=202102172153)
 
-fig, axs = plt.subplots(2, 2, num='figlochist', clear=True, figsize=[7, 5])
+fig, axs = plt.subplots(2, 2, num='figlochist', clear=True, figsize=[7, 4.3])
 
 sim.plot_loc(0, 0, axs=axs, center=True)
 
