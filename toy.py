@@ -29,6 +29,7 @@ import uproot
 import integrate
 from single_filter_analysis import single_filter_analysis
 import readwav
+import textbox
 
 def downsample(a, n, axis=-1, dtype=None):
     """
@@ -151,7 +152,7 @@ class Noise(metaclass=abc.ABCMeta):
       
 class DataCycleNoise(Noise):
     
-    def __init__(self, timebase=8, allow_break=False):
+    def __init__(self, timebase=8, allow_break=False, chunk_skip=None, maxcycles=None):
         """
         Class to generate noise cycling through actual noise data.
     
@@ -163,8 +164,19 @@ class DataCycleNoise(Noise):
             125 MSa/s.
         allow_break : bool
             Default False. If True, the event length can be longer than the
-            noise chuncks obtained from data, but there may be breaks in the
+            noise chunks obtained from data, but there may be breaks in the
             events where one sample is not properly correlated with the next.
+        chunk_skip : int, optional
+            By default each noise event is copied from a different noise data
+            chunk to avoid correlations between events. If chunk_skip is
+            specified, multiple events can be taken from the same chunk,
+            skipping chunk_skip samples between each event.
+        maxcycles : int, optional
+            By default `generate` can reuse the same chunk for different events
+            if there's not enough noise data for all events. maxcycles, if
+            specified, set the maximum number of times any chunk can be reused.
+            Once the limit is hit an exception is raised and the counter is
+            reset.
 
         Members
         -------
@@ -183,9 +195,12 @@ class DataCycleNoise(Noise):
         ----------
         noise_array
         """
-        self.cycle = 0
-        self.allow_break = allow_break
         self.timebase = timebase
+        self.allow_break = allow_break
+        self.chunk_skip = chunk_skip
+        self.maxcycles = maxcycles
+
+        self.cycle = 0
 
     @property
     def noise_array(self):
@@ -204,23 +219,52 @@ class DataCycleNoise(Noise):
         self._noise_array = (val - mean) / std
         
     def generate(self, nevents, event_length, generator=None):
-        # TODO reshape the noise_array to use the same chunk for more events,
-        # because right now I've saved just 150 proto0 chunks and I'm using
-        # them for 1000 events.
-        # TODO raise an error if cycled past the end (optional).
-        maxlen = self.noise_array.shape[1]
-        if not self.allow_break and event_length > maxlen:
-            raise ValueError(f'Event length {event_length} > maximum {maxlen}')
+        nchunks, chunklen = self.noise_array.shape
         
-        multiple = int(np.ceil(event_length / maxlen))
-        assert multiple <= len(self.noise_array)
-        length = (len(self.noise_array) // multiple) * multiple
-        noise_array = self.noise_array[:length].reshape(length // multiple, multiple * maxlen)
+        if not self.allow_break and event_length > chunklen:
+            raise ValueError(f'Event length {event_length} > maximum {chunklen}')
         
-        cycle = self.cycle // multiple
-        indices = (1 + cycle + np.arange(nevents)) % len(noise_array)
-        self.cycle = (indices[-1] * multiple) % len(self.noise_array)
-        return noise_array[:, :event_length][indices]
+        if event_length > chunklen // 2 or self.chunk_skip is None:
+            # each event uses one or more chunks
+            
+            chperev = int(np.ceil(event_length / chunklen))
+            assert chperev <= nchunks
+            newnchunks = (nchunks // chperev) * chperev
+            noise_array = self.noise_array[:newnchunks].reshape(newnchunks // chperev, chperev * chunklen)
+        
+            cycle = int(np.ceil(self.cycle / chperev))
+            nextcycle = (cycle + nevents) * chperev
+            
+            indices = (cycle + np.arange(nevents)) % len(noise_array)
+            events = noise_array[:, :event_length][indices]
+        
+        else:
+            # each chunk is used for one or more events
+            
+            effevlen = event_length + self.chunk_skip
+            evperch = (chunklen + self.chunk_skip) // effevlen
+            
+            cycle = self.cycle * evperch
+            nextcycle = int(np.ceil((cycle + nevents) / evperch))
+            
+            flatindices = cycle + np.arange(nevents)
+            indices0 = (flatindices // evperch) % nchunks
+            indices0 = indices0[:, None]
+            indices1 = (flatindices % evperch) * effevlen
+            indices1 = indices1[:, None] + np.arange(event_length)
+            
+            events = self.noise_array[indices0, indices1]
+        
+        if self.maxcycles is not None and nextcycle > self.maxcycles * nchunks:
+            self.cycle = 0
+            ncycles = int(np.ceil(nextcycle / nchunks))
+            raise RuntimeError(f'Data cycled {ncycles} times > limit {self.maxcycles}')
+        else:
+            self.cycle = nextcycle
+        
+        assert events.shape == (nevents, event_length)
+        
+        return events
     
     def load_proto0_root_file(self, filename, channel, maxevents=None):
         """
@@ -1728,55 +1772,76 @@ class Toy(NpzLoad):
         
         return fig
 
-    def plot_loc(self, itau, isnr, locfield='loc'):
+    def plot_loc(self, itau, isnr, locfield='loc', axs=None, center=False):
         """
         Plot temporal localization histograms for all filters.
         
         Parameters
         ----------
         itau, isnr : int
-            Indices indicating the tau and SNR values to use.
+            Indices of the tau and SNR values to use.
         locfield : str
             The field in `output` used as temporal localization. Default 'loc'.
+        axs : 2x2 array of matplotlib axes, optional
+            If provided, draw the plot on the given axes. Otherwise (default)
+            make a new figure and show it.
+        center : bool
+            If True, calibrate the localization such that the median of the
+            localization error is zero. Default (False) use the filter minimum
+            as-is.
         
         Return
         ------
-        fig : matplotlib.figure.Figure
-            A figure with an axis for each filter.
+        fig : matplotlib figure or None
+            The figure object, if ax is not specified.
         """
         tau = self.tau[itau]
         snr = self.snr[isnr]
         output = self.output
         
-        fig = plt.figure('toy.Toy.plot_loc', figsize=[10.95,  7.19])
-        fig.clf()
+        if axs is None:
+            fig, axs = plt.subplots(2, 2, num='toy.Toy.plot_loc', clear=True, figsize=[10.95,  7.19])
+            returnfig = True
+        else:
+            returnfig = False
 
-        axs = fig.subplots(2, 2).reshape(-1)
+        axs = axs.reshape(-1)
     
         for ifilter, ax in enumerate(axs):
             data = output[locfield][:, ifilter, itau, isnr] - output['loctrue']
-            if ifilter == 0:
-                label = f'SNR={snr:.2f}'
-            elif ifilter == 2:
-                label = f'$\\tau$={tau}'
-            else:
-                label = f'Nsamples={tau}'
-            h, _, _ = ax.hist(data, bins='auto', histtype='step')
-            left, center, right = np.quantile(data, [0.5 - 0.68/2, 0.5, 0.5 + 0.68/2])
-            xerr = [[center - left], [right - center]]
-            ax.errorbar(center, np.max(h) / 2, xerr=xerr, capsize=4, fmt='k.', label='"$\\pm 1 \\sigma$" quantiles')
+            if center:
+                data -= np.median(data)
+            h, _, _ = ax.hist(data, bins='auto', histtype='step', color='#f55', zorder=10)
+            
+            left, cent, right = np.quantile(data, [0.5 - 0.68/2, 0.5, 0.5 + 0.68/2])
+            xerr = [[cent - left], [right - cent]]
+            ax.errorbar(cent, np.max(h) / 2, xerr=xerr, capsize=4, fmt='k.', label='"$\\pm 1 \\sigma$" quantiles', zorder=11)
+            
             if ax.is_last_row():
-                ax.set_xlabel(f'Temporal localization error (uncalib.) [{self.timebase} ns]')
+                if center:
+                    xlabel = 'Temporal localization error [samples]'
+                else:
+                    xlabel = 'Uncalibrated temporal\nlocalization error [samples]'
+                ax.set_xlabel(xlabel)
             if ax.is_first_col():
-                ax.set_ylabel('Bin count')
-            ax.grid()
-            ax.legend(loc='best')
-            ax.set_title(f'{Filter.name(ifilter)} ({label})')
+                ax.set_ylabel('Counts per bin')
+            if ifilter == 0:
+                ax.legend(loc='center right')
+            
+            if ifilter == 0:
+                label = f'SNR={snr:.3g}'
+            else:
+                label = Filter.tauname(ifilter) + f'={tau}'
+            textbox.textbox(ax, f'{Filter.name(ifilter)} ({label})', loc='upper center', fontsize='medium', zorder=12)
+            
+            ax.minorticks_on()
+            ax.grid(True, which='major', linestyle='--')
+            ax.grid(True, which='minor', linestyle=':')
         
-        fig.tight_layout()
-        fig.show()
-
-        return fig
+        if returnfig:
+            fig.tight_layout()
+            fig.show()
+            return fig
 
     def plot_val(self, itau, isnr):
         """
