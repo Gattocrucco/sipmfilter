@@ -1186,7 +1186,8 @@ class Toy(NpzLoad):
             
             num = yp - ym
             denom = yp + ym - 2 * y0
-    
+            
+            # TODO handle the case denom == 0
             minima[0, :, itau] = x0 - 1/2 * num / denom + skip
             minval[0, :, itau] = y0 - 1/8 * num ** 2 / denom
             
@@ -1217,6 +1218,7 @@ class Toy(NpzLoad):
                 num = yp - ym
                 denom = yp + ym - 2 * y0
     
+                # TODO handle the case denom == 0
                 minima[2, :, itau] = (x0 - 1/2 * num / denom) / timebase + upskip
                 minval[2, :, itau] = y0 - 1/8 * num ** 2 / denom
 
@@ -1268,7 +1270,7 @@ class Toy(NpzLoad):
         
         Return
         ------
-        wcenter : array (ncenter,)
+        wcenter : array (1 + ncenter,)
             A structured numpy array with these fields:
                 'ifilter', int
                 'itau', int
@@ -1302,7 +1304,7 @@ class Toy(NpzLoad):
             ('ifilter', int),
             ('itau', int),
             ('isnr', int),
-            ('center', int, len(loctrue))
+            ('center', int, (len(loctrue),))
         ])
         wcenter[0] = (9999, 9999, 9999, np.rint(loctrue))
         wcenter[1:]['ifilter'] = ifilter
@@ -1334,6 +1336,9 @@ class Toy(NpzLoad):
             If given, a progress bar is shown that ticks every `pbar` events.
         
         """
+        
+        # TODO For speed I should run a single tau cross correlation filter
+        # on each window instead of all taus.
 
         wlen = np.asarray(wlen)
         wlmargin = np.asarray(wlmargin)
@@ -1421,11 +1426,11 @@ class Toy(NpzLoad):
     
                 minima[:, i, j] = x0 - 1/2 * num / denom
         
-        # Compute temporal localization.
+        # Align temporal localization.
         wloc = minima # shape == (ncenter, nwin, ntau, nsnr, nevents)
         wloc += wstart[:, :, None, None, :]
-        wloc -= self.tau[:, None, None]
-        wloc += self.templs['offset'][:, None, None]
+        # wloc -= self.tau[:, None, None]
+        # wloc += self.templs['offset'][:, None, None]
         
         # Save results.
         output['wstart'] = np.moveaxis(wstart, -1, 0)
@@ -1511,6 +1516,7 @@ class Toy(NpzLoad):
         ax.minorticks_on()
         ax.grid(True, which='major', linestyle='--')
         ax.grid(True, which='minor', linestyle=':')
+        # ax.set_xlim(0, len(unfilt))
     
         if returnfig:
             fig.tight_layout()
@@ -1527,9 +1533,9 @@ class Toy(NpzLoad):
         r = self.templocres()[jfilter, jtau, jsnr]
         tauname = 'N' if jfilter != 2 else '$\\tau$'
         taustr = f', {tauname}={self.tau[jtau]}' if jfilter != 0 else ''
-        return f'{Filter.name(jfilter, short=True)}{taustr}, SNR={self.snr[jsnr]} ($\\sigma$ = {r:.1f})'
+        return f'{Filter.name(jfilter, short=True)}{taustr}, SNR={self.snr[jsnr]:.3g} ($\\sigma$ = {r:.2g} Sa)'
     
-    def plot_event_window(self, ievent, isnr, itau, iwlen, icenter=0):
+    def plot_event_window(self, ievent, isnr, itau, iwlen, icenter=0, ax=None):
         """
         Plot a simulated event with localization from window.
         
@@ -1540,16 +1546,21 @@ class Toy(NpzLoad):
         icenter : int
             The index indicating the window centering. Default 0 i.e. centering
             on the signal template start.
+        ax : matplotlib axis, optional
+            If provided, draw the plot on the given axis. Otherwise (default)
+            make a new figure and show it.
         
         Return
         ------
-        fig : matplotlib.figure.Figure
-            A figure with a single plot.
+        fig : matplotlib figure or None
+            The figure object, if ax is not specified.
         """
         out = self.output[ievent]
         oute = self.output_event[ievent]
         outw = self.output_window[ievent]
         
+        fstart = out['filter_start'][itau]
+
         tau = self.tau[itau]
         wlen = self.wlen[iwlen]
         wlmargin = self.wlmargin[iwlen]
@@ -1559,37 +1570,40 @@ class Toy(NpzLoad):
         
         unfilt = oute['signal'] + sigma * oute['noise']
         templ = self.mftempl(itau)
-        filt = Filter(unfilt[None, :])
+        filt = Filter(unfilt[None, fstart:])
         sim = filt.matched(templ)[0]
         wfilt = Filter(unfilt[None, wstart:wstart + wlen], 0, len(unfilt) - wstart - wlen)
         wsim = wfilt.matched(templ)[0]
         
-        fig = plt.figure('toy.Toy.plot_event_window')
-        fig.clf()
+        if ax is None:
+            fig, ax = plt.subplots(num='toy.Toy.plot_event_window', clear=True)
+            returnfig = True
+        else:
+            returnfig = False
     
-        ax = fig.subplots(1, 1)
-    
-        ax.plot(unfilt, label=f'signal (snr = {snr:.2f})')
-        ax.plot(sim, label=f'{Filter.name(3)} (N={tau})')
-        ax.plot(wstart + np.arange(len(wsim)), wsim, label='filter from window', linestyle=':', color='black', zorder=10)
+        ax.plot(unfilt, label=f'Signal+noise (SNR={snr:.3g})', color='#f55')
+        label = f'{Filter.name(3)} ({Filter.tauname(3)}={tau})'
+        ax.plot(fstart + np.arange(len(sim)), sim, color='#888', linewidth=3, label=label)
+        ax.plot(wstart + np.arange(len(wsim)), wsim, label='Same filter on window only', linestyle='-', color='black', zorder=10)
         
-        ax.axvline(out['loctrue'], label='signal template start', color='black')
-        ax.axvline(outw['wloc'][icenter, iwlen, itau, isnr], label='loc. from window', color='red', linestyle='--')
-        window_label = f'window ($-${wlmargin}+{wlen - wlmargin}), centered with\n'
+        ax.axvline(out['loctrue'], label='Signal template start', color='black', linestyle='-.')
+        window_label = f'Window ($-${wlmargin}+{wlen - wlmargin}), centered with\n'
         window_label += self._win_center_str(icenter)
-        ax.axvspan(wstart, wstart + wlen, label=window_label, color='lightgray')
+        ax.axvspan(wstart, wstart + wlen, label=window_label, color='#ddd')
         # ax.axhline(self.template.baseline, label='baseline', color='black', linestyle='--')
         
-        ax.grid()
-        ax.legend(loc='best', fontsize='small')
-        ax.set_title(f'Event {ievent}, location with window')
+        ax.legend(loc='best', fontsize='small', title=f'Event {ievent}')
         ax.set_xlabel(f'Sample number @ {self.sampling_str()}')
-        ax.set_ylabel('ADC scale [10 bit]')
-    
-        fig.tight_layout()
-        fig.show()
         
-        return fig
+        ax.minorticks_on()
+        ax.grid(True, which='major', linestyle='--')
+        ax.grid(True, which='minor', linestyle=':')
+        # ax.set_xlim(0, len(unfilt))
+
+        if returnfig:
+            fig.tight_layout()
+            fig.show()
+            return fig
 
     def templocres(self, locfield='loc', sampleunit=True):
         """
@@ -1748,7 +1762,7 @@ class Toy(NpzLoad):
             fig.show()
             return fig
 
-    def plot_loc_window(self, itau, icenter=0, logscale=True):
+    def plot_loc_window(self, itau, icenter=0, logscale=True, ax=None):
         """
         Plot temporal localization precision for matched filter on windows
         for each SNR and window length at fixed filter length.
@@ -1763,11 +1777,14 @@ class Toy(NpzLoad):
         logscale : bool
             If True (default), use a vertical logarithmic scale instead of a
             linear one.
+        ax : matplotlib axis, optional
+            If provided, draw the plot on the given axis. Otherwise (default)
+            make a new figure and show it.
         
         Return
         ------
-        fig : matplotlib.figure.Figure
-            A figure with an axis for each filter.
+        fig : matplotlib figure or None
+            The figure object, if ax is not specified.
         """
         tau = self.tau[itau]
         snr = self.snr
@@ -1783,11 +1800,12 @@ class Toy(NpzLoad):
         
         width = self.templocres(output_window['wloc'], sampleunit=False)[icenter, :, itau]
         width_orig = self.templocres(sampleunit=False)[3, itau]
-    
-        fig = plt.figure('toy.Toy.plot_loc_window')
-        fig.clf()
-
-        ax = fig.subplots(1, 1)
+        
+        if ax is None:
+            fig, ax = plt.subplots(num='toy.Toy.plot_loc_window', clear=True)
+            returnfig = True
+        else:
+            returnfig = False
         
         for iwlen, wl in enumerate(wlen):
             alpha = (iwlen + 1) / len(wlen)
@@ -1795,9 +1813,9 @@ class Toy(NpzLoad):
             label = f'$-${wmargin[iwlen]}+{wl - wmargin[iwlen]} ({lenus:.1f} $\\mu$s)'
             ax.plot(snr, width[iwlen], alpha=alpha, label=label, color='#600000')
         ax.plot(snr, width_orig, 'k.', label=f'$-${wmargin_orig}+{wlen_orig - wmargin_orig}')
-        ax.legend(loc='upper right', title='Window [samples]\n$-$L+R of center')
+        ax.legend(loc='best', title='Window [samples]\n$-$L+R of center')
         
-        ax.axhspan(0, self.timebase, color='#ddd', zorder=-10, label=f'{self.timebase} ns')
+        ax.axhspan(0, self.timebase, color='#ddd', zorder=-10)
 
         if ax.is_last_row():
             ax.set_xlabel('Unfiltered SNR (avg signal peak over noise rms)')
@@ -1806,20 +1824,17 @@ class Toy(NpzLoad):
         ax.grid(True, which='major', axis='both', linestyle='--')
         ax.grid(True, which='minor', axis='both', linestyle=':')
         ax.minorticks_on()
-        title = f'Matched filter on window (Nsamples={tau} @ {self.sampling_str()}),\nwindow centered with '
+        title = f'{Filter.name(3)} (N={tau}), window centered\nwith '
         title += self._win_center_str(icenter)
-        ax.set_title(title)
+        textbox.textbox(ax, title, fontsize='small', loc='upper center')
         
         if logscale:
             ax.set_yscale('log')
-        else:
-            lims = ax.get_ylim()
-            ax.set_ylim(0, lims[1])
-    
-        fig.tight_layout()
-        fig.show()
         
-        return fig
+        if returnfig:
+            fig.tight_layout()
+            fig.show()
+            return fig
 
     def plot_loc(self, itau, isnr, locfield='loc', axs=None, center=False):
         """

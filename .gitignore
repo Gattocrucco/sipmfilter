@@ -10,6 +10,8 @@ __pycache__
 !*/*.png
 figrescurve.npz
 figrescomp*.npz
+figwindowtempres*.npz
+figtempresdowns*.npz
 
 toy*.npz
 

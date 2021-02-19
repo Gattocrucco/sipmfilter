@@ -8,8 +8,8 @@ def textbox(ax, text, loc='lower left', **kw):
         The plot where the text box is drawn.
     text : str
         The text.
-    loc : {'lower left', 'upper left', 'lower right'}
-        The location of the box.
+    loc : str
+        The location of the box. Format: 'lower/center/upper left/center/right'.
     
     Keyword arguments
     -----------------
@@ -22,12 +22,15 @@ def textbox(ax, text, loc='lower left', **kw):
     
     M = 8
     locparams = {
-        'lower left'  : dict(xy=(0  , 0  ), xytext=( M,  M), va='bottom', ha='left'  ),
-        'upper left'  : dict(xy=(0  , 1  ), xytext=( M, -M), va='top'   , ha='left'  ),
-        'lower right' : dict(xy=(1  , 0  ), xytext=(-M,  M), va='bottom', ha='right' ),
-        'center right': dict(xy=(1  , 0.5), xytext=(-M,  0), va='center', ha='right' ),
-        'upper right' : dict(xy=(1  , 1  ), xytext=(-M, -M), va='top'   , ha='right' ),
-        'upper center': dict(xy=(0.5, 1  ), xytext=( 0, -M), va='top'   , ha='center'),
+        'lower left'   : dict(xy=(0  , 0  ), xytext=( M,  M), va='bottom', ha='left'  ),
+        'lower center' : dict(xy=(0.5, 0  ), xytext=( 0,  M), va='bottom', ha='center'),
+        'lower right'  : dict(xy=(1  , 0  ), xytext=(-M,  M), va='bottom', ha='right' ),
+        'center left'  : dict(xy=(0  , 0.5), xytext=( M,  0), va='center', ha='left'  ),
+        'center center': dict(xy=(0.5, 0.5), xytext=( 0,  0), va='center', ha='center'),
+        'center right' : dict(xy=(1  , 0.5), xytext=(-M,  0), va='center', ha='right' ),
+        'upper left'   : dict(xy=(0  , 1  ), xytext=( M, -M), va='top'   , ha='left'  ),
+        'upper center' : dict(xy=(0.5, 1  ), xytext=( 0, -M), va='top'   , ha='center'),
+        'upper right'  : dict(xy=(1  , 1  ), xytext=(-M, -M), va='top'   , ha='right' ),
     }
     
     kwargs = dict(
