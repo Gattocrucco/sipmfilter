@@ -1,3 +1,34 @@
+"""
+Compute the filtered SNR on an LNGS wav.
+
+The file to read is hardcoded at the bottom of this script. Run this script in
+an IPython shell and then call functions as suggested by the onscreen
+instructions.
+
+This script can be loaded as a module to use the functions `snrplot`,
+`snrmaxplot` and `snrmaxplot_multiple`. Other functions may not work.
+
+Functions
+---------
+make_tau_delta :
+    Generate a reasonable range of delays from trigger for filter evaluation
+    for a list of filter lengths.
+snrseries :
+    Compute the SNR for a range of filter length and delay from trigger.
+snrplot :
+    Plot the output of `snrseries`.
+templateplot :
+    Plot the matched filter template.
+fingerplot :
+    Plot a fingerplot for a chosen filter.
+snrmax :
+    Find the delay from trigger that maximizes the SNR.
+snrmaxplot :
+    Plot the output of `snrmax`.
+snrmaxplot_multiple :
+    Plot together the outputs of multiple `snrmax` invocations.
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib import gridspec
@@ -525,6 +556,6 @@ if __name__ == '__main__':
 
     print('now call interactively any of:')
     print('fingerplot(<tau>, <delta>, "ma" or "exp" or "mf", <bslen>)')
+    print('templateplot(<length>)')
     print('snrseries(<taus>, <ndelta>, <bslen>)')
-    print('snrmax(<taus>, <bslen>)')
-    print('templateplot(<n>)')
+    print('snrmax(<taus>, <bslen>, hint_delta_ma=<approx delta for max SNR>)')

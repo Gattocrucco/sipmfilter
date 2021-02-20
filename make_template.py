@@ -1,3 +1,9 @@
+"""
+DEPRECATED, use `Template` from `toy.py`.
+
+Make a template for the matched filter with an LNGS wav.
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import linalg, signal
@@ -124,6 +130,9 @@ def make_template(data, ignore=None, length=2000, noisecorr=False, fig=None, fig
     return waveform
 
 def toeplitze(a):
+    """
+    Convert the matrix `a` to a Toeplitz matrix by averaging the shifted rows.
+    """
     rowsum = np.zeros(len(a))
     for i in range(len(a)):
         rowsum += np.roll(a[i], -i)

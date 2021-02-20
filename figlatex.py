@@ -1,6 +1,32 @@
+"""
+Module with a function to generate the LaTeX command to include a matplotlib
+figure.
+"""
+
 from matplotlib import pyplot as plt
 
 def figlatex(fig=None, indent=' '*4):
+    """
+    Generate the LaTeX command to include a matplotlib figure.
+    
+    The figure width is chosen to have the same font size as the LaTeX
+    document, assuming matplotlib and LaTeX defaults are in effect. The figure
+    is centered even if it overflows the text column width.
+    
+    Parameters
+    ----------
+    fig : matplotlib figure, optional
+        If not specified, the current figure is used.
+    indent : str
+        A string prepended to each line of the output, default 4 spaces.
+    
+    Return
+    ------
+    command : str
+        The LaTeX code to include the figure, assuming the file name is the
+        window title of the figure. Paste it between \\begin{figure} ...
+        \\end{figure}.
+    """
     if fig is None:
         fig = plt.gcf()
     title = fig.canvas.get_window_title()

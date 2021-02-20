@@ -1,3 +1,7 @@
+"""
+Plot an event from an LNGS wav and the moving average filter output.
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 import readwav

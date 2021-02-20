@@ -1,3 +1,13 @@
+"""
+Module to filter an LNGS wav. Functions:
+
+make_start_mf :
+    Compute the truncation alignment of a matched filter template.
+filter :
+    Filter an LNGS wav computing the filter at a single point a fixed delay
+    after the trigger, also compute the trigger position and the baseline.
+"""
+
 import numba
 import numpy as np
 
@@ -13,7 +23,7 @@ _emptyint = np.empty(0, int)
 
 def filter(data, bslen=6900, delta_ma=None, length_ma=None, delta_exp=None, tau_exp=None, delta_mf=None, waveform_mf=None, length_mf=None, start_mf=None):
     """
-    Filter LNGS laser data.
+    Filter LNGS wav data.
     
     Parameters
     ----------
@@ -208,7 +218,7 @@ def make_start_mf(waveform_mf, length_mf):
 @numba.jit(cache=True, nopython=True)
 def integrate(data, bslen=6900):
     """
-    DEPRECATED, USE `filter` INSTEAD
+    DEPRECATED, use `filter`
     
     Take data from wav file and compute a 1000 samples average of the signal
     after each trigger pulse start.

@@ -3,16 +3,17 @@
 # Learn more about .gitignore:
 #     https://www.atlassian.com/git/tutorials/saving-changes/gitignore
 
-__pycache__
 *.root
 *.wav
 *.png
 !*/*.png
-figrescurve.npz
-figrescomp*.npz
-figwindowtempres*.npz
-figtempresdowns*.npz
 
+__pycache__
+figrescomp*.npz
+figrescurve.npz
+figtempresdowns*.npz
+figwindowtempres*.npz
+LF_TILE15*.npz
 toy*.npz
 
 # Node artifact files

@@ -1,14 +1,35 @@
+"""
+Module to make a fingerplot automatically. Tuned on LNGS wav data, may have
+problems on other data.
+"""
+
 from scipy import signal
 import numpy as np
 from matplotlib import pyplot as plt
 
 def plot_histogram(ax, counts, bins, **kw):
+    """
+    Plot an histogram.
+    
+    Parameters
+    ----------
+    ax : matplotlib axis
+        The axis where the histogram is drawn.
+    counts, bins : array
+        The output from `np.histogram`.
+    **kw :
+        Keyword arguments are passed to `ax.plot`.
+    
+    Return
+    ------
+    lines : tuple
+        The return value from `ax.plot`.
+    """
     return ax.plot(np.concatenate([bins[:1], bins]), np.concatenate([[0], counts, [0]]), drawstyle='steps-post', **kw)
 
 def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
     """
-    Compute the SNR i.e. ratio of signal amplitude over amplitude of noise for
-    an array of filter outputs.
+    Do a fingerplot and compute the SNR for an array of values.
     
     Parameters
     ----------
@@ -32,10 +53,16 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
         The width of the peaks. Standard deviation or equivalent.
     """
     
-    # Make a histogram and find the peaks in the histogram.
+    # Make a histogram.
     L, R = np.quantile(corr_value, [0, 0.98])
     bins = np.linspace(L, R, 101)
     counts, _ = np.histogram(corr_value, bins=bins)
+    
+    # Add an empty bin to the left for find_peaks (it searches local maxima).
+    bins = np.concatenate([[bins[0] - (bins[1] - bins[0])], bins])
+    counts = np.concatenate([[0], counts])
+    
+    # Find peaks in the histogram.
     peaks, pp = signal.find_peaks(counts, prominence=16, height=16, distance=6)
     ph = pp['peak_heights']
     psel = np.concatenate([[True], (ph[1:] / ph[:-1]) > 1/5])

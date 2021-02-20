@@ -1,3 +1,9 @@
+"""
+Run simulations at 125 MSa/s with white, LNGS and Proto0 noise, with filtering
+in windows, and save the results to file. The arrays hardcoded at the beginning
+of the script set the various parameters.
+"""
+
 import numpy as np
 
 import toy

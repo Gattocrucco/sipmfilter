@@ -1,3 +1,15 @@
+"""
+Test script for `toy.py`.
+
+Won't work anymore due to changes in `toy.py`.
+
+Run the script interactively, then call any of the following functions:
+plot_mf_template
+plot_signals
+plot_filters
+plot_localization
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 
@@ -13,9 +25,9 @@ print(f'ignoring {np.sum(ignore)} events with signals in baseline zone')
 
 def plot_mf_template():
     """
-    DEPRECATED
-
-    There's a plot similar to this made by savetemplate.py, use that.
+    BROKEN
+    
+    Plot a cross correlation filter template.
     """
     template = toy.Template()
     template.make(data, 4096, ~ignore)
@@ -45,6 +57,8 @@ def plot_mf_template():
 
 def plot_signals(signal_loc=None):
     """
+    BROKEN 
+    
     Test the subsample location of the template.
     
     Parameters
@@ -79,6 +93,11 @@ def plot_signals(signal_loc=None):
     fig.show()
 
 def plot_filters():
+    """
+    BROKEN
+    
+    Plot the filter output waveform for various filters on a simulated event.
+    """
     template = toy.Template()
     template_length = 512 # @ 125 MSa/s
     template.make(data, template_length * 8, ~ignore)
@@ -116,6 +135,11 @@ def plot_filters():
     fig.show()
 
 def plot_localization():
+    """
+    BROKEN
+    
+    Simulate an event, run the filters and find the minima.
+    """
     snr = 5
     tau = 64
 

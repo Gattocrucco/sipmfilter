@@ -1,3 +1,10 @@
+"""
+Plot the output from `toy1gsa.py`.
+
+If you run this script in an IPython shell, you can call the function `doplots`
+with different parameters than the defaults.
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import interpolate

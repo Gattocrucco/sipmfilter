@@ -138,10 +138,6 @@ class TextMatrix(object):
         -------
         s : string
             Matrix formatted as LaTeX table.
-        
-        See also
-        --------
-        TextMatrix.text
         """
         subs = {
             '%': '\\%',

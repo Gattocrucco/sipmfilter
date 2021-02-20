@@ -1,3 +1,15 @@
+"""
+Plot the output from `toy1gsa.py`.
+
+If you run this script in an IPython shell, you can then call any of the
+following functions with parameters different from the default ones:
+
+doplots :
+    Do generic plots for a specific noise and a comparison plot.
+doplotsw :
+    Do plots for windowing.
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import interpolate

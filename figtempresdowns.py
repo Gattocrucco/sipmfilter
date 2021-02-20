@@ -74,7 +74,7 @@ for n, timebases in timebase.items():
         print(f'load {filename}')
         sim[n][tb] = toy.Toy.load(filename)
 
-def maketable(op=lambda a, b: a / b):
+def maketable():
     all_timebase = list(np.unique(np.concatenate(list(timebase.values()))))
     table = []
     def fmttb(tb):
@@ -85,12 +85,37 @@ def maketable(op=lambda a, b: a / b):
         for tb in sim[n]:
             t = sim[n][tb]
             ratio = t.snrratio()[3, 0]
-            ratio = op(ratio, t.noise_ratio)
-            row[tb] = f'{ratio:.3g}'
+            ratio = ratio / t.noise_ratio
+            row[tb] = f'{ratio:.2g}'
         table.append([nicenames[n]] + [row[tb] for tb in all_timebase])
     matrix = textmatrix.TextMatrix(table, fill_side='left')
     print(matrix.latex())
 maketable()
+
+def snrhelp(noise=None):
+    fig, axs = plt.subplots(2, 1, num='snrhelp', clear=True)
+    for n in sim:
+        if noise is not None and n != noise:
+            continue
+        FSFNSNR = []
+        for tb in sim[n]:
+            t = sim[n][tb]
+            FSFNSNR.append(t._snr_helper() + (t.noise_ratio,))
+        FSFNSNR = np.array(FSFNSNR)
+        for i, label in enumerate(['FS', 'FN', 'S', 'N', 'NR']):
+            if 'S' in label:
+                ax = axs[0]
+            else:
+                ax = axs[1]
+            ax.plot(timebase[n], FSFNSNR[:, i], label=label + ' ' + n, marker='.')
+    axs[0].plot(timebase['lngs'], [template.max(tb) for tb in timebase['lngs']])
+    for ax in axs:
+        ax.legend(loc='best')
+        ax.minorticks_on()
+        ax.grid(True, which='major', linestyle='--')
+        ax.grid(True, which='minor', linestyle=':')
+        
+    fig.show()
 
 fig = plt.figure(num='figtempresdowns', clear=True, figsize=[9.17, 5.06])
 gs = gridspec.GridSpec(5, 2)
@@ -125,6 +150,8 @@ for n in sim:
     
     if ax.is_last_row():
         ax.set_xlabel('SNR (before filtering) @ 125 MSa/s')
+    if ax.is_first_col():
+        ax.set_ylabel('Temporal resolution [ns]')
     
     ax.set_ylim(0, ax.get_ylim()[1])
 

@@ -1,10 +1,33 @@
+"""
+Show some diagnostic plots for an LNGS wav. Usage:
+
+    plotwav.py [filename]
+
+If not specified, the file read is nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav. The
+plots are:
+
+  * An histogram of all data;
+
+  * A temporal plot of some events;
+
+  * The temporal distribution of the trigger rising edge.
+
+At most 1000 events are read from the wav.
+"""
+
+import sys
+
 import numpy as np
 from matplotlib import pyplot as plt
 import readwav
 import fighelp
 
-filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
-data = readwav.readwav(filename, mmap=False)
+if len(sys.argv) == 1:
+    filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
+else:
+    filename = sys.argv[1]
+
+data = readwav.readwav(filename, mmap=False, maxevents=1000)
 
 signal = data[:, 0, :].reshape(-1)
 trigger = data[:, 1, :].reshape(-1)
@@ -27,6 +50,7 @@ ax.grid()
 ax.legend(loc='best')
 
 fighelp.saveaspng(fig)
+fig.show()
 
 fig = fighelp.figwithsize([8.21, 5.09])
 
@@ -44,5 +68,19 @@ ax.set_xlabel(f'Sample number (starting from {start})')
 ax.set_ylabel('ADC value')
 
 fighelp.saveaspng(fig)
+fig.show()
 
-plt.show()
+fig = fighelp.figwithsize()
+
+ax = fig.subplots(1, 1)
+
+trig = readwav.first_nonzero(data[:, 1, :] < 600)
+
+ax.hist(trig, bins='auto', histtype='step')
+
+ax.set_title('Distribution of trigger rising edge')
+ax.set_xlabel('Sample number @ 1 GSa/s')
+ax.set_ylabel('Counts per bin')
+
+fighelp.saveaspng(fig)
+fig.show()

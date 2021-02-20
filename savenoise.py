@@ -1,6 +1,6 @@
 """
-Load noise data from unversioned files and write it into versioned files, then
-check that loading works.
+Extract noise data from an LNGS wav and from a specific ROOT file containing
+Proto0 noise, then save it as `toy.DataCycleNoise` objects.
 """
 
 import toy

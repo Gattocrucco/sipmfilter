@@ -1,3 +1,9 @@
+"""
+OUTDATED, replaced by `single_filter_analysis.py`.
+
+Do the fingerplot of an LNGS wav.
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 import readwav

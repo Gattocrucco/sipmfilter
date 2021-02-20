@@ -1,3 +1,24 @@
+"""
+OUTDATED, replaced by `fingersnr.py` and `make_template.py`.
+
+Compute the filtered SNR on an LNGS wav using the matched filter.
+
+The file to read is hardcoded at the beginning of this script. Run this script
+in an IPython shell and then call functions as suggested by the onscreen
+instructions.
+
+Functions
+---------
+make_template :
+    Make a template for the matched filter.
+fingerplot :
+    Plot a fingerplot for a chosen filter.
+snrseries :
+    Compute the SNR for a range of filter length and delay from trigger.
+snrplot :
+    Plot the output of `snrseries`.
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import signal, optimize

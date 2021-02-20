@@ -1,3 +1,8 @@
+"""
+Plot the frequency spectrum of an LNGS wav noise and of a specific ROOT file
+containing Proto0 noise.
+"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 import uproot

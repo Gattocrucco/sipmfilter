@@ -1,3 +1,8 @@
+"""
+Run a simulation at 1 GSa/s with white and LNGS noise, saving the result to
+file.
+"""
+
 import numpy as np
 
 import toy
