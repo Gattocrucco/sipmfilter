@@ -17,6 +17,7 @@ from matplotlib import pyplot as plt
 import readwav
 import single_filter_analysis
 import integrate
+import textbox
 
 filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 length = 1500
@@ -36,6 +37,13 @@ corr_value = baseline - value[:, 0]
 fig = plt.figure(num='fingerplot', clear=True)
 snr, _, _ = single_filter_analysis.single_filter_analysis(corr_value[mask], fig, return_full=True)
 print(f'SNR = {snr:.3g}')
+
+ax = fig.get_axes()[0]
+ax.set_title(filename)
+textbox.textbox(ax, f"""\
+first {len(data)} events
+ignored {np.count_nonzero(~mask)} events
+movavg {length} ns""", fontsize='small', loc='center right')
 
 fig.tight_layout()
 fig.show()

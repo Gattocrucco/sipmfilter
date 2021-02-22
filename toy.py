@@ -1693,6 +1693,7 @@ class Toy(NpzLoad):
         # nofilter = np.median(self.output['valueclean'][:, 0], axis=0)
         # assert np.all(nofilter[0] == nofilter)
         # S = nofilter[0]
+        # TODO for the SNR before filtering I can use the output_event array
         ampl = self.sigma * self.snr
         assert np.allclose(ampl[0], ampl)
         S = ampl[0]
