@@ -1,11 +1,12 @@
 """
 Plot the 2D histogram of trigger-aligned events of an LNGS wav. Usage:
 
-    lngshist.py filename [maxevents [length [start]]]
+    lngshist.py filename [maxevents [length [start [cmap]]]]
 
 maxevents = number of events read from the file, default 1000.
 length = number of samples read per event, default 2000.
 start = starting sample relative to the trigger leading edge, default 0.
+cmap = matplotlib colormap for the histogram.
 """
 
 import sys
@@ -22,10 +23,12 @@ filename = sys.argv[1]
 maxevents = 1000
 length = 2000
 start = 0
+cmap = None
 try:
     maxevents = int(sys.argv[2])
     length = int(sys.argv[3])
     start = int(sys.argv[4])
+    cmap = sys.argv[5]
 except IndexError:
     pass
 
@@ -51,9 +54,9 @@ def accumhist(hist, data, start, length):
 
 runsliced.runsliced(lambda s: accumhist(h, data[s], start, length), nevents, 100)
 
-fig, ax = plt.subplots(num='lngshist', clear=True, figsize=[10.47,  4.8 ])
+fig, ax = plt.subplots(num='lngshist', clear=True, figsize=[10.47, 4.8])
 
-im = ax.imshow(h.T, origin='lower', cmap='magma', norm=colors.LogNorm(), aspect='auto', extent=(-0.5+start, length-0.5+start, -0.5, h.shape[1]-0.5))
+im = ax.imshow(h.T, origin='lower', cmap=cmap, norm=colors.LogNorm(), aspect='auto', extent=(-0.5+start, length-0.5+start, -0.5, h.shape[1]-0.5))
 fig.colorbar(im, label='Counts per bin', fraction=0.1)
 
 ax.set_title(filename)
