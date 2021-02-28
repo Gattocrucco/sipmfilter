@@ -133,6 +133,10 @@ def toeplitze(a):
     """
     Convert the matrix `a` to a Toeplitz matrix by averaging the shifted rows.
     """
+    # I think I confused a toeplitz matrix with a circulant matrix when I wrote
+    # this. Anyway, I used it in a way that works around this by extracting
+    # the NxN central submatrix of a (2N)x(2N) matrix, so in the end I'm
+    # doing the right thing.
     rowsum = np.zeros(len(a))
     for i in range(len(a)):
         rowsum += np.roll(a[i], -i)
