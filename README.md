@@ -26,11 +26,16 @@ The scripts read files which are not included in the repository due to size.
 
   * `fig*.py`: scripts for figures in my thesis.
   
+  * `fdiffrate.py`: count threshold crossings for filtered finite difference on
+    a LNGS wav.
+  
   * `fingerplot.py`: do a fingerplot with an LNGS wav.
 
   * `fingersnr.py`: compute the filtered SNR on an LNGS wav.
   
   * `fingersnrmf.py`: **(OUTDATED)** test for `fingersnr.py`.
+  
+  * `lngshist.py`: do a 2D histogram of an LNGS wav.
 
   * `manine.py`: **(OUTDATED)** test for `fingersnr.py`.
   
