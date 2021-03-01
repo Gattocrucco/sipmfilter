@@ -82,6 +82,8 @@ The scripts read files which are not included in the repository due to size.
     correlation filter from an LNGS wav.
     
   * `num2si.py`: format a number using SI suffixes.
+  
+  * `readroot.py`: read a Proto0 run2 root file.
  
   * `readwav.py`: read an LNGS wav; see also sstracka/dsfe on bitbucket.
   
