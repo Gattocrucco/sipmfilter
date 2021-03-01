@@ -1,11 +1,12 @@
 """
-Count threshold crossings of finite difference of filtered LNGS wav. Usage:
+Count threshold crossings of finite difference of filtered signal. Usage:
 
-    lngsthr.py filename [maxevents [nsamp]]
+    fdiffrate.py filename[:channel] [maxevents [length]]
 
+channel = (for Proto0 root files) ADC channel or run2 tile.
 maxevents = number of events read from the file, default 1000.
-nsamp = number of samples for the moving average filter, the delay of the
-        difference, and the dead time; default 1000.
+length = length of the moving average filter, delay of the
+         difference, and dead time, in nanoseconds; default 1000.
 """
 
 import sys
@@ -15,29 +16,32 @@ from matplotlib import pyplot as plt
 import numba
 from scipy import stats
 
-import readwav
+import read
 import textbox
 import runsliced
+import num2si
 
 filename = sys.argv[1]
 maxevents = 1000
-nsamp = 1000
+length = 1000
 try:
     maxevents = int(sys.argv[2])
-    nsamp = int(sys.argv[3])
+    length = int(sys.argv[3])
 except IndexError:
     pass
 
-data = readwav.readwav(filename, mmap=True)
+data, trigger, freq, ndigit = read.read(filename, maxevents=maxevents)
 
-nevents = min(len(data), maxevents)
+nevents = len(data)
 
-minthr = -1024
-maxthr = 1024
+minthr = -ndigit
+maxthr = ndigit
 nthr = 1 + int((maxthr - minthr) / 0.5)
 
 thrcounts = np.zeros(nthr, int)
 varcov1k2 = np.zeros(3)
+
+nsamp = int(length * 1e-9 * freq)
 
 @numba.njit(cache=True)
 def movavg(x, n):
@@ -52,8 +56,7 @@ def accum(minthr, maxthr, thrcounts, varcov1k2, data, nsamp):
     nthr = len(thrcounts)
     step = (maxthr - minthr) / (nthr - 1)
     
-    for event in data:
-        signal = event[0]
+    for signal in data:
         
         m = movavg(signal, nsamp)
         f = m[:-nsamp] - m[nsamp:]
@@ -104,8 +107,8 @@ def upcrossings(u, var, k2):
 #         pout += pcond * p
 #     return pout
 
-nsamples = data.shape[2]
-effnsamples = data.shape[2] - 2 * nsamp + 1
+nsamples = data.shape[1]
+effnsamples = data.shape[1] - 2 * nsamp + 1
 
 thr = np.linspace(minthr, maxthr, nthr)
 
@@ -134,13 +137,14 @@ ax.set_xlabel('Threshold [ADC unit]')
 ax.set_ylabel('Counts')
 
 info = f"""\
-first {nevents}/{len(data)} events
+first {nevents} events
+sampling frequency {num2si.num2si(freq)}Sa/s
 samples/event {nsamples}
 effective samples/event {effnsamples}
-moving average {nsamp}
-difference delay {nsamp}
-dead time {nsamp}"""
-textbox.textbox(ax, info, fontsize='medium', loc='upper left')
+moving average {nsamp} ({nsamp / freq * 1e6:.2g} μs)
+difference delay {nsamp} ({nsamp / freq * 1e6:.2g} μs)
+dead time {nsamp} ({nsamp / freq * 1e6:.2g} μs)"""
+textbox.textbox(ax, info, fontsize='small', loc='upper left')
 
 ax.axhspan(0, nevents, color='#eee', label='1 count/event')
 ax.legend(loc='upper right')
@@ -148,7 +152,7 @@ ax.legend(loc='upper right')
 ax.set_yscale('log')
 axr = ax.twinx()
 axr.set_yscale(ax.get_yscale())
-axr.set_ylim(np.array(ax.get_ylim()) / (nevents * effnsamples * 1e-9))
+axr.set_ylim(np.array(ax.get_ylim()) / (nevents * effnsamples / freq))
 axr.set_ylabel('Rate [cps]')
 
 ax.minorticks_on()

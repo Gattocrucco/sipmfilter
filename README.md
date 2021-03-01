@@ -27,7 +27,7 @@ The scripts read files which are not included in the repository due to size.
   * `fig*.py`: scripts for figures in my thesis.
   
   * `fdiffrate.py`: count threshold crossings for filtered finite difference on
-    a LNGS wav.
+    a Proto0 or LNGS file.
   
   * `fingerplot.py`: do a fingerplot with an LNGS wav.
 
@@ -36,6 +36,8 @@ The scripts read files which are not included in the repository due to size.
   * `fingersnrmf.py`: **(OUTDATED)** test for `fingersnr.py`.
   
   * `hist2d.py`: do a 2D histogram of an LNGS or Proto0 file.
+  
+  * `hist2dall.py`: run `hist2d` on a series of files saving plots.
   
   * `lngshist.py`: **(DEPRECATED)** do a 2D histogram of an LNGS wav.
 

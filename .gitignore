@@ -14,6 +14,7 @@ figrescomp*.npz
 figrescurve.npz
 figtempresdowns*.npz
 figwindowtempres*.npz
+hist2dall/*
 LF_TILE15*.npz
 toy*.npz
 

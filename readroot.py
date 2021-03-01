@@ -67,42 +67,49 @@ def readroot(filename, channel, maxevents=None, quiet=False):
     
     return array, trigger, freq
 
+# from PDMadcCh.png
+channels = {
+    31: 'adc_W200_Ch00',
+    32: 'adc_W200_Ch02',
+    39: 'adc_W200_Ch04',
+    64: 'adc_W200_Ch06',
+    55: 'adc_W200_Ch08',
+    
+    30: 'adc_W200_Ch10',
+    59: 'adc_W200_Ch12',
+    57: 'adc_W201_Ch00',
+    37: 'adc_W201_Ch02',
+    29: 'adc_W201_Ch04',
+    
+    38: 'adc_W201_Ch06',
+    36: 'adc_W201_Ch08',
+    58: 'adc_W201_Ch10',
+    62: 'adc_W202_Ch00',
+    60: 'adc_W202_Ch02',
+    
+    41: 'adc_W202_Ch04',
+    61: 'adc_W202_Ch06',
+    66: 'adc_W202_Ch08',
+    63: 'adc_W202_Ch10',
+    52: 'adc_W203_Ch00',
+    
+    34: 'adc_W203_Ch02',
+    53: 'adc_W203_Ch04',
+    54: 'adc_W203_Ch06',
+    65: 'adc_W203_Ch08',
+    42: 'adc_W203_Ch10',
+}
+
+def tiles():
+    """
+    List of Proto0 run2 tiles.
+    """
+    return list(channels.keys())
+
 def tilerun2ch(tile):
     """
     Map Proto0 run2 tile number to ADC channel.
     """
-    # from PDMadcCh.png
-    channels = {
-        31: 'adc_W200_Ch00',
-        32: 'adc_W200_Ch02',
-        39: 'adc_W200_Ch04',
-        64: 'adc_W200_Ch06',
-        55: 'adc_W200_Ch08',
-        
-        30: 'adc_W200_Ch10',
-        59: 'adc_W200_Ch12',
-        57: 'adc_W201_Ch00',
-        37: 'adc_W201_Ch02',
-        29: 'adc_W201_Ch04',
-        
-        38: 'adc_W201_Ch06',
-        36: 'adc_W201_Ch08',
-        58: 'adc_W201_Ch10',
-        62: 'adc_W202_Ch00',
-        60: 'adc_W202_Ch02',
-        
-        41: 'adc_W202_Ch04',
-        61: 'adc_W202_Ch06',
-        66: 'adc_W202_Ch08',
-        63: 'adc_W202_Ch10',
-        52: 'adc_W203_Ch00',
-        
-        34: 'adc_W203_Ch02',
-        53: 'adc_W203_Ch04',
-        54: 'adc_W203_Ch06',
-        65: 'adc_W203_Ch08',
-        42: 'adc_W203_Ch10',
-    }
     return channels[tile]
 
 def info(filename):
