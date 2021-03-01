@@ -35,7 +35,9 @@ The scripts read files which are not included in the repository due to size.
   
   * `fingersnrmf.py`: **(OUTDATED)** test for `fingersnr.py`.
   
-  * `lngshist.py`: do a 2D histogram of an LNGS wav.
+  * `hist2d.py`: do a 2D histogram of an LNGS or Proto0 file.
+  
+  * `lngshist.py`: **(DEPRECATED)** do a 2D histogram of an LNGS wav.
 
   * `manine.py`: **(OUTDATED)** test for `fingersnr.py`.
   

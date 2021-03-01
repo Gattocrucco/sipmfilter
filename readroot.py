@@ -1,5 +1,9 @@
+import re
+import os
+
 import uproot
 import numpy as np
+import pandas
 
 def readroot(filename, channel, maxevents=None, quiet=False):
     """
@@ -21,6 +25,10 @@ def readroot(filename, channel, maxevents=None, quiet=False):
     ------
     branch : array (nevents, length)
         The array of nonempty events in the tree branch.
+    trigger : int
+        The trigger position in samples from the start of the event.
+    freq : scalar
+        The sampling frequency in samples per second.
     """
     if isinstance(channel, int):
         channel = tilerun2ch(channel)
@@ -37,20 +45,27 @@ def readroot(filename, channel, maxevents=None, quiet=False):
     
     entrystop = len(nsamples)
     if maxevents == 0:
-        return np.empty((0, un[1]))
+        entrystop = 0
     elif maxevents is not None:
         idx = np.flatnonzero(indices)
         if maxevents < len(idx):
             entrystop = idx[maxevents - 1] + 1
     
     branch = tree.array(channel, entrystop=entrystop)
-    array = branch._content.reshape(-1, un[-1])
+    array = branch._content.reshape(-1, un[1])
     
     assert np.array_equal(branch.counts, nsamples[:entrystop])
     assert maxevents is None or len(array) <= maxevents
     
     root.close()
-    return array
+
+    table = info(filename)
+    ttrig = table['trigtime (µs)'].values[0]
+    ttotal = table['Time gate  (µs)'].values[0]
+    trigger = int(ttrig * array.shape[1] / ttotal)
+    freq = array.shape[1] / (ttotal * 1e-6)
+    
+    return array, trigger, freq
 
 def tilerun2ch(tile):
     """
@@ -89,3 +104,30 @@ def tilerun2ch(tile):
         42: 'adc_W203_Ch10',
     }
     return channels[tile]
+
+def info(filename):
+    """
+    Return the info table row for a Proto0 root file.
+    
+    Parameters
+    ----------
+    filename : str
+        The file path.
+    
+    Return
+    ------
+    row : pandas.DataFrame
+        A dataframe with a single row.
+    """
+
+    _, name = os.path.split(filename)
+    regexp = r'.*?(\d+).*?\.root(:.*|\Z)'
+    x = re.fullmatch(regexp, name)
+    num = int(x.groups()[0])
+    
+    table = pandas.read_csv('DS_proto_runs_nov_2019.csv')
+    idx = np.flatnonzero(table['run'].values == num)
+    assert len(idx) > 0, f'index {num} of file {name} missing in csv'
+    assert len(idx) == 1
+    
+    return table[table['run'] == num]
