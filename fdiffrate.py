@@ -1,12 +1,13 @@
 """
 Count threshold crossings of finite difference of filtered signal. Usage:
 
-    fdiffrate.py filename[:channel] [maxevents [length]]
+    fdiffrate.py filename[:channel] [maxevents [length [nsamples]]]
 
 channel = (for Proto0 root files) ADC channel or run2 tile.
 maxevents = number of events read from the file, default 1000.
 length = length of the moving average filter, delay of the
          difference, and dead time, in nanoseconds; default 1000.
+nsamples = number of samples read per event, default all.
 """
 
 import sys
@@ -24,15 +25,22 @@ import num2si
 filename = sys.argv[1]
 maxevents = 1000
 length = 1000
+nsamples = 0
 try:
     maxevents = int(sys.argv[2])
     length = int(sys.argv[3])
+    nsamples = int(sys.argv[4])
 except IndexError:
     pass
 
 data, trigger, freq, ndigit = read.read(filename, maxevents=maxevents)
 
+nsamp = int(length * 1e-9 * freq)
+
 nevents = len(data)
+if nsamples != 0:
+    assert nsamples >= 2 * nsamp
+    data = data[:, :nsamples]
 
 minthr = -ndigit
 maxthr = ndigit
@@ -40,8 +48,6 @@ nthr = 1 + int((maxthr - minthr) / 0.5)
 
 thrcounts = np.zeros(nthr, int)
 varcov1k2 = np.zeros(3)
-
-nsamp = int(length * 1e-9 * freq)
 
 @numba.njit(cache=True)
 def movavg(x, n):
@@ -86,6 +92,9 @@ varcov1k2 /= nevents
 def upcrossings(u, var, k2):
     return 1/(2 * np.pi) * np.sqrt(-k2 / var) * np.exp(-1/2 * u**2 / var)
 
+def deadtime(rate, deadtime):
+    return rate / (1 + rate * deadtime)
+
 # def gauss_integral(a, b, **kw):
 #     dist = stats.norm(**kw)
 #     return np.where(
@@ -113,7 +122,8 @@ effnsamples = data.shape[1] - 2 * nsamp + 1
 thr = np.linspace(minthr, maxthr, nthr)
 
 upc = upcrossings(thr, *varcov1k2[[0, 2]])
-thrcounts_theory = upc * nevents * effnsamples
+upc_dead = deadtime(upc, nsamp)
+thrcounts_theory = upc_dead * nevents * effnsamples
 
 # upc = upcrossings_digital(thr, *varcov1k2[[0, 1]], 1 / nsamp)
 # thrcounts_theory2 = upc * nevents * effnsamples
