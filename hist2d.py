@@ -10,6 +10,7 @@ import argparse
 import numpy as np
 from matplotlib import pyplot as plt, colors
 import numba
+from scipy import stats
 
 import read
 import readroot
@@ -31,6 +32,7 @@ def main(argv):
     parser.add_argument('-c', '--cmap', default='magma', help='matplotlib colormap for the histogram.')
     parser.add_argument('-L', '--lower', type=int, default=0, help='Lower sample value bound (inclusive).')
     parser.add_argument('-U', '--upper', type=int, default=sys.maxsize, help='Upper sample value bound (exclusive).')
+    parser.add_argument('-v', '--veto', type=int, default=0, help='Lower bound on values required to accept an event, default 0.')
     
     args = parser.parse_args(argv)
         
@@ -42,6 +44,7 @@ def main(argv):
     cmap = args.cmap
     lower = args.lower
     upper = args.upper
+    veto = args.veto
 
     data, trigger, freq, ndigit = read.read(filename, maxevents)
     
@@ -62,22 +65,36 @@ def main(argv):
     effndigit, p = roundp2(upper - lower, 10)
     
     h = np.zeros((efflength // q, effndigit // p), int)
+    vetocount = np.array(0)
 
     @numba.njit(cache=True)
-    def accumhist(hist, q, p, data, trigger, length, start, trig, lower, upper):
+    def accumhist(hist, q, p, data, trigger, length, start, trig, lower, upper, veto, vetocount):
         for ievent, signal in enumerate(data):
+            
             begin = start
             if trig:
                 begin += trigger[ievent]
             end = begin + length
-            for isample in range(max(0, begin), min(end, len(signal))):
+            
+            begin = max(0, begin)
+            end = min(end, len(signal))
+            
+            stop = False
+            for isample in range(begin, end):
+                if signal[isample] < veto:
+                    stop = True
+            if stop:
+                vetocount += 1
+                continue
+            
+            for isample in range(begin, end):
                 sample = signal[isample]
                 if lower <= sample < upper:
                     bin0 = (isample - begin) // q
                     bin1 = (sample - lower) // p
                     hist[bin0, bin1] += 1
 
-    runsliced.runsliced(lambda s: accumhist(h, q, p, data[s], trigger[s], efflength, start, trig, lower, upper), len(data), 100)
+    runsliced.runsliced(lambda s: accumhist(h, q, p, data[s], trigger[s], efflength, start, trig, lower, upper, veto, vetocount), len(data), 100)
 
     fig, ax = plt.subplots(num='hist2d', clear=True, figsize=[10.47, 4.8])
     
@@ -98,12 +115,13 @@ def main(argv):
     info = f"""\
 first {len(data)} events
 event length {data.shape[1]} ({data.shape[1] / freq * 1e6:.3g} μs)
-trigger median {np.median(trigger):.0f}"""
+trigger median {np.median(trigger):.0f}
+veto if any sample < {veto} (vetoed {vetocount.item()})"""
     textbox.textbox(ax, info, fontsize='medium', loc='lower right', bbox=dict(alpha=0.9))
 
     if '.root' in filename:
         table = readroot.info(filename)
-        info = [
+        infolist = [
             f'{col}: {table[col].values[0]}'
             for col in table.columns
             if 'run' in col
@@ -113,12 +131,49 @@ trigger median {np.median(trigger):.0f}"""
             or 'trig' in col
             or 'Quality' in col
         ]
-        info = '\n'.join(info)
-        textbox.textbox(ax, info, fontsize='x-small', loc='lower left', bbox=dict(alpha=0.9))
+        inforoot = '\n'.join(infolist)
+        textbox.textbox(ax, inforoot, fontsize='x-small', loc='lower left', bbox=dict(alpha=0.9))
 
     fig.tight_layout()
-    return h, fig
+
+    fig2, ax = plt.subplots(num='hist2d-2', clear=True, figsize=[10.47, 4.8])
+    
+    counts = np.sum(h, axis=0)
+    bins = -0.5 + np.linspace(lower, lower + effndigit, len(counts) + 1)
+    
+    val = bins[:-1] + 1/2 * np.diff(bins)
+    w = counts / np.sum(counts)
+    mu = np.sum(w * val)
+    sigma = np.sqrt(np.sum(w * (val - mu) ** 2))
+    
+    nz = np.flatnonzero(counts)
+    x = np.linspace(bins[nz[0]], bins[nz[-1] + 1], 1000)
+    y = stats.norm.pdf(x, mu, sigma) * np.sum(counts * np.diff(bins))
+    
+    cond = (y >= np.min(counts[counts != 0])) & (y <= np.max(counts))
+    y[~cond] = np.nan
+
+    ax.plot(x, y, color='#f55')
+    ax.plot(np.pad(bins, (1, 0), 'edge'), np.pad(counts, 1), drawstyle='steps-post', color='#000')
+
+    ax.set_title(filename)
+    ax.set_xlabel(f'Digit')
+    ax.set_ylabel(f'Counts per bin ({p} digit)')
+    
+    ax.set_yscale('log')
+    ax.minorticks_on()
+    ax.grid(True, 'major', linestyle='--')
+    ax.grid(True, 'minor', linestyle=':')
+
+    textbox.textbox(ax, info, fontsize='medium', loc='upper right', bbox=dict(alpha=0.9))
+    if '.root' in filename:
+        textbox.textbox(ax, inforoot, fontsize='x-small', loc='upper left', bbox=dict(alpha=0.9))
+
+    fig2.tight_layout()
+
+    return h, fig, fig2
 
 if __name__  == '__main__':
-    h, fig = main(sys.argv[1:])
+    h, fig, fig2 = main(sys.argv[1:])
     fig.show()
+    fig2.show()

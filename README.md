@@ -28,6 +28,10 @@ The scripts read files which are not included in the repository due to size.
   
   * `fdiffrate.py`: count threshold crossings for filtered finite difference on
     a Proto0 or LNGS file.
+    
+  * `fdrall.py`: run `fdiffrate.py` on all files specified.
+  
+  * `fdrallplot.py`: plot results from `fdrall.py`.
   
   * `fingerplot.py`: do a fingerplot with an LNGS wav.
 

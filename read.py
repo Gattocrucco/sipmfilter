@@ -5,7 +5,7 @@ import numpy as np
 import readwav
 import readroot
 
-def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto'):
+def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto', return_trigger=True):
     """
     Read an LNGS laser wav or a Proto0 root.
     
@@ -24,13 +24,16 @@ def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto'):
     swapch : str, bool
         (wav-specific) If True the signal and trigger channels are swapped in
         the file. 'auto' (default) tries to deduce it from the file name.
+    return_trigger : bool
+        If True (default) return the trigger position for each event.
     
     Return
     ------
     array : int array (nevents, nsamples)
         The array with the signal waveforms.
     trigger : array (nevents,)
-        The trigger position for each event in samples.
+        The trigger position for each event in samples. Returned only if
+        `return_trigger` is True.
     freq : scalar
         The sampling frequency in samples per second.
     ndigit : int
@@ -48,7 +51,8 @@ def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto'):
     if name.endswith('.wav'):
         data = readwav.readwav(filespec, maxevents=maxevents, quiet=quiet, mmap=mmap, swapch=swapch)
         array = data[:, 0]
-        trigger = readwav.first_nonzero(data[:, 1] < 600)
+        if return_trigger:
+            trigger = readwav.first_nonzero(data[:, 1] < 600)
         freq = 1e9
         ndigit = 2 ** 10
     
@@ -60,10 +64,14 @@ def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto'):
         if path != '':
             path += '/'
         array, trigger, freq = readroot.readroot(path + name, ch, maxevents=maxevents, quiet=quiet)
-        trigger = np.full(array.shape[0], trigger)
+        if return_trigger:
+            trigger = np.full(array.shape[0], trigger)
         ndigit = 2 ** 14
     
     else:
         raise ValueError(f'unrecognized extension for file {name}')
     
-    return array, trigger, freq, ndigit
+    if return_trigger:
+        return array, trigger, freq, ndigit
+    else:
+        return array, freq, ndigit
