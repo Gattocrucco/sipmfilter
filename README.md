@@ -10,6 +10,8 @@ The scripts read files which are not included in the repository due to size.
 [First source](http://ds50tb.lngs.infn.it:2180/SiPM/Tiles/FBK/NUV/MB2-LF-3x/),
 [second source](http://ds50tb.lngs.infn.it:2180/SiPM/Tiles/LFOUNDRY/pre-production-test/TILE_15/).
 
+  * `DS_proto_runs_nov_2019.csv`: Proto0 metadata, dated February 2021.
+
   * `figspectra.npz`: spectra saved by `figspectra.py`.
 
   * `merged_000886-adc_W201_Ch00.npz`: branch `adc_W201_Ch00` from
@@ -47,6 +49,8 @@ The scripts read files which are not included in the repository due to size.
 
   * `manine.py`: **(OUTDATED)** test for `fingersnr.py`.
   
+  * `plotevent.py`: plot a single event from a Proto0 or LNGS file.
+  
   * `plotwav.py`: plot a pair of things to check an LNGS wav.
   
   * `plotwav2.py`: a single plot for the 2020-11-03 slides.
@@ -80,6 +84,8 @@ The scripts read files which are not included in the repository due to size.
       
 ### Modules
 
+  * `afterpulse.py`: find afterpulses in an LNGS file.
+
   * `fighelp.py`: **(DEPRECATED)** convenience functions for matplotlib figures.
   
   * `figlatex.py`: write LaTeX command for including a matplotlib figure.
@@ -91,9 +97,13 @@ The scripts read files which are not included in the repository due to size.
     
   * `num2si.py`: format a number using SI suffixes.
   
+  * `read.py`: read a Proto0 or LNGS file with a single interface.
+  
   * `readroot.py`: read a Proto0 run2 root file.
  
   * `readwav.py`: read an LNGS wav; see also sstracka/dsfe on bitbucket.
+  
+  * `runsliced.py`: do something in batches with a progressbar.
   
   * `single_filter_analysis.py`: make a fingerplot and compute the SNR.
   

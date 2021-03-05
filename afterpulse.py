@@ -1,3 +1,17 @@
+"""
+Module to search afterpulses in an LNGS file.
+
+Classes
+-------
+AfterPulse : the main class of the module
+
+Functions
+---------
+correlate : compute the cross correlation
+firstbelowthreshold : to find the trigger leading edge
+maxprominencedip : search the minimum with maximum negative prominence
+"""
+
 import time
 
 import numpy as np
@@ -12,6 +26,38 @@ from single_filter_analysis import single_filter_analysis
 import textbox
 
 def correlate(waveform, template, method='fft', axis=-1, boundary=None):
+    """
+    Compute the cross correlation of two arrays.
+    
+    The correlation is computed with padding to the right but not to the left.
+    So the first element of the cross correlation is
+    
+        sum(waveform[:len(template)] * template),
+    
+    while the last is
+    
+        waveform[-1] * template[0].
+    
+    Parameters
+    ----------
+    waveform : array (..., N, ...)
+        The non-inverted term of the convolution.
+    template : array (M,)
+        The inverted term of the convolution.
+    method : {'fft', 'oa'}
+        Use fft (default) or overlap-add to compute the convolution.
+    axis : int
+        The axis of `waveform` along which the convolution is computed, default
+        last.
+    boundary : scalar, optional
+        The padding value for `waveform`. If not specified, use the last value
+        in each subarray.
+    
+    Return
+    ------
+    corr : array (..., N, ...)
+        The cross correlation, with the same shape as `waveform`.
+    """
     npad = len(template) - 1
     padspec = [(0, 0)] * len(waveform.shape)
     padspec[axis] = (0, npad)
@@ -29,6 +75,9 @@ def correlate(waveform, template, method='fft', axis=-1, boundary=None):
     return funcs[method](waveform_padded, template_bc, mode='valid', axes=axis)
 
 def test_correlate():
+    """
+    Plot a test of `correlate`.
+    """
     waveform = 1 - np.pad(np.ones(100), 100)
     waveform += 0.2 * np.random.randn(len(waveform))
     template = np.exp(-np.linspace(0, 3, 50))
@@ -48,6 +97,25 @@ def test_correlate():
     fig.show()
 
 def timecorr(lenwaveform, lentemplate, method, n=100):
+    """
+    Time `correlate`.
+    
+    Parameters
+    ----------
+    lenwaveform : int
+        Length of each waveform.
+    lentemplate : int
+        Length of the template.
+    method : {'fft', 'oa'}
+        Algorithm.
+    n : int
+        Number of waveforms, default 100.
+    
+    Return
+    ------
+    time : scalar
+        The time, in seconds, taken by `correlate`.
+    """
     waveform = np.random.randn(n, lenwaveform)
     template = np.random.randn(lentemplate)
     start = time.time()
@@ -56,6 +124,23 @@ def timecorr(lenwaveform, lentemplate, method, n=100):
     return end - start
 
 def timecorrseries(lenwaveform, lentemplates, n=100):
+    """
+    Call `timecorr` for a range of values.
+    
+    Parameters
+    ----------
+    lenwaveform : int
+        The length of each waveform.
+    lentemplate : int
+        The length of the template.
+    n : int
+        The number of waveforms, default 100.
+    
+    Return
+    ------
+    times : dict
+        Dictionary of dictionaries with layout method -> (lentemplate -> time).
+    """
     return {
         method: {
             lentemplate: timecorr(lenwaveform, lentemplate, method)
@@ -64,6 +149,9 @@ def timecorrseries(lenwaveform, lentemplates, n=100):
     }
 
 def plot_timecorrseries(timecorrseries_output):
+    """
+    Plot the output of `timecorrseries`.
+    """
     fig, ax = plt.subplots(num='afterpulse.plot_timecorrseries', clear=True)
     
     for method, time in timecorrseries_output.items():
@@ -78,6 +166,21 @@ def plot_timecorrseries(timecorrseries_output):
 
 @numba.njit(cache=True)
 def firstbelowthreshold(events, threshold):
+    """
+    Find the first element below a threshold in arrays.
+    
+    Parameters
+    ----------
+    events : array (nevents, N)
+        The arrays.
+    threshold : scalar
+        The threshold. The comparison is strict.
+    
+    Return
+    ------
+    pos : int array (nevents,)
+        The index in each event of the first element below `threshold`.
+    """
     output = np.full(len(events), -1)
     for ievent, event in enumerate(events):
         for isample, sample in enumerate(event):
@@ -89,14 +192,26 @@ def firstbelowthreshold(events, threshold):
 @numba.njit(cache=True)
 def maxprominencedip(events, start, top):
     """
+    Find the negative peak with the maximum prominence in arrays.
+    
+    The prominence is measured only to the left of the peak.
+    
+    Parameters
+    ----------
     events : array (nevents, N)
-    start : array (nevents,)
-    top: array (nevents,)
+        The arrays.
+    start : int array (nevents,)
+        Each row of `events` is used only from the sample specified by
+        `start` (inclusive).
+    top : array (nevents,)
+        For computing the prominence, maxima are capped at `top`.
     
-    The prominence is measured only to the left of the peak. Each event is
-    used only starting from the index in `start`. For computing the prominence,
-    maxima are capped at `top`.
-    
+    Return
+    ------
+    position : int array (nevents,)
+        The position of the peak.
+    prominence : int array (nevents,)
+        The prominence of the peak.
     """
     prominence = np.zeros(len(events), events.dtype)
     position = np.full(len(events), -1)
@@ -144,6 +259,9 @@ def maxprominencedip(events, start, top):
     return position, prominence
 
 def test_maxprominencedip():
+    """
+    Plot a random test of `maxprominencedip`.
+    """
     t = np.linspace(0, 1, 1000)
     mu = np.random.uniform(0, 1, 20)
     logsigma = np.random.randn(len(mu))
@@ -166,6 +284,85 @@ def test_maxprominencedip():
 class AfterPulse(toy.NpzLoad):
     
     def __init__(self, wavdata, template, filtlengths=None, batch=10, pbar=False):
+        """
+        Search afterpulses in LNGS laser data.
+        
+        Parameters
+        ----------
+        wavdata : array (nevents, 2, 15001)
+            Data as returned by readwav.readwav(). The first channel is the
+            waveform, the second channel is the trigger.
+        template : toy.Template
+            A template object used for the cross correlation filter. Should be
+            generated using the same wav file.
+        filtlengths : array, optional
+            A series of template lengths for the cross correlation filter, in
+            unit of 1 GSa/s samples. If not specified, a logarithmically spaced
+            range from 32 ns to 2048 ns is used.
+        batch : int
+            The events batch size, default 10.
+        pbar : bool
+            If True, print a progressbar during the computation (1 tick per
+            batch). Default False.
+        
+        Methods
+        -------
+        fingerplot : plot a histogram of main peak height.
+        plotevent : plot the analysis of a single event.
+        getexpr : compute the value of an expression on all events.
+        eventswhere : get the list of events satisfying a condition.
+        hist : plot the histogram of a variable.
+        scatter : plot two variables.
+        hist2d : plot the histogram of two variables.
+        
+        Members
+        -------
+        filtlengths : array
+            The cross correlation filter lengths.
+        output : array (nevents,)
+            A structured array containing the information for each event with
+            these fields:
+            'trigger' : int
+                The index of the trigger leading edge.
+            'baseline' : float
+                The mean of the pre-trigger region.
+            'mainpeak' : array filtlengths.shape
+                A structured field for the signal identified by the trigger
+                for each filter length with subfields:
+                'pos' : int
+                    The peak position.
+                'height' : float
+                    The peak height (positive) relative to the baseline.
+            'minorpeak' : array filtlengths.shape
+                A structured field for the maximum prominence peak after the
+                main peak for each filter length with these fields:
+                'pos' : int
+                    The peak position.
+                'height' : float
+                    The peak height (positive) relative to the baseline.
+                'prominence' : float
+                    The prominence, computed only looking at samples to the
+                    left of the peak, only back to the main peak position
+                    (even if it is lower than the secondary peak), and capping
+                    maxima to the baseline.
+            'npe' : int
+                The number of photoelectron associated to the main peak,
+                estimated using the longest filter.
+            'internals' : structured field
+                Internals used by the object.
+            'done' : bool
+                True.
+        templates : array filtlengths.shape
+            A structured array containing the cross correlation filter
+            templates with these fields:
+            'template' : 1D array
+                The template, padded to the right with zeros.
+            'length' : int
+                The length of the nonzero part of 'template'.
+            'offset' : float
+                The number of samples from the trigger to the beginning of
+                the truncated template.
+        """
         
         if filtlengths is None:
             self.filtlengths = np.logspace(5, 11, 2 * (11 - 5) + 1, base=2).astype(int)
@@ -204,7 +401,9 @@ class AfterPulse(toy.NpzLoad):
         self._computenpe()
     
     def _maketemplates(self, template):
-        
+        """
+        Fill the `templates` member.
+        """
         self.templates = np.zeros(self.filtlengths.shape, dtype=[
             ('template', float, np.max(self.filtlengths)),
             ('length', int),
@@ -220,6 +419,9 @@ class AfterPulse(toy.NpzLoad):
             entry['offset'] = offset
     
     def _run(self, wavdata, output):
+        """
+        Process a batch of events, filling `output`.
+        """
         trigger = firstbelowthreshold(wavdata[:, 1], 600)
         assert np.all(trigger >= 0)
         startoffset = 10
@@ -264,6 +466,9 @@ class AfterPulse(toy.NpzLoad):
         output['done'] = True
     
     def _computenpe(self):
+        """
+        Compute the number of photoelectrons from a fingerplot.
+        """
         ilength_flat = np.argmax(self.filtlengths)
         ilength = np.unravel_index(ilength_flat, self.filtlengths.shape)
         value = self.output['mainpeak']['height'][(slice(None),) + ilength]
@@ -275,6 +480,16 @@ class AfterPulse(toy.NpzLoad):
         self.output['npe'] = npe
     
     def fingerplot(self):
+        """
+        Plot the histogram of the main peak height.
+        
+        The height is computed with the longest filter.
+        
+        Return
+        ------
+        fig : matplotlib figure
+            The figure.
+        """
         ilength_flat = np.argmax(self.filtlengths)
         ilength = np.unravel_index(ilength_flat, self.filtlengths.shape)
         length = self.filtlengths[ilength]
@@ -291,6 +506,23 @@ class AfterPulse(toy.NpzLoad):
         return fig
     
     def plotevent(self, wavdata, ievent, ilength):
+        """
+        Plot a single event.
+        
+        Parameters
+        ----------
+        wavdata : array (nevents, 2, 15001)
+            The same array passed at initialization.
+        ievent : int
+            The event index.
+        ilength : int
+            The index of the filter length in `filtlengths`.
+        
+        Return
+        ------
+        fig : matplotlib figure
+            The figure.
+        """
         fig, ax = plt.subplots(num='afterpulse.AfterPulse.plotevent', clear=True)
         
         wf = wavdata[ievent, 0]
@@ -345,6 +577,37 @@ class AfterPulse(toy.NpzLoad):
         return fig
 
     def getexpr(self, expr, allow_numpy=True):
+        """
+        Evaluate an expression on all events.
+        
+        The expression can be any python expression involving the following
+        numpy arrays:
+        
+            mainpos     : the index of the main peak
+            mainheight  : the positive height of the main peak
+            minorpos    : the index of the maximum promince peak after the main
+            minorheight : ...its height
+            minorprom   : ...its prominence, capped to the baseline
+            npe         : the number of photoelectrons of the main peak
+            trigger     : the index of the trigger leading edge
+            baseline    : the value of the baseline
+            length      : the cross correlation filter template length
+        
+        All arrays have shape (nevents,) + filtlengths.shape, although some
+        of them do not vary over all axes.
+        
+        Parameters
+        ----------
+        expr : str
+            The expression.
+        allow_numpy : bool
+            If True (default), allow numpy functions in the expression.
+        
+        Return
+        ------
+        value :
+            The evaluated expression.
+        """
         globals = {}
         if allow_numpy:
             globals.update({
@@ -374,11 +637,53 @@ class AfterPulse(toy.NpzLoad):
         return eval(expr, globals)
     
     def eventswhere(self, cond):
+        """
+        List the events satisfying a condition.
+
+        For conditions that depends on filter length, the condition must be
+        satisfied for at least one length.
+        
+        The condition must evaluate to a boolean array with shape
+        (nevents,) + filtlengths.shape. If not, the behaviour is undefined.
+        
+        Parameters
+        ----------
+        cond : str
+            A python expression. See the method `getexpr` for an explanation.
+        
+        Return
+        ------
+        indices : int array
+            The events indices.
+        """
         mask = self.getexpr(cond, allow_numpy=False)
         mask = np.any(mask, axis=tuple(range(1, len(mask.shape))))
         return np.flatnonzero(mask)
     
     def hist(self, expr, where=None, yscale='linear'):
+        """
+        Plot the histogram of an expression.
+        
+        The values are histogrammed separately for each filter length.
+        
+        The expression must evaluate to an array with shape (nevents,) +
+        filtlengths.shape. If not, the behaviour is undefined.
+        
+        Parameters
+        ----------
+        expr : str
+            A python expression. See the method `getexpr` for an explanation.
+        where : str
+            An expression for a boolean condition to select the values of
+            `expr`.
+        yscale : str
+            The y scale of the plot, default 'linear'.
+        
+        Return
+        ------
+        fig : matplotlib figure
+            The figure.
+        """
         values = self.getexpr(expr)
         if where is not None:
             cond = self.getexpr(where)
@@ -418,6 +723,30 @@ class AfterPulse(toy.NpzLoad):
         return fig
 
     def scatter(self, xexpr, yexpr, where=None):
+        """
+        Plot the scatterplot of two expressions.
+        
+        The values are separated by filter length.
+        
+        The expressions must evaluate to arrays with shape (nevents,) +
+        filtlengths.shape. If not, the behaviour is undefined.
+        
+        Parameters
+        ----------
+        xexpr : str
+            A python expression for the x coordinate. See the method `getexpr`
+            for an explanation.
+        yexpr : str
+            Expression for the y coordinate.
+        where : str
+            An expression for a boolean condition to select the values of
+            `xexpr` and `yexpr`.
+        
+        Return
+        ------
+        fig : matplotlib figure
+            The figure.
+        """
         xvalues = self.getexpr(xexpr)
         yvalues = self.getexpr(yexpr)
         if where is not None:
@@ -458,6 +787,17 @@ class AfterPulse(toy.NpzLoad):
         return fig
     
     def _binedges(self, x, maxnbins='auto'):
+        """
+        Compute histogram bin edges for the array x.
+        
+        If the data type is a float, the edges are computed with the method
+        'auto' of numpy.
+        
+        If the data type is integral, the edges are aligned to half-integer
+        values. The number of bins is capped to `maxnbins`. If `maxnbins` is
+        'auto' (default), it is set to the number of bins numpy would use, but
+        at least 10.
+        """
         bins = np.histogram_bin_edges(x, bins='auto')
         if np.issubdtype(x.dtype, np.integer):
             newbins = np.arange(np.min(x), np.max(x) + 2) - 0.5
@@ -471,6 +811,33 @@ class AfterPulse(toy.NpzLoad):
         return bins
 
     def hist2d(self, xexpr, yexpr, where=None, log=True):
+        """
+        Plot the 2D histogram of two expressions.
+        
+        All filter lengths are histogrammed together.
+        
+        The expressions must evaluate to arrays with shape (nevents,) +
+        filtlengths.shape. If not, the behaviour is undefined.
+        
+        Parameters
+        ----------
+        xexpr : str
+            A python expression for the x coordinate. See the method `getexpr`
+            for an explanation.
+        yexpr : str
+            Expression for the y coordinate.
+        where : str
+            An expression for a boolean condition to select the values of
+            `xexpr` and `yexpr`.
+        log : bool
+            If True (default), the colormap is for the logarithm of the bin
+            height.
+        
+        Return
+        ------
+        fig : matplotlib figure
+            The figure.
+        """
         xvalues = self.getexpr(xexpr)
         yvalues = self.getexpr(yexpr)
         if where is not None:
