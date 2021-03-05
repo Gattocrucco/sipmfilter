@@ -5,7 +5,7 @@ import uproot
 import numpy as np
 import pandas
 
-def readroot(filename, channel, maxevents=None, quiet=False):
+def readroot(filename, channel, maxevents=None, quiet=False, firstevent=None):
     """
     Read a proto0 root file.
     
@@ -20,6 +20,8 @@ def readroot(filename, channel, maxevents=None, quiet=False):
         The number of nonempty entries to read from the file.
     quiet : bool
         If True, do not print 'reading <file>...'.
+    firstevent : int, optional
+        The first non-empty event to read.
     
     Return
     ------
@@ -42,14 +44,17 @@ def readroot(filename, channel, maxevents=None, quiet=False):
     nsamples = tree.array('nsamples')
     un, indices = np.unique(nsamples, return_inverse=True)
     assert len(un) == 2 and un[0] == 0
+    idx = np.flatnonzero(indices)
+    
+    entrystart = 0
+    if firstevent is not None and len(idx) > 0:
+        entrystart = idx[0]
     
     entrystop = len(nsamples)
     if maxevents == 0:
         entrystop = 0
-    elif maxevents is not None:
-        idx = np.flatnonzero(indices)
-        if maxevents < len(idx):
-            entrystop = idx[maxevents - 1] + 1
+    elif maxevents is not None and maxevents < len(idx):
+        entrystop = idx[maxevents - 1] + 1
     
     branch = tree.array(channel, entrystop=entrystop)
     array = branch._content.reshape(-1, un[1])

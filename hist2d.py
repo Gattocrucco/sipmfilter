@@ -175,5 +175,5 @@ veto if any sample < {veto} (vetoed {vetocount.item()})"""
 
 if __name__  == '__main__':
     h, fig, fig2 = main(sys.argv[1:])
-    fig.show()
     fig2.show()
+    fig.show()

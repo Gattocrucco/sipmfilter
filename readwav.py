@@ -42,23 +42,29 @@ def readwav(filename, maxevents=None, mmap=True, quiet=False, swapch='auto'):
     if swapch == 'auto':
         _, name = os.path.split(filename)
         swapch = name.startswith('LF_TILE')
+    
     if not quiet:
         print(f'reading {filename}...')
     _, data = wavfile.read(filename, mmap=True)
     # mmap = memory map, no RAM used
+    
     eventsize = 30022
     eventgap = 20
     # The number 30022 is from dsfe/README.md, the 20 sample gap is from
     # looking at the output of dsfe/readwav.
     data.shape = (len(data) // eventsize, eventsize)
+    
     if maxevents is not None:
         data = data[:maxevents]
+    
     data = data[:, eventgap:]
     data.shape = (data.shape[0], 2, (eventsize - eventgap) // 2)
+    
     if swapch:
         data = data[:, ::-1, :]
     if not mmap:
         data = np.copy(data)
+    
     return data
 
 def spurious_signals(data):

@@ -45,7 +45,9 @@ def templateplot(dest, fig=None):
 
     ax.set_title(os.path.split(source)[1])
     textbox.textbox(ax, 'Full template @ 1 GSa/s', fontsize='medium', loc='lower center')
-    ax.plot(template.template)
+    ax.plot(template.templates[0], color='#f55', label='Aligned to event window')
+    ax.plot(template.templates[1], color='#000', linestyle='--', label='Aligned to trigger')
+    ax.legend(loc='upper right')
     ax.minorticks_on()
     ax.grid(True, which='major', linestyle='--')
     ax.grid(True, which='minor', linestyle=':')
@@ -54,7 +56,7 @@ def templateplot(dest, fig=None):
 
     textbox.textbox(ax, 'Cross corr. filter templates @ 125 MSa/s', fontsize='medium', loc='lower center')
     template_offset = [
-        template.matched_filter_template(length, norm=False)
+        template.matched_filter_template(length, norm=False, aligned=True)
         for length in [4, 8, 16, 32, 64]
     ]
     for i, (y, offset) in enumerate(reversed(template_offset)):

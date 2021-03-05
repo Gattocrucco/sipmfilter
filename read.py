@@ -5,7 +5,7 @@ import numpy as np
 import readwav
 import readroot
 
-def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto', return_trigger=True):
+def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto', return_trigger=True, firstevent=None):
     """
     Read an LNGS laser wav or a Proto0 root.
     
@@ -26,6 +26,8 @@ def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto', return
         the file. 'auto' (default) tries to deduce it from the file name.
     return_trigger : bool
         If True (default) return the trigger position for each event.
+    firstevent : int, optional
+        The first event to read.
     
     Return
     ------
@@ -49,8 +51,17 @@ def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto', return
         ch = comp[-1]
     
     if name.endswith('.wav'):
-        data = readwav.readwav(filespec, maxevents=maxevents, quiet=quiet, mmap=mmap, swapch=swapch)
+        data = readwav.readwav(filespec, quiet=quiet, mmap=True, swapch=swapch)
+        
+        if firstevent is not None:
+            data = data[firstevent:]
+        if maxevents is not None:
+            data = data[:maxevents]
+        
         array = data[:, 0]
+        if not mmap:
+            array = np.copy(array)
+        
         if return_trigger:
             trigger = readwav.first_nonzero(data[:, 1] < 600)
         freq = 1e9
@@ -63,7 +74,7 @@ def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto', return
             ch = int(ch)
         if path != '':
             path += '/'
-        array, trigger, freq = readroot.readroot(path + name, ch, maxevents=maxevents, quiet=quiet)
+        array, trigger, freq = readroot.readroot(path + name, ch, maxevents=maxevents, quiet=quiet, firstevent=firstevent)
         if return_trigger:
             trigger = np.full(array.shape[0], trigger)
         ndigit = 2 ** 14

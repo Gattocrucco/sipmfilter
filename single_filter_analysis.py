@@ -25,7 +25,7 @@ def plot_histogram(ax, counts, bins, **kw):
     lines : tuple
         The return value from `ax.plot`.
     """
-    return ax.plot(np.concatenate([bins[:1], bins]), np.concatenate([[0], counts, [0]]), drawstyle='steps-post', **kw)
+    return ax.plot(np.pad(bins, (1, 0), 'edge'), np.pad(counts, 1), drawstyle='steps-post', **kw)
 
 def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
     """

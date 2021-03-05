@@ -1,11 +1,10 @@
 """
 Make a signal template from an LNGS wav and save it. Usage:
 
-    savetemplate.py [filename]
+    savetemplate.py [filenames...]
 """
 
 import sys
-import os
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -14,19 +13,28 @@ import toy
 import readwav
 import templateplot
 
-source = sys.argv[1]
-assert source.endswith('.wav')
-dest = source[:-4] + '-template.npz'
+files = sys.argv[1:]
 
-data = readwav.readwav(source, mmap=False)
-ignore = readwav.spurious_signals(data)
-template = toy.Template.from_lngs(data, 7 * 512, ~ignore)
-print(f'saving template to {dest}...')
-template.save(dest)
+for source in files:
+    assert source.endswith('.wav')
+    destbase = source[:-4] + '-template'
+    dest = destbase + '.npz'
 
-fig = plt.figure(num='savetemplate', clear=True, figsize=[6.4, 7.1])
+    data = readwav.readwav(source, mmap=False)
+    print(f'computing template...')
+    ignore = readwav.spurious_signals(data)
+    template = toy.Template.from_lngs(data, 7 * 512, ~ignore)
+    print(f'saving template to {dest}...')
+    template.save(dest)
 
-templateplot.templateplot(dest, fig=fig)
+    fig = plt.figure(num='savetemplate', clear=True, figsize=[6.4, 7.1])
 
-fig.tight_layout()
-fig.show()
+    templateplot.templateplot(dest, fig=fig)
+
+    fig.tight_layout()
+    if len(files) == 1:
+        fig.show()
+    else:
+        destplot = destbase + '.png'
+        print(f'save plot to {destplot}...')
+        fig.savefig(destplot)
