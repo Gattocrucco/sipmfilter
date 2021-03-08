@@ -5,7 +5,7 @@
 *.wav
 
 __pycache__
-afterpulse*.npz
+afterpulse*/*
 fdrall/*
 figrescomp*.npz
 figrescurve.npz

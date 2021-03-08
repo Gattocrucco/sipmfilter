@@ -440,8 +440,13 @@ class AfterPulse(toy.NpzLoad):
             these fields:
             'trigger' : int
                 The index of the trigger leading edge.
+            'saturated' : bool
+                If there's at least one sample with value 0 in the event.
+            'lowbaseline' : bool
+                If there's at least one sample below 700 before the trigger.
             'baseline' : float
-                The mean of the pre-trigger region.
+                The median of the pre-trigger region. Copied from another event
+                if 'lowbaseline'.
             'mainpeak' : array filtlengths.shape
                 A structured field for the signal identified by the trigger
                 for each filter length with subfields:
@@ -449,6 +454,8 @@ class AfterPulse(toy.NpzLoad):
                     The peak position.
                 'height' : float
                     The peak height (positive) relative to the baseline.
+                'npe' : int
+                    The (likely) number of photoelectrons.
             'minorpeak' : array filtlengths.shape
                 A structured field for the maximum prominence peak after the
                 main peak for each filter length with these fields:
@@ -463,19 +470,14 @@ class AfterPulse(toy.NpzLoad):
             'minorpeak2' : array filtlengths.shape
                 Analogous to the 'minorpeak' field, but for the second highest
                 prominence peak.
-            'npe' : int array filtlengths.shape
-                The number of photoelectron associated to the main peak by each
-                filter.
-            'saturated' : bool
-                If there's at least one sample with value 0 in the event.
-            'lowbaseline' : bool
-                If there's at least one sample below 700 before the trigger.
-            'good' : bool
-                If both 'lowbaseline' and 'saturated' are False.
             'ptpeak', 'ptpeak2' :
                 Analogous to 'minorpeak' and 'minorpeak2' for the two highest
-                prominence peaks in the region before the trigger, filled only
-                if 'lowbaseline', searched only with the longest filter.
+                prominence peaks in the region before the trigger, searched
+                only with the longest filter.
+            'good' : bool
+                If 'saturated' is False and the two detected peaks before the
+                trigger either are at least 1500 samples before the trigger or
+                have height not above 8.
             'internals' : structured field
                 Internals used by the object.
             'done' : bool
@@ -506,12 +508,15 @@ class AfterPulse(toy.NpzLoad):
         self.output = np.empty(len(wavdata), dtype=[
             ('trigger', int),
             ('baseline', float),
-            ('mainpeak', peakdtype[:-1], self.filtlengths.shape),
+            ('mainpeak', [
+                ('pos', int),
+                ('height', float),
+                ('npe', int),
+            ], self.filtlengths.shape),
             ('minorpeak', peakdtype, self.filtlengths.shape),
             ('minorpeak2', peakdtype, self.filtlengths.shape),
             ('ptpeak', peakdtype),
             ('ptpeak2', peakdtype),
-            ('npe', int, self.filtlengths.shape),
             ('internals', [
                 # left:right is the main peak search range relative to start
                 # start is the beginning of the filtered post-trigger region
@@ -527,14 +532,11 @@ class AfterPulse(toy.NpzLoad):
             ('done', bool),
         ])
         
-        self.output['npe'] = -1
+        self.output['mainpeak']['npe'] = -1
         self.output['internals']['bsevent'] = -1
-        self.output['internals']['lpad'] = -1
-        self.output['ptpeak'] = -1
-        self.output['ptpeak2'] = -1
         self.output['done'] = False
         
-        # (event from which I copy the baseline, baseline)
+        # tuple (event from which I copy the baseline, baseline)
         self._default_baseline = (-1, template.baseline)
         
         self._maketemplates(template)
@@ -627,29 +629,35 @@ class AfterPulse(toy.NpzLoad):
             output['internals']['left'][idx] = left
             output['internals']['right'][idx] = right
         
-        # find peaks in pre-trigger region if there are low samples
-        if np.any(lowbaseline):
-            templ, offset = self._mftempl()
-            lpad = 100
-            filtered = correlate(wavdata[lowbaseline, 0, :start], templ, boundary=mean_baseline, lpad=lpad)
-            ptpos, ptprom = maxprominencedip(filtered, np.zeros(len(filtered)), baseline[lowbaseline], 2)
-            ptheight = filtered[np.arange(len(ptpos))[:, None], ptpos]
-            for ipeak, s in [(1, ''), (0, '2')]:
-                ptpeak_out = output['ptpeak' + s]
-                pos = ptpos[:, ipeak]
-                bad = pos < 0
-                ptpeak_out['pos'][lowbaseline] = np.where(bad, pos, np.maximum(0, pos - lpad))
-                ptpeak_out['height'][lowbaseline] = np.where(bad, badvalue, baseline[lowbaseline] - ptheight[:, ipeak])
-                ptpeak_out['prominence'][lowbaseline] = np.where(bad, badvalue, ptprom[:, ipeak])
-            output['internals']['lpad'][lowbaseline] = lpad
+        # find peaks in pre-trigger region
+        templ, offset = self._mftempl()
+        lpad = 100
+        filtered = correlate(wavdata[:, 0, :start], templ, boundary=mean_baseline, lpad=lpad)
+        ptpos, ptprom = maxprominencedip(filtered, np.zeros(len(filtered)), baseline, 2)
+        ptheight = filtered[np.arange(len(ptpos))[:, None], ptpos]
+        good = ~saturated
+        for ipeak, s in [(1, ''), (0, '2')]:
+            pos = ptpos[:, ipeak]
+            height = baseline - ptheight[:, ipeak]
+            bad = pos < 0
+            
+            ptpeak_out = output['ptpeak' + s]
+            ptpeak_out['pos'] = np.where(bad, pos, np.maximum(0, pos - lpad))
+            ptpeak_out['height'] = np.where(bad, badvalue, height)
+            ptpeak_out['prominence'] = np.where(bad, badvalue, ptprom[:, ipeak])
+            
+            cond = filtered.shape[1] - pos < 1500
+            cond &= height > 8
+            good &= bad | ~cond
         
         output['trigger'] = trigger
         output['baseline'] = baseline
         output['saturated'] = saturated
         output['lowbaseline'] = lowbaseline
-        output['good'] = ~(saturated | lowbaseline)
+        output['good'] = good
         output['internals']['start'] = start
         output['internals']['bsevent'][lowbaseline] = self._default_baseline[0]
+        output['internals']['lpad'] = lpad
         output['done'] = True
     
     def _mftempl(self, ilength=None):
@@ -680,7 +688,7 @@ class AfterPulse(toy.NpzLoad):
     
                 bins = (center[1:] + center[:-1]) / 2
                 npe = np.digitize(value[good2], bins)
-                self.output['npe'][(good2,) + ilength] = npe
+                self.output['mainpeak']['npe'][(good2,) + ilength] = npe
     
     def fingerplot(self, ilength=None):
         """
@@ -703,15 +711,18 @@ class AfterPulse(toy.NpzLoad):
         elif not isinstance(ilength, tuple):
             ilength = (ilength,)
         
-        length = self.filtlengths[ilength]
-        value = self.output['mainpeak']['height'][(slice(None),) + ilength]
-        value = value[self.output['good']]
+        idx = (slice(None),) + ilength
+        value = self.output['mainpeak']['height'][idx]
+        good1 = self.output['good']
+        good2 = self.output['mainpeak']['pos'][idx] >= 0
+        value = value[good1 & good2]
 
         fig = plt.figure(num='afterpulse.AfterPulse.fingerplot', clear=True)
         
         single_filter_analysis(value, fig1=fig)
         
         ax, = fig.get_axes()
+        length = self.filtlengths[ilength]
         textbox.textbox(ax, f'filter length = {length} ns', loc='center right', fontsize='small')
         
         fig.tight_layout()
@@ -759,11 +770,10 @@ class AfterPulse(toy.NpzLoad):
         length = self.filtlengths[ilength]
         ax.plot(start + np.arange(len(filtered)), filtered, color='#000', label=f'filtered ({length} ns template)')
         
-        if entry['lowbaseline']:
-            templ, _ = self._mftempl()
-            lpad = entry['internals']['lpad']
-            filtered = correlate(wf[:start], templ, boundary=baseline, lpad=lpad)
-            ax.plot(-lpad + np.arange(len(filtered)), filtered, color='#000')
+        templ, _ = self._mftempl()
+        lpad = entry['internals']['lpad']
+        filtered = correlate(wf[:start], templ, boundary=baseline, lpad=lpad)
+        ax.plot(-lpad + np.arange(len(filtered)), filtered, color='#000')
         
         left = entry['internals']['left'][ilength]
         right = entry['internals']['right'][ilength]
@@ -776,7 +786,7 @@ class AfterPulse(toy.NpzLoad):
         mainpos = mainpeak['pos']
         if mainpos >= 0:
             mainheight = mainpeak['height']
-            npe = entry['npe'][ilength]
+            npe = entry['mainpeak']['npe'][ilength]
             base = baseline - mainheight
             ax.vlines(mainpos, base, baseline, zorder=2.1)
             ax.plot(mainpos, base, marker='o', label=f'main peak, h={mainheight:.1f}, npe={npe}', **markerkw)
@@ -822,7 +832,7 @@ class AfterPulse(toy.NpzLoad):
         fig.tight_layout()
         return fig
 
-    def getexpr(self, expr, allow_numpy=True):
+    def getexpr(self, expr, condexpr=None, allow_numpy=True):
         """
         Evaluate an expression on all events.
         
@@ -837,6 +847,8 @@ class AfterPulse(toy.NpzLoad):
             good        : if not saturated neither lowbaseline
             mainpos     : the index of the main peak
             mainheight  : the positive height of the main peak
+            npe         : the number of photoelectrons of the main peak,
+                          determined separately with each filter length
             minorpos    : the index of the maximum promince peak after the main
             minorheight : ...its height
             minorprom   : ...its prominence, capped to the baseline, and
@@ -852,8 +864,6 @@ class AfterPulse(toy.NpzLoad):
             pt2pos      : like ptpos, but the second highest
             pt2height   : as above
             pt2prom     : as above
-            npe         : the number of photoelectrons of the main peak,
-                          determined separately with each filter length
         
         All arrays have shape (nevents,) + filtlengths.shape, although some
         of them do not vary over all axes.
@@ -865,6 +875,10 @@ class AfterPulse(toy.NpzLoad):
         ----------
         expr : str
             The expression.
+        condexpr : str, optional
+            An expression which must evaluate to a boolean array with the same
+            shape of the variables and which is used to select the values in
+            all the variables prior to evaluating `expr`.
         allow_numpy : bool
             If True (default), allow numpy functions in the expression.
         
@@ -893,6 +907,7 @@ class AfterPulse(toy.NpzLoad):
             good        = broadcasted(self.output['good']),
             mainpos     = self.output['mainpeak']['pos'],
             mainheight  = self.output['mainpeak']['height'],
+            npe         = self.output['mainpeak']['npe'],
             minorpos    = self.output['minorpeak']['pos'],
             minorheight = self.output['minorpeak']['height'],
             minorprom   = self.output['minorpeak']['prominence'],
@@ -905,12 +920,15 @@ class AfterPulse(toy.NpzLoad):
             pt2pos      = broadcasted(self.output['ptpeak2']['pos']),
             pt2height   = broadcasted(self.output['ptpeak2']['height']),
             pt2prom     = broadcasted(self.output['ptpeak2']['prominence']),
-            npe         = self.output['npe'],
         )
         for k, v in variables.items():
             v = v.view()
             v.flags['WRITEABLE'] = False
             globals[k] = v
+        if condexpr is not None:
+            cond = eval(condexpr, globals)
+            for k in variables.keys():
+                globals[k] = globals[k][cond]
         return eval(expr, globals)
     
     def eventswhere(self, cond):
