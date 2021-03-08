@@ -26,6 +26,8 @@ The scripts read files which are not included in the repository due to size.
 
 ### Scripts
 
+  * `afterpulse_tile57.py`: count afterpulses in tile 57.
+
   * `fig*.py`: scripts for figures in my thesis.
   
   * `fdiffrate.py`: count threshold crossings for filtered finite difference on
