@@ -8,16 +8,19 @@ spurious_signals :
 first_nonzero :
     Find the first nonzero value in each row of a matrix; use it to find the
     trigger leading edge.
+firstbelowthreshold :
+    Likewise but faster (uses numba).
 """
 
 import os
 
 from scipy.io import wavfile
 import numpy as np
+import numba
 
 def readwav(filename, maxevents=None, mmap=True, quiet=False, swapch='auto'):
     """
-    Read an LNGS wav, one of those like nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav.
+    Read an LNGS laser wav.
     
     Parameters
     ----------
@@ -29,15 +32,16 @@ def readwav(filename, maxevents=None, mmap=True, quiet=False, swapch='auto'):
         If True, the array is memory mapped i.e. it is not actually on RAM.
     quiet : bool
         Default False. If True, do not print a log message.
-    swapch : bool
+    swapch : {'auto', bool}
         If False, assume the first channel in the wav file is the signal and
         the second is the trigger. If True, the opposite. If 'auto' (default),
-        decide based on the file name.
-    
+        decide based on the file name. Applies only if there are two channels.
+        
     Return
     ------
-    data : array (nevents, nchannels=2, nsamples=15001)
-        The first channel is the signal and the second channel is the trigger.
+    data : array (nevents, nchannels, nsamples)
+        When there are two channels, the first channel is the signal and the
+        second channel is the trigger.
     """
     if swapch == 'auto':
         _, name = os.path.split(filename)
@@ -46,21 +50,33 @@ def readwav(filename, maxevents=None, mmap=True, quiet=False, swapch='auto'):
     if not quiet:
         print(f'reading {filename}...')
     _, data = wavfile.read(filename, mmap=True)
-    # mmap = memory map, no RAM used
     
-    eventsize = 30022
-    eventgap = 20
-    # The number 30022 is from dsfe/README.md, the 20 sample gap is from
-    # looking at the output of dsfe/readwav.
+    # parse metadata
+    assert len(data.shape) == 1, data.shape
+    assert len(data) >= 2, len(data)
+    assert data[0] == -1, data[0]
+    metasize = data[1]
+    assert metasize == 20, metasize
+    assert len(data) >= metasize, len(data)
+    metadata = data[:metasize]
+    size = metadata[6]
+    assert size == 15001, size
+    nchannels = metadata[10]
+    assert nchannels == 1 or nchannels == 2, nchannels
+    
+    # divide data in events
+    eventsize = metasize + nchannels * size
+    assert len(data) % eventsize == 0, (len(data), eventsize)
     data.shape = (len(data) // eventsize, eventsize)
     
     if maxevents is not None:
         data = data[:maxevents]
     
-    data = data[:, eventgap:]
-    data.shape = (data.shape[0], 2, (eventsize - eventgap) // 2)
+    # divide channels
+    data = data[:, metasize:]
+    data.shape = (data.shape[0], nchannels, size)
     
-    if swapch:
+    if nchannels == 2 and swapch:
         data = data[:, ::-1, :]
     if not mmap:
         data = np.copy(data)
@@ -105,3 +121,31 @@ def first_nonzero(cond):
     idx = np.full(*cond.shape)
     idx[i0] = i1[indices]
     return idx
+
+@numba.njit(cache=True)
+def firstbelowthreshold(events, threshold):
+    """
+    Find the first element below a threshold in arrays.
+    
+    Parameters
+    ----------
+    events : array (nevents, N)
+        The arrays.
+    threshold : scalar
+        The threshold. The comparison is strict.
+    
+    Return
+    ------
+    pos : int array (nevents,)
+        The index in each event of the first element below `threshold`, N if
+        there's none.
+    """
+    output = np.empty(len(events), np.intp)
+    for ievent, event in enumerate(events):
+        for isample, sample in enumerate(event):
+            if sample < threshold:
+                output[ievent] = isample
+                break
+        else:
+            output[ievent] = len(event)
+    return output

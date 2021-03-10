@@ -399,7 +399,17 @@ def test_argminrelmin():
 
 class AfterPulse(toy.NpzLoad):
     
-    def __init__(self, wavdata, template, filtlengths=None, batch=10, pbar=False):
+    def __init__(self,
+        wavdata,
+        template,
+        filtlengths=None,
+        batch=10,
+        pbar=False,
+        ptlength=2048,
+        lowsample=700,
+        safedist=2500,
+        safeheight=8,
+    ):
         """
         Search afterpulses in LNGS laser data.
         
@@ -412,14 +422,29 @@ class AfterPulse(toy.NpzLoad):
             A template object used for the cross correlation filter. Should be
             generated using the same wav file.
         filtlengths : array, optional
-            A series of template lengths for the cross correlation filter, in
-            unit of 1 GSa/s samples. If not specified, a logarithmically spaced
-            range from 32 ns to 2048 ns is used.
+            A series of template lengths for the cross correlation filters used
+            in the post-trigger region, in unit of 1 GSa/s samples. If not
+            specified, a logarithmically spaced range from 32 ns to 2048 ns is
+            used.
         batch : int
             The events batch size, default 10.
         pbar : bool
             If True, print a progressbar during the computation (1 tick per
             batch). Default False.
+        ptlength : int
+            Length of the cross correlation filter template used in the
+            pre-trigger region, default 2048.
+        lowsample : scalar
+            Threshold on single samples in the pre-trigger region to switch to
+            a default baseline instead of computing it from the event, default
+            700.
+        safedist : scalar
+            Distance from a peak in the pre-trigger region to the trigger above
+            which the peak is assumed not to influence the post-trigger region,
+            default 2500.
+        safeheight : scalar
+            The maximum height for peaks within `safedist` to be still
+            considered negligible, default 8.
         
         Methods
         -------
@@ -433,8 +458,10 @@ class AfterPulse(toy.NpzLoad):
         
         Members
         -------
+        ptlength, lowsample, safedist, safeheight : scalar
+            The arguments given at initialization.
         filtlengths : array
-            The cross correlation filter lengths.
+            The post-trigger cross correlation filter lengths.
         output : array (nevents,)
             A structured array containing the information for each event with
             these fields:
@@ -443,7 +470,8 @@ class AfterPulse(toy.NpzLoad):
             'saturated' : bool
                 If there's at least one sample with value 0 in the event.
             'lowbaseline' : bool
-                If there's at least one sample below 700 before the trigger.
+                If there's at least one sample below `lowsample` before the
+                trigger.
             'baseline' : float
                 The median of the pre-trigger region. Copied from another event
                 if 'lowbaseline'.
@@ -476,15 +504,15 @@ class AfterPulse(toy.NpzLoad):
                 only with the longest filter.
             'good' : bool
                 If 'saturated' is False and the two detected peaks before the
-                trigger either are at least 1500 samples before the trigger or
-                have height not above 8.
+                trigger either are at least `safedist` samples before the
+                trigger or have height not above `safeheight`.
             'internals' : structured field
                 Internals used by the object.
             'done' : bool
                 True.
         templates : array filtlengths.shape
-            A structured array containing the cross correlation filter
-            templates with these fields:
+            A structured array containing the post-trigger cross correlation
+            filter templates with these fields:
             'template' : 1D array
                 The template, padded to the right with zeros.
             'length' : int
@@ -492,12 +520,19 @@ class AfterPulse(toy.NpzLoad):
             'offset' : float
                 The number of samples from the trigger to the beginning of
                 the truncated template.
+        pttemplate : 0d array
+            An array like `templates` with the pre-trigger template.
         """
         
         if filtlengths is None:
             self.filtlengths = np.logspace(5, 11, 2 * (11 - 5) + 1, base=2).astype(int)
         else:
             self.filtlengths = np.array(filtlengths, int)
+            
+        self.ptlength = ptlength
+        self.lowsample = lowsample
+        self.safedist = safedist
+        self.safeheight = safeheight
         
         peakdtype = [
             ('pos', int),
@@ -548,21 +583,38 @@ class AfterPulse(toy.NpzLoad):
     
     def _maketemplates(self, template):
         """
-        Fill the `templates` member.
+        Fill the `templates` and `pttemplate` members.
         """
-        self.templates = np.zeros(self.filtlengths.shape, dtype=[
-            ('template', float, np.max(self.filtlengths)),
-            ('length', int),
-            ('offset', int),
-        ])
-        self.templates['length'] = self.filtlengths
+        def templates(lengths):
+            templates = np.zeros(lengths.shape, dtype=[
+                ('template', float, (np.max(lengths),)),
+                ('length', int),
+                ('offset', int),
+            ])
+            templates['length'] = lengths
+            for _, entry in np.ndenumerate(templates):
+                templ, offset = template.matched_filter_template(entry['length'], timebase=1, aligned=True)
+                assert len(templ) == entry['length']
+                entry['template'][:len(templ)] = templ
+                entry['length'] = len(templ)
+                entry['offset'] = offset
+            return templates
         
-        for entry in self.templates:
-            templ, offset = template.matched_filter_template(entry['length'], timebase=1, aligned=True)
-            assert len(templ) == entry['length']
-            entry['template'][:len(templ)] = templ
-            entry['length'] = len(templ)
-            entry['offset'] = offset
+        self.templates = templates(self.filtlengths)
+        self.pttemplate = templates(np.array(self.ptlength))
+    
+    def _mftempl(self, ilength=None):
+        """
+        Return template, offset. If length not specified, return pre-trigger
+        template.
+        """
+        if ilength is None:
+            entry = self.pttemplate[()]
+        else:
+            entry = self.templates[ilength]
+        templ = entry['template'][:entry['length']]
+        offset = entry['offset']
+        return templ, offset
     
     def _run(self, wavdata, output, slic):
         """
@@ -578,7 +630,7 @@ class AfterPulse(toy.NpzLoad):
         saturated = np.any(wavdata[:, 0] == 0, axis=-1)
         
         # compute the baseline, handling spurious pre-trigger signals
-        lowbaseline = np.any(wavdata[:, 0, :start] < 700, axis=-1)
+        lowbaseline = np.any(wavdata[:, 0, :start] < self.lowsample, axis=-1)
         baseline = np.median(wavdata[:, 0, :start], axis=-1)
         okbs = np.flatnonzero(~lowbaseline)
         if len(okbs) > 0:
@@ -646,9 +698,9 @@ class AfterPulse(toy.NpzLoad):
             ptpeak_out['height'] = np.where(bad, badvalue, height)
             ptpeak_out['prominence'] = np.where(bad, badvalue, ptprom[:, ipeak])
             
-            cond = filtered.shape[1] - pos < 1500
-            cond &= height > 8
-            good &= bad | ~cond
+            notgood = filtered.shape[1] - pos < self.safedist
+            notgood &= height > self.safeheight
+            good &= bad | ~notgood
         
         output['trigger'] = trigger
         output['baseline'] = baseline
@@ -660,23 +712,11 @@ class AfterPulse(toy.NpzLoad):
         output['internals']['lpad'] = lpad
         output['done'] = True
     
-    def _mftempl(self, ilength=None):
+    def _fingerplot(self, ilengths, writenpe=False, fig=None):
         """
-        Return template, offset. If not specified, return the longest template.
+        Shared implementation of `_computenpe` and `fingerplot`.
         """
-        if ilength is None:
-            ilength_flat = np.argmax(self.filtlengths)
-            ilength = np.unravel_index(ilength_flat, self.filtlengths.shape)
-        entry = self.templates[ilength]
-        templ = entry['template'][:entry['length']]
-        offset = entry['offset']
-        return templ, offset
-    
-    def _computenpe(self):
-        """
-        Compute the number of photoelectrons from a fingerplot.
-        """
-        for ilength in np.ndindex(*self.filtlengths.shape):
+        for ilength in ilengths:
             idx = (slice(None),) + ilength
             value = self.output['mainpeak']['height'][idx]
             good1 = self.output['good']
@@ -684,11 +724,19 @@ class AfterPulse(toy.NpzLoad):
             good_value = value[good1 & good2]
             
             if len(good_value) >= 100:
-                _, center, _ = single_filter_analysis(good_value, return_full=True)
+        
+                _, center, _ = single_filter_analysis(good_value, return_full=True, fig1=fig)
+                
+                if writenpe:
+                    bins = (center[1:] + center[:-1]) / 2
+                    npe = np.digitize(value[good2], bins)
+                    self.output['mainpeak']['npe'][(good2,) + ilength] = npe
     
-                bins = (center[1:] + center[:-1]) / 2
-                npe = np.digitize(value[good2], bins)
-                self.output['mainpeak']['npe'][(good2,) + ilength] = npe
+    def _computenpe(self):
+        """
+        Compute the number of photoelectrons from a fingerplot.
+        """
+        self._fingerplot(np.ndindex(*self.filtlengths.shape), writenpe=True)
     
     def fingerplot(self, ilength=None):
         """
@@ -711,15 +759,9 @@ class AfterPulse(toy.NpzLoad):
         elif not isinstance(ilength, tuple):
             ilength = (ilength,)
         
-        idx = (slice(None),) + ilength
-        value = self.output['mainpeak']['height'][idx]
-        good1 = self.output['good']
-        good2 = self.output['mainpeak']['pos'][idx] >= 0
-        value = value[good1 & good2]
-
         fig = plt.figure(num='afterpulse.AfterPulse.fingerplot', clear=True)
         
-        single_filter_analysis(value, fig1=fig)
+        self._fingerplot([ilength], fig=fig)
         
         ax, = fig.get_axes()
         length = self.filtlengths[ilength]
@@ -843,8 +885,9 @@ class AfterPulse(toy.NpzLoad):
             baseline    : the value of the baseline
             length      : the cross correlation filter template length
             saturated   : if there is a sample equal to zero in the event
-            lowbaseline : if there is a sample < 700 before the trigger
-            good        : if not saturated neither lowbaseline
+            lowbaseline : if there is sample too low before the trigger
+            good        : if not saturated and without high pre-trigger peaks
+                          near the trigger
             mainpos     : the index of the main peak
             mainheight  : the positive height of the main peak
             npe         : the number of photoelectrons of the main peak,
@@ -857,8 +900,7 @@ class AfterPulse(toy.NpzLoad):
             thirdheight : as above
             thirdprom   : as above
             ptpos       : the index of the higher prominence peak before the
-                          trigger, filled only if lowbaseline, searched only
-                          with the longest filter
+                          trigger
             ptheight    : as above
             ptprom      : as above
             pt2pos      : like ptpos, but the second highest
@@ -955,7 +997,7 @@ class AfterPulse(toy.NpzLoad):
         mask = np.any(mask, axis=tuple(range(1, len(mask.shape))))
         return np.flatnonzero(mask)
     
-    def hist(self, expr, where=None, yscale='linear'):
+    def hist(self, expr, where=None, yscale='linear', nbins='auto'):
         """
         Plot the histogram of an expression.
         
@@ -973,6 +1015,8 @@ class AfterPulse(toy.NpzLoad):
             `expr`.
         yscale : str
             The y scale of the plot, default 'linear'.
+        nbins : int, optional
+            The number of bins. Computed automatically by default.
         
         Return
         ------
@@ -991,9 +1035,9 @@ class AfterPulse(toy.NpzLoad):
             if where is not None:
                 x = x[cond[idx]]
             if len(x) > 0:
-                iflat = np.ravel_multi_index(ilength, self.filtlengths.shape)
+                iflat = np.ravel_multi_index(ilength, self.filtlengths.shape) if ilength else 0
                 histkw = dict(
-                    bins = self._binedges(x),
+                    bins = self._binedges(x, nbins=nbins),
                     histtype = 'step',
                     color = '#600',
                     label = f'{length} ({len(x)})',
@@ -1081,19 +1125,19 @@ class AfterPulse(toy.NpzLoad):
         fig.tight_layout()
         return fig
     
-    def _binedges(self, x, maxnbins='auto'):
+    def _binedges(self, x, maxnbins='auto', nbins='auto'):
         """
         Compute histogram bin edges for the array x.
         
-        If the data type is a float, the edges are computed with the method
-        'auto' of numpy.
+        If the data type is a float, the edges are computed with
+        np.histogram_bin_edges(x, bins=nbins).
         
         If the data type is integral, the edges are aligned to half-integer
         values. The number of bins is capped to `maxnbins`. If `maxnbins` is
         'auto' (default), it is set to the number of bins numpy would use, but
         at least 10.
         """
-        bins = np.histogram_bin_edges(x, bins='auto')
+        bins = np.histogram_bin_edges(x, bins=nbins)
         
         if np.issubdtype(x.dtype, np.integer):
             if maxnbins == 'auto':

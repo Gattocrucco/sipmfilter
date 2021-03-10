@@ -6,6 +6,7 @@ Can be used as a script or a module.
 
 import sys
 import argparse
+import os
 
 import numpy as np
 from matplotlib import pyplot as plt, colors
@@ -47,6 +48,11 @@ def main(argv):
     veto = args.veto
 
     data, trigger, freq, ndigit = read.read(filename, maxevents)
+    
+    if trig and trigger is None:
+        raise ValueError('can not use trigger because there\'s no trigger information')
+    if trigger is None:
+        trigger = np.zeros(len(data), int)
     
     if length == 0:
         length = data.shape[1]
@@ -93,8 +99,9 @@ def main(argv):
                     bin0 = (isample - begin) // q
                     bin1 = (sample - lower) // p
                     hist[bin0, bin1] += 1
-
-    runsliced.runsliced(lambda s: accumhist(h, q, p, data[s], trigger[s], efflength, start, trig, lower, upper, veto, vetocount), len(data), 100)
+    
+    func = lambda s: accumhist(h, q, p, data[s], trigger[s], efflength, start, trig, lower, upper, veto, vetocount)
+    runsliced.runsliced(func, len(data), 100)
 
     fig, ax = plt.subplots(num='hist2d', clear=True, figsize=[10.47, 4.8])
     
@@ -107,8 +114,9 @@ def main(argv):
     )
     im = ax.imshow(h.T, **kw)
     fig.colorbar(im, label=f'Counts per bin ({q} sample x {p} digit)', fraction=0.1)
-
-    ax.set_title(filename)
+    
+    _, name = os.path.split(filename)
+    ax.set_title(name)
     ax.set_xlabel(f'Samples after {"trigger leading edge" if trig else "event start"} @ {num2si.num2si(freq)}Sa/s')
     ax.set_ylabel('ADC value')
 
@@ -156,7 +164,7 @@ veto if any sample < {veto} (vetoed {vetocount.item()})"""
     ax.plot(x, y, color='#f55')
     ax.plot(np.pad(bins, (1, 0), 'edge'), np.pad(counts, 1), drawstyle='steps-post', color='#000')
 
-    ax.set_title(filename)
+    ax.set_title(name)
     ax.set_xlabel(f'Digit')
     ax.set_ylabel(f'Counts per bin ({p} digit)')
     

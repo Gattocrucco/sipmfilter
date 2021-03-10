@@ -100,8 +100,8 @@ class NpzLoad:
         self = cls.__new__(cls)
         arch = np.load(filename)
         for n, x in arch.items():
-            if x.shape == ():
-                x = x.item()
+            # if x.shape == ():
+            #     x = x.item()
             setattr(self, n, x)
         arch.close()
         return self

@@ -26,6 +26,8 @@ The scripts read files which are not included in the repository due to size.
 
 ### Scripts
 
+  * `afterpulse_tile15.py`: measure dcr in tile 15.
+
   * `afterpulse_tile57.py`: count afterpulses in tile 57.
 
   * `fig*.py`: scripts for figures in my thesis.
@@ -69,6 +71,8 @@ The scripts read files which are not included in the repository due to size.
   
   * `templateplot.py`: plot a template saved by `savetemplate.py`.
   
+  * `tile21gap.py`: determine the size of events in tile 21 files.
+  
   * `toy1gsa-plot.py`: do the plots for the script below.
   
   * `toy1gsa.py`: temporal resolution at 1 GSa/s.
@@ -98,6 +102,8 @@ The scripts read files which are not included in the repository due to size.
     correlation filter from an LNGS wav.
     
   * `num2si.py`: format a number using SI suffixes.
+  
+  * `poissonsup.py`: compute upper confidence limits for the poisson.
   
   * `read.py`: read a Proto0 or LNGS file with a single interface.
   

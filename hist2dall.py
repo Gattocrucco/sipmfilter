@@ -20,6 +20,8 @@ for file in files:
         filespecs = [file]
    
     for spec in filespecs:
-        h, fig = hist2d.main(f'{spec} -m 100000'.split())
-        savename = f'{directory}/{spec}'.replace(':', '_')
-        fig.savefig(savename + '.png')
+        _, fig, _ = hist2d.main(f'{spec} -m 100000'.split())
+        _, name = os.path.split(spec)
+        name = name.replace(':', '_')
+        savepath = f'{directory}/{name}'
+        fig.savefig(savepath + '.png')

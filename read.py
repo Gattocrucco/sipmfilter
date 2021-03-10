@@ -33,9 +33,11 @@ def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto', return
     ------
     array : int array (nevents, nsamples)
         The array with the signal waveforms.
-    trigger : array (nevents,)
+    trigger : array (nevents,) or None
         The trigger position for each event in samples. Returned only if
-        `return_trigger` is True.
+        `return_trigger` is True. `None` if there's no trigger information. For
+        Proto0 files the trigger position is constant, read from metadata, and
+        not reliable.
     freq : scalar
         The sampling frequency in samples per second.
     ndigit : int
@@ -62,8 +64,9 @@ def read(filespec, maxevents=None, quiet=False, mmap=True, swapch='auto', return
         if not mmap:
             array = np.copy(array)
         
-        if return_trigger:
-            trigger = readwav.first_nonzero(data[:, 1] < 600)
+        trigger = None
+        if return_trigger and data.shape[1] == 2:
+            trigger = readwav.firstbelowthreshold(data[:, 1], 600)
         freq = 1e9
         ndigit = 2 ** 10
     

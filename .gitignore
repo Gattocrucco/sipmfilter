@@ -6,6 +6,7 @@
 
 __pycache__
 afterpulse*/*
+darksidehd
 fdrall/*
 figrescomp*.npz
 figrescurve.npz
