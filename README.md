@@ -2,6 +2,12 @@
 
 This repository contains some code to study filtering of the SiPM output.
 
+## Software
+
+Should work with Python >= 3.6 and the standard Python scientific stack. Just
+in case: developed on Python 3.8.2, required modules with version numbers are
+listed in `requirements.txt`.
+
 ## Alphabetical file index by category
 
 ### Data
@@ -149,9 +155,3 @@ The scripts read files which are not included in the repository due to size.
   
   * `toycomparison-old/`: **(OUTDATED)** like above, but before taking a
     smaller window for filtering and localizing the signal.
-    
-## Dependencies
-
-Should work with Python >= 3.6 and the standard Python scientific stack. Just
-in case: developed on Python 3.8.2, required modules with version numbers are
-listed in `requirements.txt`.
