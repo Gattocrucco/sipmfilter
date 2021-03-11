@@ -2,19 +2,68 @@
 
 This repository contains some code to study filtering of the SiPM output.
 
-## Software
+## Running the code
 
-Should work with Python >= 3.6 and the standard Python scientific stack. Just
-in case: developed on Python 3.8.2, required modules with version numbers are
-listed in `requirements.txt`.
+### Software stack
+
+Developed on Python 3.8.2 (should work with Python >= 3.6), required modules
+with version numbers are listed in `requirements.txt`. To set up a python
+environment you could do:
+
+```sh
+$ python3.8 -m venv python38venv
+$ . python38venv/bin/activate
+(python38venv) $ pip install --requirement requirements.txt
+```
+
+### Scripts
+
+I always run the scripts in an IPython shell. If you run them with a vanilla
+python interpreter the figures would close before you had a chance to look at
+them (although this can be fixed by replacing `fig.show()` with `plt.show()`),
+and some scripts expect you to call functions interactively after running the
+script. Example in the terminal:
+
+```
+(python38venv) $ pip install ipython
+(python38venv) $ ipython
+Python 3.8.2 (v3.8.2:7b3ab5921f, Feb 24 2020, 17:52:18) 
+Type 'copyright', 'credits' or 'license' for more information
+IPython 7.13.0 -- An enhanced Interactive Python. Type '?' for help.
+
+In [1]: %pylab
+Using matplotlib backend: MacOSX
+Populating the interactive namespace from numpy and matplotlib
+
+In [2]: run myscript.py
+```
+
+### Modules
+
+Some python files are designed to be imported. If you grab them, place them in
+the same directory of your code, example: if the module file is
+`ciappimodule.py`, you can import it with `import ciappimodule`.
+
+### Data
+
+Some scripts need large data files which I could not commit to the repository.
+Some of these work without source files by using committed caches of what they
+need, others can't.
+
+There are LNGS liquid nitrogen laser test wav files and Proto0 root files. I
+have received the Proto0 root files directly from someone so I can't link a
+source for them. The LNGS wav files I used are found at the addresses http://ds50tb.lngs.infn.it colon 2180/SiPM/Tiles/FBK/NUV/MB2-LF-3x/ and
+http://ds50tb.lngs.infn.it colon 2180/SiPM/Tiles/LFOUNDRY/pre-production-test/.
+
+A command to automatically download all wav files in a directory could be:
+
+```sh
+$ wget --recursive --no-parent --no-directories --reject '*' --accept '*.wav' <directory url>
+```
 
 ## Alphabetical file index by category
 
 ### Data
-
-The scripts read files which are not included in the repository due to size.
-[First source](http://ds50tb.lngs.infn.it:2180/SiPM/Tiles/FBK/NUV/MB2-LF-3x/),
-[second source](http://ds50tb.lngs.infn.it:2180/SiPM/Tiles/LFOUNDRY/pre-production-test/TILE_15/).
 
   * `DS_proto_runs_nov_2019.csv`: Proto0 metadata, dated February 2021.
 
