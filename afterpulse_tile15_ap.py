@@ -201,7 +201,7 @@ for vov in vovdict:
     dend = sim.getexpr('max(minorpos-mainpos)', minornpe)
     factors = [
         stats.expon.cdf(dend, scale=s) - stats.expon.cdf(dcut, scale=s)
-        for s in [400, 600]
+        for s in [900, 1100]
     ]
     factor = 1 / usamples(factors)
 
