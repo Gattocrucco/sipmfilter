@@ -9,7 +9,7 @@ import toy
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 
-data = readwav.readwav(prefix + '.wav')
+data = readwav.readwav('darksidehd/' + prefix + '.wav')
 template = toy.Template.load(prefix + '-template.npz')
 
 savedir = 'afterpulse_tile57'
