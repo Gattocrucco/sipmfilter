@@ -11,7 +11,7 @@ import figlatex
 npfile = 'figspectra.npz'
 
 def savenp():
-    filename = 'merged_000886.root'
+    filename = 'darksidehd/merged_000886.root'
     channel = 'adc_W201_Ch00'
     # look at PDMadcCh.png to match the channel to the wav file
     print(f'reading {filename}, channel {channel}...')
@@ -19,7 +19,7 @@ def savenp():
     tree = root['midas_data']
     noise = tree.array(channel)
 
-    filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
+    filename = 'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
     data = readwav.readwav(filename, mmap=False)
     ignore = readwav.spurious_signals(data)
     print(f'ignore {np.count_nonzero(ignore)} events due to spurious signals')

@@ -10,7 +10,7 @@ import readwav
 import fighelp
 import integrate
 
-filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
+filename = 'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 data = readwav.readwav(filename, mmap=False)
 
 print('computing...')

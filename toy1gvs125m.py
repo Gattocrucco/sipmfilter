@@ -2,13 +2,14 @@
 Run simulations at various sampling frequencies, saving the results to file.
 Usage:
 
-    toy1gvs125m.py [<LNGS wav>.py]
+    toy1gvs125m.py [<LNGS wav>.wav]
 
 The LNGS wav is used for the noise and the template, which must have already
 been saved to separate files with `savetemplate.py` and `savenoise.py` or
 `savenoise2.py`. If not specified, it is set to
-'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav', for which the noise and template files
-are committed in the repository so there's no need to download the wav file.
+'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav', for which the noise and
+template files are committed in the repository so there's no need to download
+the wav file.
 
 The `timebase` array hardcoded near the beginning of this script sets the
 sampling frequencies used (the "timebase" is the sample step in nanoseconds).
@@ -16,18 +17,19 @@ The `tau` and `snr` arrays are the range of filter length and SNR simulated.
 """
 
 import sys
+import os
 
 import numpy as np
 
 import toy
 
 if len(sys.argv) == 1:
-    prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
+    source = 'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 else:
     source = sys.argv[1]
-    suffix = '.wav'
-    assert source.endswith(suffix)
-    prefix = source[:-len(suffix)]
+suffix = '.wav'
+assert source.endswith(suffix)
+prefix = os.path.split(source)[1][:-len(suffix)]
 
 timebase = [1, 8, 16, 32] # keep 1 first
 

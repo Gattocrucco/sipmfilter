@@ -24,7 +24,6 @@ import numpy as np
 from numpy.lib import format as nplf
 from matplotlib import pyplot as plt
 import numba
-
 import tqdm
 import uproot
 

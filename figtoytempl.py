@@ -4,11 +4,11 @@ from matplotlib import pyplot as plt
 import figlatex
 import toy
 
-prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
+templfile = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz'
 
 ###########################
 
-templ = toy.Template.load(prefix + '-template.npz')
+templ = toy.Template.load(templfile)
 
 fig, ax = plt.subplots(num='figtoytempl', clear=True, figsize=[6.4, 3.32])
 

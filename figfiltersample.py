@@ -13,7 +13,7 @@ sample = 1800
 
 ###########################
 
-data = readwav.readwav(prefix + '.wav', maxevents=1, mmap=False)
+data = readwav.readwav('darksidehd/' + prefix + '.wav', maxevents=1, mmap=False)
 event = data[0]
 signal, trigger = event
 

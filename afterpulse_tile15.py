@@ -13,13 +13,14 @@ import uncertainties
 savedir = 'afterpulse_tile15'
 os.makedirs(savedir, exist_ok=True)
 
-wavfiles = list(sorted(glob.glob('LF_TILE15_77K_??V_?VoV_1.wav')))
+wavfiles = list(sorted(glob.glob('darksidehd/LF_TILE15_77K_??V_?VoV_1.wav')))
 
 vovdict = {}
 
 for wavfile in wavfiles:
-
-    prefix = wavfile.replace('.wav', '')
+    
+    path, name = os.path.split(wavfile)
+    prefix = name.replace('.wav', '')
     if '0VoV' in wavfile:
         templfile = 'LF_TILE15_77K_59V_2VoV_1-template.npz'
     else:

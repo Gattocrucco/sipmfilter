@@ -13,6 +13,8 @@ veto = lower bound on values to accept events, default 0.
 This file can also be imported as a module. The function is `fdiffrate`.
 """
 
+import os
+
 import numpy as np
 import numba
 
@@ -188,8 +190,8 @@ if __name__ == '__main__':
     end = min(len(thr), nz[-1] + 2)
     s = slice(start, end)
     ax.plot(thr[s] / thrunit, thrcounts[s], 'k.-')
-
-    ax.set_title(filename)
+    
+    ax.set_title(os.path.split(filename)[1])
     ax.set_xlabel('Threshold [Filter output sdev]')
     ax.set_ylabel('Counts')
 

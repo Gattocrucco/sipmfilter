@@ -29,7 +29,7 @@ import integrate
 from single_filter_analysis import single_filter_analysis
 
 # Load wav file.
-filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
+filename = 'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 data = readwav.readwav(filename, mmap=False, maxevents=None)
 ignore = readwav.spurious_signals(data)
 print(f'ignoring {np.sum(ignore)} events with signals in baseline zone')

@@ -8,7 +8,7 @@ import toy
 import figlatex
 import figspectra
 
-prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
+templfile = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz'
 maxfreq = 15
 
 ###################
@@ -23,7 +23,7 @@ f2 = arch['f2']
 s1 = arch['s1']
 s2 = arch['s2']
 
-template = toy.Template.load(prefix + '-template.npz')
+template = toy.Template.load(templfile)
 templ, offset = template.matched_filter_template(3000, timebase=1)
 
 def adapt(f, s):

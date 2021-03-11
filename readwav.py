@@ -5,11 +5,8 @@ readwav :
     Read an LNGS wav.
 spurious_signals :
     Determine which events have spurious signals before the trigger.
-first_nonzero :
-    Find the first nonzero value in each row of a matrix; use it to find the
-    trigger leading edge.
 firstbelowthreshold :
-    Likewise but faster (uses numba).
+    As the name suggests. Use it to find the trigger leading edge.
 """
 
 import os
@@ -104,6 +101,8 @@ def spurious_signals(data):
 
 def first_nonzero(cond):
     """
+    DEPRECATED, use firstbelowthreshold.
+    
     Find the first nonzero element in each row of a matrix.
     
     Parameters

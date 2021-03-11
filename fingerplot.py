@@ -4,12 +4,13 @@ Make a fingerplot with an LNGS wav. Usage:
     fingerplot.py [filename [filter_length [maxevents]]]
 
 defaults:
-filename = nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav
+filename = darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav
 filter_length = 1500
 maxevents = 1000
 """
 
 import sys
+import os
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -19,7 +20,7 @@ import single_filter_analysis
 import integrate
 import textbox
 
-filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
+filename = 'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 length = 1500
 maxevents = 1000
 try:
@@ -39,7 +40,7 @@ snr, _, _ = single_filter_analysis.single_filter_analysis(corr_value[mask], fig,
 print(f'SNR = {snr:.3g}')
 
 ax = fig.get_axes()[0]
-ax.set_title(filename)
+ax.set_title(os.path.split(filename)[1])
 textbox.textbox(ax, f"""\
 first {len(data)} events
 ignored {np.count_nonzero(~mask)} events

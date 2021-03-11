@@ -4,6 +4,7 @@ Extract noise data from all LNGS wavs with the name satisfying the pattern
 """
 
 import glob
+import os
 
 import toy
 from matplotlib import pyplot as plt
@@ -15,11 +16,11 @@ axs = fig.subplots(2, 1)
 axs[0].set_title('LNGS 1 GSa/s')
 axs[1].set_title('LNGS 125 MSa/s')
 
-sources = list(sorted(glob.glob('LF_TILE15_77K_*VoV_1.wav')))
+sources = list(sorted(glob.glob('darksidehd/LF_TILE15_77K_*VoV_1.wav')))
 
 for source in sources:
     suffix = '.wav'
-    dest = source[:-len(suffix)] + '-noise.npz'
+    dest = os.path.split(source)[1][:-len(suffix)] + '-noise.npz'
     print(f'saving {source} to {dest}...')
     lngs1GSas = toy.DataCycleNoise(timebase=1)
     lngs1GSas.load_LNGS_wav(source, 1100)

@@ -13,7 +13,9 @@ def textbox(ax, text, loc='lower left', **kw):
     
     Keyword arguments
     -----------------
-    Additional keyword arguments are passed to ax.annotate.
+    Additional keyword arguments are passed to ax.annotate. If you pass a
+    dictionary for the `bbox` argument, the defaults are updated instead of
+    resetting the bounding box properties.
     
     Return
     ------

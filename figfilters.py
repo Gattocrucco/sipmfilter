@@ -10,7 +10,7 @@ length = 1024
 
 ###########################
 
-data = readwav.readwav(prefix + '.wav', maxevents=1, mmap=False)
+data = readwav.readwav('darksidehd/' + prefix + '.wav', maxevents=1, mmap=False)
 signal = data[:, 0]
 
 template = toy.Template.load(prefix + '-template.npz')

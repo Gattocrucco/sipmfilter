@@ -8,7 +8,7 @@ import single_filter_analysis
 import integrate
 import figlatex
 
-filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
+filename = 'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 nlag = 200
 repeat = 10000
 point = 0.5

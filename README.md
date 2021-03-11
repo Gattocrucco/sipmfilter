@@ -149,6 +149,8 @@ The scripts read files which are not included in the repository due to size.
   
   * `slides-2020-12-10/`: presentation on the effect of waveform truncation.
   
+  * `slides-2021-03-11/`: presentation on DCR and afterpulses of LF_TILE15. 
+  
   * `toy1gsa/`: figures made with `toy1gsa-plot.py`.
   
   * `toy1gvs125m/`: figures made with `toy1gvs125m-plot.py`.

@@ -5,7 +5,7 @@ Plot the output of `toy1gvs125m.py`. Usage:
 
 The LNGS wav specified on the command line must have already been processed
 with `toy1gvs125m.py`. If not specified, it is set to
-nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav.
+darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav.
 
 The `timebase` array hardcoded at the beginning of this script sets which
 timebases used by `toy1gvs125m.py` are read.
@@ -26,6 +26,7 @@ doplots :
 """
 
 import sys
+import os
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -36,12 +37,12 @@ import textbox
 timebase = [1, 8, 16, 32]
 
 if len(sys.argv) == 1:
-    prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
+    source = 'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 else:
     source = sys.argv[1]
-    suffix = '.wav'
-    assert source.endswith(suffix)
-    prefix = source[:-len(suffix)]
+suffix = '.wav'
+assert source.endswith(suffix)
+prefix = os.path.split(source)[1][:-len(suffix)]
 
 ######################################
 

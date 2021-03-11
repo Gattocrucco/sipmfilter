@@ -72,5 +72,6 @@ for spec in tqdm.tqdm(specs):
         freq = freq,
     )
     
-    savename = f'{directory}/{spec}.npz'.replace(':', '_')
+    _, speclast = os.path.split(spec)
+    savename = f'{directory}/{speclast}.npz'.replace(':', '_')
     np.savez(savename, **savekw)

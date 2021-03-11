@@ -5,14 +5,14 @@ import figlatex
 import toy
 import num2si
 
-prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
+noisefile = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz'
 N = 300
 timebase = [1, 8, 16, 32]
 
 ###########################
 
 noise = toy.DataCycleNoise(timebase=1)
-noise.load(f'{prefix}-noise.npz')
+noise.load(noisefile)
 
 fig, ax = plt.subplots(num='fignoise', clear=True, figsize=[6.4, 3.32])
 

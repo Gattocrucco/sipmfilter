@@ -5,6 +5,7 @@ Make a signal template from an LNGS wav and save it. Usage:
 """
 
 import sys
+import os
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -17,7 +18,7 @@ files = sys.argv[1:]
 
 for source in files:
     assert source.endswith('.wav')
-    destbase = source[:-4] + '-template'
+    destbase = os.path.split(source)[1][:-4] + '-template'
     dest = destbase + '.npz'
 
     data = readwav.readwav(source, mmap=False)

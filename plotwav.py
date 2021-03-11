@@ -3,8 +3,8 @@ Show some diagnostic plots for an LNGS wav. Usage:
 
     plotwav.py [filename]
 
-If not specified, the file read is nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav. The
-plots are:
+If not specified, the file read is
+darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav. The plots are:
 
   * An histogram of all data;
 
@@ -23,7 +23,7 @@ import readwav
 import fighelp
 
 if len(sys.argv) == 1:
-    filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
+    filename = 'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 else:
     filename = sys.argv[1]
 

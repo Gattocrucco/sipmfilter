@@ -12,7 +12,7 @@ fig.clf()
 axs = fig.subplots(3, 1)
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
-source = f'{prefix}.wav'
+source = f'darksidehd/{prefix}.wav'
 dest = f'{prefix}-noise.npz'
 print(f'saving {source} to {dest}...')
 lngs1GSas = toy.DataCycleNoise(timebase=1)
@@ -31,7 +31,7 @@ axs[1].plot(lngs125MSas.generate(1, 1000)[0])
 
 prefix = 'merged_000886'
 channel = 'adc_W201_Ch00'
-source = f'{prefix}.root'
+source = f'darksidehd/{prefix}.root'
 dest = f'{prefix}-{channel}.npz'
 print(f'saving {source} to {dest}...')
 proto0125MSas = toy.DataCycleNoise(timebase=8)

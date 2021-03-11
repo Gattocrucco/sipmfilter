@@ -1,4 +1,6 @@
 """
+DEPRECATED, use hist2d.py.
+
 Plot the 2D histogram of trigger-aligned events of an LNGS wav. Usage:
 
     lngshist.py filename [maxevents [length [start [cmap]]]]

@@ -10,7 +10,7 @@ nphotons = [1, 3, 5]
 length = 2000
 leftmargin = 100
 rep = 1
-filename = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
+filename = 'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
 
 ###########################
 
