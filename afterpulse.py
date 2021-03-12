@@ -24,6 +24,7 @@ import runsliced
 import readwav
 from single_filter_analysis import single_filter_analysis
 import textbox
+import breaklines
 
 def correlate(waveform, template, method='fft', axis=-1, boundary=None, lpad=0):
     """
@@ -579,6 +580,7 @@ class AfterPulse(toy.NpzLoad):
         func = lambda s: self._run(wavdata[s], self.output[s], s)
         runsliced.runsliced(func, len(wavdata), batch, pbar)
         
+        self._computegood()
         self._computenpe()
     
     def _maketemplates(self, template):
@@ -687,7 +689,6 @@ class AfterPulse(toy.NpzLoad):
         filtered = correlate(wavdata[:, 0, :start], templ, boundary=mean_baseline, lpad=lpad)
         ptpos, ptprom = maxprominencedip(filtered, np.zeros(len(filtered)), baseline, 2)
         ptheight = filtered[np.arange(len(ptpos))[:, None], ptpos]
-        good = ~saturated
         for ipeak, s in [(1, ''), (0, '2')]:
             pos = ptpos[:, ipeak]
             height = baseline - ptheight[:, ipeak]
@@ -698,19 +699,32 @@ class AfterPulse(toy.NpzLoad):
             ptpeak_out['height'] = np.where(bad, badvalue, height)
             ptpeak_out['prominence'] = np.where(bad, badvalue, ptprom[:, ipeak])
             
-            notgood = filtered.shape[1] - pos < self.safedist
-            notgood &= height > self.safeheight
-            good &= bad | ~notgood
-        
         output['trigger'] = trigger
         output['baseline'] = baseline
         output['saturated'] = saturated
         output['lowbaseline'] = lowbaseline
-        output['good'] = good
         output['internals']['start'] = start
         output['internals']['bsevent'][lowbaseline] = self._default_baseline[0]
         output['internals']['lpad'] = lpad
         output['done'] = True
+    
+    def _computegood(self):
+        """
+        Fill the `good` field.
+        """
+        good = ~self.output['saturated']
+        ptlength = self.output['internals']['start']
+        for s in ['', '2']:
+            peak = self.output['ptpeak' + s]
+            pos = peak['pos']
+            height = peak['height']
+            bad = pos < 0
+            
+            notgood = ptlength - pos < self.safedist
+            notgood &= height > self.safeheight
+            good &= bad | ~notgood
+        
+        self.output['good'] = good
     
     def _fingerplot(self, ilengths, writenpe=False, fig=None):
         """
@@ -763,9 +777,11 @@ class AfterPulse(toy.NpzLoad):
         
         self._fingerplot([ilength], fig=fig)
         
-        ax, = fig.get_axes()
-        length = self.filtlengths[ilength]
-        textbox.textbox(ax, f'filter length = {length} ns', loc='center right', fontsize='small')
+        axs = fig.get_axes()
+        if len(axs) > 0:
+            ax, = axs
+            length = self.filtlengths[ilength]
+            textbox.textbox(ax, f'filter length = {length} ns', loc='center right', fontsize='small')
         
         fig.tight_layout()
         return fig
@@ -874,7 +890,7 @@ class AfterPulse(toy.NpzLoad):
         fig.tight_layout()
         return fig
 
-    def getexpr(self, expr, condexpr=None, allow_numpy=True):
+    def getexpr(self, expr, condexpr=None, allow_numpy=True, forcebroadcast=False):
         """
         Evaluate an expression on all events.
         
@@ -907,8 +923,10 @@ class AfterPulse(toy.NpzLoad):
             pt2height   : as above
             pt2prom     : as above
         
-        All arrays have shape (nevents,) + filtlengths.shape, although some
-        of them do not vary over all axes.
+        Variables which depends on the filter template length have shape
+        filtlengths.shape + (nevents,), apart from the variable `length` which
+        has shape filtlengths.shape + (1,). Variables which do not depend on
+        filter template length have shape (nevents,).
         
         When there are missing values, the indices are set to -1, while the
         heights and prominences are set to -1000.
@@ -918,35 +936,38 @@ class AfterPulse(toy.NpzLoad):
         expr : str
             The expression.
         condexpr : str, optional
-            An expression which must evaluate to a boolean array with the same
-            shape of the variables and which is used to select the values in
-            all the variables prior to evaluating `expr`.
+            An expression which must evaluate to a boolean array that can be
+            broadcasted with the variables and which is used to select the
+            values in all the variables prior to evaluating `expr`.
         allow_numpy : bool
             If True (default), allow numpy functions in the expression.
+        forcebroadcast : bool
+            If True, broadcast all variables to the shape filtlengths.shape +
+            (nevents,). This is useful when using `condexpr` and mixing
+            variables with different shape in `expr`. Default False.
         
         Return
         ------
         value :
             The evaluated expression.
         """
-        globals = {}
         if allow_numpy:
-            globals.update({
+            globals = {
                 k: v
                 for k, v in vars(np).items()
                 if not k.startswith('_')
                 and not k[0].isupper()
-            })
-        def broadcasted(x):
-            x = x.reshape((-1,) + (1,) * len(self.filtlengths.shape))
-            return np.broadcast_to(x, self.output['mainpeak'].shape)
+            }
+        else:
+            globals = {}
+
         variables = dict(
-            trigger     = broadcasted(self.output['trigger']),
-            baseline    = broadcasted(self.output['baseline']),
-            length      = np.broadcast_to(self.filtlengths, self.output['mainpeak'].shape),
-            saturated   = broadcasted(self.output['saturated']),
-            lowbaseline = broadcasted(self.output['lowbaseline']),
-            good        = broadcasted(self.output['good']),
+            trigger     = self.output['trigger'],
+            baseline    = self.output['baseline'],
+            length      = self.filtlengths,
+            saturated   = self.output['saturated'],
+            lowbaseline = self.output['lowbaseline'],
+            good        = self.output['good'],
             mainpos     = self.output['mainpeak']['pos'],
             mainheight  = self.output['mainpeak']['height'],
             npe         = self.output['mainpeak']['npe'],
@@ -956,22 +977,43 @@ class AfterPulse(toy.NpzLoad):
             thirdpos    = self.output['minorpeak2']['pos'],
             thirdheight = self.output['minorpeak2']['height'],
             thirdprom   = self.output['minorpeak2']['prominence'],
-            ptpos       = broadcasted(self.output['ptpeak']['pos']),
-            ptheight    = broadcasted(self.output['ptpeak']['height']),
-            ptprom      = broadcasted(self.output['ptpeak']['prominence']),
-            pt2pos      = broadcasted(self.output['ptpeak2']['pos']),
-            pt2height   = broadcasted(self.output['ptpeak2']['height']),
-            pt2prom     = broadcasted(self.output['ptpeak2']['prominence']),
+            ptpos       = self.output['ptpeak']['pos'],
+            ptheight    = self.output['ptpeak']['height'],
+            ptprom      = self.output['ptpeak']['prominence'],
+            pt2pos      = self.output['ptpeak2']['pos'],
+            pt2height   = self.output['ptpeak2']['height'],
+            pt2prom     = self.output['ptpeak2']['prominence'],
         )
-        for k, v in variables.items():
-            v = v.view()
-            v.flags['WRITEABLE'] = False
-            globals[k] = v
+        
+        class VariablesDict(dict):
+            
+            def __getitem__(self2, key):
+                v = super().__getitem__(key)
+                v = v.view()
+                v.flags['WRITEABLE'] = False
+                
+                if v.shape == self.filtlengths.shape:
+                    v.shape = self.filtlengths.shape + (1,)
+                elif v.shape == self.output.shape:
+                    pass
+                elif v.shape == self.output.shape + self.filtlengths.shape:
+                    v = np.moveaxis(v, 0, -1)
+                else:
+                    raise ValueError(f'unrecognized shape {v.shape} for variable {key}')
+                
+                if forcebroadcast:
+                    v = np.broadcast_to(v, self.filtlengths.shape + self.output.shape)
+                
+                if hasattr(self2, 'cond'):
+                    v, cond = np.broadcast_arrays(v, self2.cond)
+                    v = v[cond]
+                
+                return v
+        
+        locals = VariablesDict(variables)
         if condexpr is not None:
-            cond = eval(condexpr, globals)
-            for k in variables.keys():
-                globals[k] = globals[k][cond]
-        return eval(expr, globals)
+            locals.cond = eval(condexpr, globals, locals)
+        return eval(expr, globals, locals)
     
     def eventswhere(self, cond):
         """
@@ -980,8 +1022,8 @@ class AfterPulse(toy.NpzLoad):
         For conditions that depends on filter length, the condition must be
         satisfied for at least one length.
         
-        The condition must evaluate to a boolean array with shape
-        (nevents,) + filtlengths.shape. If not, the behaviour is undefined.
+        The condition must evaluate to a boolean array broadcastable to shape
+        filtlengths.shape + (nevents,). If not, the behaviour is undefined.
         
         Parameters
         ----------
@@ -994,7 +1036,8 @@ class AfterPulse(toy.NpzLoad):
             The events indices.
         """
         mask = self.getexpr(cond)
-        mask = np.any(mask, axis=tuple(range(1, len(mask.shape))))
+        mask = np.broadcast_to(mask, self.filtlengths.shape + self.output.shape)
+        mask = np.any(mask, axis=tuple(range(len(self.filtlengths.shape))))
         return np.flatnonzero(mask)
     
     def hist(self, expr, where=None, yscale='linear', nbins='auto'):
@@ -1003,8 +1046,8 @@ class AfterPulse(toy.NpzLoad):
         
         The values are histogrammed separately for each filter length.
         
-        The expression must evaluate to an array with shape (nevents,) +
-        filtlengths.shape. If not, the behaviour is undefined.
+        The expression must evaluate to an array broadcastable to shape
+        filtlengths.shape + (nevents,). If not, the behaviour is undefined.
         
         Parameters
         ----------
@@ -1026,29 +1069,43 @@ class AfterPulse(toy.NpzLoad):
         values = self.getexpr(expr)
         if where is not None:
             cond = self.getexpr(where)
+            values, cond = np.broadcast_arrays(values, cond)
         
         fig, ax = plt.subplots(num='afterpulse.AfterPulse.hist', clear=True)
         
-        for ilength, length in np.ndenumerate(self.filtlengths):
-            idx = (slice(None),) + ilength
-            x = values[idx]
+        if values.ndim == 1:
             if where is not None:
-                x = x[cond[idx]]
-            if len(x) > 0:
-                iflat = np.ravel_multi_index(ilength, self.filtlengths.shape) if ilength else 0
+                values = values[cond]
+            if len(values) > 0:
                 histkw = dict(
-                    bins = self._binedges(x, nbins=nbins),
+                    bins = self._binedges(values, nbins=nbins),
                     histtype = 'step',
                     color = '#600',
-                    label = f'{length} ({len(x)})',
                     zorder = 2,
-                    alpha = (1 + iflat) / self.filtlengths.size,
                 )
-                ax.hist(x, **histkw)
+                ax.hist(values, **histkw)
+            textbox.textbox(ax, f'{len(values)} events', fontsize='small', loc='upper right')
+        else:
+            for ilength, length in np.ndenumerate(self.filtlengths):
+                x = values[ilength]
+                if where is not None:
+                    x = x[cond[ilength]]
+                if len(x) > 0:
+                    iflat = np.ravel_multi_index(ilength, self.filtlengths.shape) if ilength else 0
+                    histkw = dict(
+                        bins = self._binedges(x, nbins=nbins),
+                        histtype = 'step',
+                        color = '#600',
+                        label = f'{length} ({len(x)})',
+                        zorder = 2,
+                        alpha = (1 + iflat) / self.filtlengths.size,
+                    )
+                    ax.hist(x, **histkw)
+            ax.legend(title='Filter length (events)', fontsize='small', ncol=2, loc='upper right')
         
-        ax.legend(title='Filter length (events)', fontsize='small', ncol=2, loc='upper right')
         if where is not None:
-            textbox.textbox(ax, f'Selection:\n{where}', fontsize='small', loc='upper left')
+            s = breaklines.breaklines(f'Selection: {where}', 40, ')', '&|')
+            textbox.textbox(ax, s, fontsize='small', loc='upper left')
         
         ax.set_xlabel(expr)
         ax.set_ylabel('Counts per bin')
@@ -1067,8 +1124,8 @@ class AfterPulse(toy.NpzLoad):
         
         The values are separated by filter length.
         
-        The expressions must evaluate to arrays with shape (nevents,) +
-        filtlengths.shape. If not, the behaviour is undefined.
+        The expressions must evaluate to arrays broadcastable to shape
+        filtlengths.shape + (nevents,). If not, the behaviour is undefined.
         
         Parameters
         ----------
@@ -1090,30 +1147,43 @@ class AfterPulse(toy.NpzLoad):
         yvalues = self.getexpr(yexpr)
         if where is not None:
             cond = self.getexpr(where)
+            xvalues, yvalues, cond = np.broadcast_arrays(xvalues, yvalues, cond)
+        else:
+            xvalues, yvalues = np.broadcast_arrays(xvalues, yvalues)
         
         fig, ax = plt.subplots(num='afterpulse.AfterPulse.scatter', clear=True)
         
-        for ilength, length in np.ndenumerate(self.filtlengths):
-            idx = (slice(None),) + ilength
-            x = xvalues[idx]
-            y = yvalues[idx]
-            if where is not None:
-                x = x[cond[idx]]
-                y = y[cond[idx]]
-            if len(x) > 0:
-                iflat = np.ravel_multi_index(ilength, self.filtlengths.shape)
-                plotkw = dict(
-                    linestyle = '',
-                    marker = '.',
-                    color = '#600',
-                    label = f'{length} ({len(x)})',
-                    alpha = (1 + iflat) / self.filtlengths.size,
-                )
-                ax.plot(x, y, **plotkw)
+        plotkw = dict(
+            linestyle = '',
+            marker = '.',
+            color = '#600',
+        )
         
-        ax.legend(title='Filter length (events)', fontsize='small', ncol=2, loc='upper right')
+        if xvalues.ndim == 1:
+            if where is not None:
+                xvalues = xvalues[cond]
+                yvalues = yvalues[cond]
+            ax.plot(xvalues, yvalues, **plotkw)
+            textbox.textbox(ax, f'{len(xvalues)} events', fontsize='small', loc='upper right')
+        else:
+            for ilength, length in np.ndenumerate(self.filtlengths):
+                x = xvalues[ilength]
+                y = yvalues[ilength]
+                if where is not None:
+                    x = x[cond[ilength]]
+                    y = y[cond[ilength]]
+                if len(x) > 0:
+                    iflat = np.ravel_multi_index(ilength, self.filtlengths.shape)
+                    plotkw.update(
+                        label = f'{length} ({len(x)})',
+                        alpha = (1 + iflat) / self.filtlengths.size,
+                    )
+                    ax.plot(x, y, **plotkw)
+            ax.legend(title='Filter length (events)', fontsize='small', ncol=2, loc='upper right')
+        
         if where is not None:
-            textbox.textbox(ax, f'Selection:\n{where}', fontsize='small', loc='upper left')
+            s = breaklines.breaklines(f'Selection: {where}', 40, ')', '&|')
+            textbox.textbox(ax, s, fontsize='small', loc='upper left')
         
         ax.set_xlabel(xexpr)
         ax.set_ylabel(yexpr)
@@ -1156,8 +1226,8 @@ class AfterPulse(toy.NpzLoad):
         
         All filter lengths are histogrammed together.
         
-        The expressions must evaluate to arrays with shape (nevents,) +
-        filtlengths.shape. If not, the behaviour is undefined.
+        The expressions must evaluate to arrays broadcastable to shape
+        filtlengths.shape + (nevents,). If not, the behaviour is undefined.
         
         Parameters
         ----------
@@ -1182,6 +1252,9 @@ class AfterPulse(toy.NpzLoad):
         yvalues = self.getexpr(yexpr)
         if where is not None:
             cond = self.getexpr(where)
+            xvalues, yvalues, cond = np.broadcast_arrays(xvalues, yvalues, cond)
+        else:
+            xvalues, yvalues = np.broadcast_arrays(xvalues, yvalues)
         
         fig, ax = plt.subplots(num='afterpulse.AfterPulse.hist2d', clear=True)
         
@@ -1207,7 +1280,10 @@ class AfterPulse(toy.NpzLoad):
             ystep = ybins[1] - ybins[0]
             fig.colorbar(im, label=f'Counts per bin ({xstep:.3g} x {ystep:.3g})')
         
-        textbox.textbox(ax, f'Selection:\n{where}\n({len(x)} entries)', fontsize='small', loc='upper left')
+        textbox.textbox(ax, f'{len(x)} entries', fontsize='small', loc='upper right')
+        if where is not None:
+            s = breaklines.breaklines(f'Selection: {where}', 40, ')', '&|')
+            textbox.textbox(ax, s, fontsize='small', loc='upper left')
         
         ax.set_xlabel(xexpr)
         ax.set_ylabel(yexpr)

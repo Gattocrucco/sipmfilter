@@ -168,6 +168,8 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
 ### Modules
 
   * `afterpulse.py`: find afterpulses in an LNGS file.
+  
+  * `breaklines.py`: function to break lines in a string.
 
   * `fighelp.py`: **(DEPRECATED)** convenience functions for matplotlib figures.
   
