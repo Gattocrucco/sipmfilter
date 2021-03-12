@@ -61,13 +61,33 @@ A command to automatically download all wav files in a directory could be:
 $ wget --recursive --no-parent --no-directories --reject '*' --accept '*.wav' <directory url>
 ```
 
+### Directories
+
+All the scripts expect the working directory to be the root directory of the
+repository. Example: instead of
+
+```
+In [1]: cd mydir
+
+In [2]: run myscript.py
+```
+
+You should do:
+
+```
+In [1]: run mydir/myscript.py
+```
+
+They also expect to find the large data files in a directory named `darksidehd`.
+The scripts in `figthesis/` save figures in `../thesis/figures`.
+
 ## Alphabetical file index by category
 
 ### Data
 
   * `DS_proto_runs_nov_2019.csv`: Proto0 metadata, dated February 2021.
 
-  * `figspectra.npz`: spectra saved by `figspectra.py`.
+  * `figthesis/figspectra.npz`: spectra saved by `figspectra.py`.
 
   * `merged_000886-adc_W201_Ch00.npz`: branch `adc_W201_Ch00` from
     `merged_000866.root`, to be loaded with `toy.DataCycleNoise`.
@@ -87,7 +107,7 @@ $ wget --recursive --no-parent --no-directories --reject '*' --accept '*.wav' <d
 
   * `afterpulse_tile57.py`: count afterpulses in tile 57.
 
-  * `fig*.py`: scripts for figures in my thesis.
+  * `figthesis/fig*.py`: scripts for figures in my thesis.
   
   * `fdiffrate.py`: count threshold crossings for filtered finite difference on
     a Proto0 or LNGS file.

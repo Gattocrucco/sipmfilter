@@ -14,7 +14,7 @@ snr = np.linspace(1.8, 6, 60)
 
 ###########################
 
-simfile = 'figrescurve.npz'
+simfile = 'figthesis/figrescurve.npz'
 
 if not os.path.exists(simfile):
     noise = toy.DataCycleNoise(maxcycles=1, chunk_skip=1000)

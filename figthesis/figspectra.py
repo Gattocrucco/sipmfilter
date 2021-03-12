@@ -8,7 +8,7 @@ from scipy import signal
 import readwav
 import figlatex
 
-npfile = 'figspectra.npz'
+npfile = 'figthesis/figspectra.npz'
 
 def savenp():
     filename = 'darksidehd/merged_000886.root'

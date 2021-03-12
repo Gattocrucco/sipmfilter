@@ -22,8 +22,7 @@ timebase = dict(
     lngs   = [1, 8, 16, 32],
     white  = [1, 8, 16, 32],
 )
-simprefix = 'figtempresdowns'
-simfile = lambda n, tb: f'{simprefix}-{n}-{tb}.npz'
+simfile = lambda n, tb: f'figthesis/figtempresdowns-{n}-{tb}.npz'
 nicenames = dict(proto0='Proto0', lngs='LNGS', white='White')
 
 if not all(os.path.exists(simfile(n, tb)) for n in timebase for tb in timebase[n]):

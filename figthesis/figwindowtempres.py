@@ -25,10 +25,9 @@ def isomething(a, x, strict=True):
 itau = lambda t: isomething(tau, t)
 isnr = lambda s: isomething(snr, s, False)
 
-simprefix = 'figwindowtempres'
 names = ['proto0', 'lngs']
 nicenames = dict(proto0='Proto0', lngs='LNGS')
-simfile = lambda n: f'{simprefix}-{n}.npz'
+simfile = lambda n: f'figthesis/figwindowtempres-{n}.npz'
 
 if not all(os.path.exists(simfile(n)) for n in names):
     

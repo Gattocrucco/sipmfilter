@@ -16,7 +16,7 @@ snr = np.linspace(1.8, 6, 60)
 
 simprefix = 'figrescomp'
 names = ['proto0', 'lngs', 'white']
-simfile = lambda n: f'{simprefix}-{n}.npz'
+simfile = lambda n: f'figthesis/{simprefix}-{n}.npz'
 options = dict(proto0=dict(upsampling=True))
 
 if not all(os.path.exists(simfile(n)) for n in names):
