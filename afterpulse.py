@@ -398,6 +398,20 @@ def test_argminrelmin():
     i = argminrelmin(a)
     print(i, a[i])
 
+def meanmedian(x, n, axis=-1):
+    axis %= x.ndim
+    length = x.shape[axis]
+    trunclen = length // n * n
+    index = axis * (slice(None),) + (slice(None, trunclen),) + (x.ndim - axis - 1) * (slice(None),)
+    shape = x.shape[:axis] + (length // n, n) + x.shape[axis + 1:]
+    return np.mean(np.median(x[index].reshape(shape), axis=axis), axis=axis)
+
+def test_meanmedian():
+    x = np.random.randn(999)
+    m1 = meanmedian(x, 3)
+    m2 = np.mean([np.median(x[k::3]) for k in range(3)])
+    assert m1 == m2
+
 class AfterPulse(toy.NpzLoad):
     
     def __init__(self,
@@ -474,8 +488,8 @@ class AfterPulse(toy.NpzLoad):
                 If there's at least one sample below `lowsample` before the
                 trigger.
             'baseline' : float
-                The median of the pre-trigger region. Copied from another event
-                if 'lowbaseline'.
+                The mean of the medians of the pre-trigger region divided in 8
+                parts with stride 8. Copied from another event if 'lowbaseline'.
             'mainpeak' : array filtlengths.shape
                 A structured field for the signal identified by the trigger
                 for each filter length with subfields:
@@ -633,7 +647,7 @@ class AfterPulse(toy.NpzLoad):
         
         # compute the baseline, handling spurious pre-trigger signals
         lowbaseline = np.any(wavdata[:, 0, :start] < self.lowsample, axis=-1)
-        baseline = np.median(wavdata[:, 0, :start], axis=-1)
+        baseline = meanmedian(wavdata[:, 0, :start], 8)
         okbs = np.flatnonzero(~lowbaseline)
         if len(okbs) > 0:
             ibs = okbs[-1]
