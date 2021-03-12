@@ -4,7 +4,7 @@ from matplotlib import pyplot as plt
 import figlatex
 import toy
 
-templfile = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz'
+templfile = 'templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz'
 
 ###########################
 

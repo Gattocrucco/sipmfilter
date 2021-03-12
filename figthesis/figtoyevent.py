@@ -12,8 +12,8 @@ snr = 5
 ###########################
 
 noise = toy.DataCycleNoise(allow_break=True)
-noise.load(f'{prefix}-noise.npz')
-template = toy.Template.load(f'{prefix}-template.npz')
+noise.load(f'noises/{prefix}-noise.npz')
+template = toy.Template.load(f'templates/{prefix}-template.npz')
 sim = toy.Toy(template, [tau, 256], [snr], noise)
 sim.run(1, seed=202102171737)
 

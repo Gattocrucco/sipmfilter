@@ -13,7 +13,7 @@ axs = fig.subplots(3, 1)
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 source = f'darksidehd/{prefix}.wav'
-dest = f'{prefix}-noise.npz'
+dest = f'noises/{prefix}-noise.npz'
 print(f'saving {source} to {dest}...')
 lngs1GSas = toy.DataCycleNoise(timebase=1)
 lngs1GSas.load_LNGS_wav(source, 1000)

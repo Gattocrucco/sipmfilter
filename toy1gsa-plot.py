@@ -11,7 +11,7 @@ from scipy import interpolate
 
 import toy
 
-template = toy.Template.load('nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
+template = toy.Template.load('templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
 
 noise_name = ['LNGS',     'white'    ]
 toys = []

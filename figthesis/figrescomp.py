@@ -24,11 +24,11 @@ if not all(os.path.exists(simfile(n)) for n in names):
     noise_proto0 = toy.DataCycleNoise(maxcycles=2, chunk_skip=1000)
     noise_proto0.load(noisefile)
     noise_lngs = toy.DataCycleNoise(maxcycles=2)
-    noise_lngs.load(f'{prefix}-noise.npz')
+    noise_lngs.load(f'noises/{prefix}-noise.npz')
     noise_white = toy.WhiteNoise()
     noise = dict(proto0=noise_proto0, white=noise_white, lngs=noise_lngs)
 
-    template = toy.Template.load(f'{prefix}-template.npz')
+    template = toy.Template.load(f'templates/{prefix}-template.npz')
     
     for n in names:
         if os.path.exists(simfile(n)):
@@ -58,10 +58,10 @@ snrs = sim['proto0'].snrratio()
 ratio = snrs[1, itau(128)]
 snr10, snr12 = np.array([10, 12]) / ratio
 
-template = toy.Template.load(f'{prefix}-template.npz')
+template = toy.Template.load(f'templates/{prefix}-template.npz')
 lngssnr = template.snr
 noise_lngs = toy.DataCycleNoise(timebase=1)
-noise_lngs.load(f'{prefix}-noise.npz')
+noise_lngs.load(f'noises/{prefix}-noise.npz')
 lngssnr /= np.std(toy.downsample(noise_lngs.noise_array, 8), axis=None)
 
 r = sim['proto0'].templocres(sampleunit=False)

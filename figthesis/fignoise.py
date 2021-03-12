@@ -5,7 +5,7 @@ import figlatex
 import toy
 import num2si
 
-noisefile = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz'
+noisefile = 'noises/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz'
 N = 300
 timebase = [1, 8, 16, 32]
 

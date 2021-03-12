@@ -40,9 +40,12 @@ snr_1GSa = 0.6 * np.logspace(0, 1, 50)
 
 assert timebase[0] == 1
 
-templfile = f'{prefix}-template.npz'
+templfile = f'templates/{prefix}-template.npz'
 print(f'read {templfile}...')
 template = toy.Template.load(templfile)
+
+savedir = 'toy1gvs125m'
+os.makedirs(savedir, exist_ok=True)
 
 for whitenoise in [True, False]:
 
@@ -50,7 +53,7 @@ for whitenoise in [True, False]:
         noise = [toy.WhiteNoise(timebase=t) for t in timebase]
         noise_name = 'white'
     else:
-        noise_file = f'{prefix}-noise.npz'
+        noise_file = f'noises/{prefix}-noise.npz'
         print(f'read {noise_file}...')
         noise = []
         for i in range(len(timebase)):
@@ -66,6 +69,6 @@ for whitenoise in [True, False]:
         t = toy.Toy(template, tau // tb, snr, noise[i], timebase=tb)
         print(f'running with timebase={tb} (SNR *= {1/noise_ratio:.2g}), {noise_name} noise...')
         t.run(1000, pbar=10, seed=202012111417)
-        filename = f'toy1gvs125m-{prefix}-{timebase[i]}-{noise_name}.npz'
+        filename = f'{savedir}/toy1gvs125m-{prefix}-{timebase[i]}-{noise_name}.npz'
         print(f'saving to {filename}...')
         t.save(filename)

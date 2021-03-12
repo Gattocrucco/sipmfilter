@@ -20,7 +20,7 @@ sources = list(sorted(glob.glob('darksidehd/LF_TILE15_77K_*VoV_1.wav')))
 
 for source in sources:
     suffix = '.wav'
-    dest = os.path.split(source)[1][:-len(suffix)] + '-noise.npz'
+    dest = 'noises/' + os.path.split(source)[1][:-len(suffix)] + '-noise.npz'
     print(f'saving {source} to {dest}...')
     lngs1GSas = toy.DataCycleNoise(timebase=1)
     lngs1GSas.load_LNGS_wav(source, 1100)

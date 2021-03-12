@@ -32,7 +32,8 @@ def templateplot(dest, fig=None):
     
     suffix = '-template.npz'
     assert dest.endswith(suffix)
-    source = dest[:-len(suffix)] + '.wav'
+    path, name = os.path.split(dest)
+    source = 'darksidehd/' + name[:-len(suffix)] + '.wav'
 
     template = toy.Template.load(dest)
     

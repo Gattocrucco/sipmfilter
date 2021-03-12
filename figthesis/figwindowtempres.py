@@ -34,10 +34,10 @@ if not all(os.path.exists(simfile(n)) for n in names):
     noise_proto0 = toy.DataCycleNoise(maxcycles=2, chunk_skip=1000)
     noise_proto0.load(noisefile)
     noise_lngs = toy.DataCycleNoise(maxcycles=2)
-    noise_lngs.load(f'{prefix}-noise.npz')
+    noise_lngs.load(f'noises/{prefix}-noise.npz')
     noise = dict(proto0=noise_proto0, lngs=noise_lngs)
 
-    template = toy.Template.load(f'{prefix}-template.npz')
+    template = toy.Template.load(f'templates/{prefix}-template.npz')
     
     for n in names:
         if os.path.exists(simfile(n)):

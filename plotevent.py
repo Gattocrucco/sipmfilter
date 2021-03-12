@@ -18,7 +18,7 @@ args = parser.parse_args()
 
 signal, freq, ndigit = read.read(args.filespec, firstevent=args.event, maxevents=1, return_trigger=False)
 
-template = toy.Template.load('nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
+template = toy.Template.load('templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
 timebase = int(1e9 / freq)
 print(f'timebase = {timebase}')
 templ, offset = template.matched_filter_template(args.length, timebase=timebase)

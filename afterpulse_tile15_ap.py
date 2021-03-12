@@ -22,12 +22,12 @@ vovdict = {}
 
 for wavfile in wavfiles:
     
+    if '0VoV' in wavfile:
+        continue
+    
     _, name = os.path.split(wavfile)
     prefix, _ = os.path.splitext(name)
-    if '0VoV' in wavfile:
-        templfile = 'LF_TILE15_77K_59V_2VoV_1-template.npz'
-    else:
-        templfile = prefix + '-template.npz'
+    templfile = f'templates/{prefix}-template.npz'
     simfile = f'{savedir}/{prefix}.npz'
 
     vov, = re.search(r'(\d)VoV', prefix).groups()

@@ -10,6 +10,8 @@ Functions
 correlate : compute the cross correlation
 firstbelowthreshold : to find the trigger leading edge
 maxprominencedip : search the minimum with maximum negative prominence
+argminrelmin : search the minimum relative minimum
+meanmedian : compute the mean of medians over strided subarrays
 """
 
 import time
@@ -399,6 +401,25 @@ def test_argminrelmin():
     print(i, a[i])
 
 def meanmedian(x, n, axis=-1):
+    """
+    Compute the mean of medians over interlaced subarrays.
+    
+    Example: meanmedian(x, 2) == mean([median(x[::2]), median(x[1::2])]).
+    
+    Parameters
+    ----------
+    x : array
+        The array.
+    n : int
+        The number of subarrays `x` is divided into.
+    axis : int
+        The axis along which the operation is applied, default last.
+    
+    Return
+    ------
+    m : array
+        Array with the same shape of `x` but with the specified axis removed.
+    """
     axis %= x.ndim
     length = x.shape[axis]
     trunclen = length // n * n

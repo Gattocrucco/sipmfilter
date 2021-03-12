@@ -18,12 +18,12 @@ wlmargin[0] = 16
 noise_proto0 = toy.DataCycleNoise()
 noise_proto0.load('merged_000886-adc_W201_Ch00.npz')
 noise_LNGS = toy.DataCycleNoise(allow_break=True)
-noise_LNGS.load('nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz')
+noise_LNGS.load('noises/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz')
 noise_white = toy.WhiteNoise()
 noise_obj  = [noise_proto0, noise_LNGS, noise_white]
 noise_name = ['proto0',     'LNGS',     'white'    ]
 
-template = toy.Template.load('nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
+template = toy.Template.load('templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
 
 toys = []
 for name, noise in zip(noise_name, noise_obj):

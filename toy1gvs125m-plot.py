@@ -71,7 +71,7 @@ noise_ratio = [None] * 2
 noise[0] = [toy.WhiteNoise(timebase=t) for t in timebase]
 noise_ratio[0] = [np.sqrt(timebase[0] / tb) for tb in timebase]
 
-noise_file = f'{prefix}-noise.npz'
+noise_file = f'noises/{prefix}-noise.npz'
 noise[1] = []
 for i in range(len(timebase)):
     n = toy.DataCycleNoise(allow_break=True, timebase=timebase[i])

@@ -27,7 +27,7 @@ nicenames = dict(proto0='Proto0', lngs='LNGS', white='White')
 
 if not all(os.path.exists(simfile(n, tb)) for n in timebase for tb in timebase[n]):
     
-    template = toy.Template.load(f'{prefix}-template.npz')
+    template = toy.Template.load(f'templates/{prefix}-template.npz')
 
     for n, timebases in timebase.items():
         
@@ -41,7 +41,7 @@ if not all(os.path.exists(simfile(n, tb)) for n in timebase for tb in timebase[n
                 noise.load(noisefile)
             elif n == 'lngs':
                 noise = toy.DataCycleNoise(maxcycles=2, timebase=tb)
-                noise.load(f'{prefix}-noise.npz')
+                noise.load(f'noises/{prefix}-noise.npz')
             elif n == 'white':
                 noise = toy.WhiteNoise(timebase=tb)
             noises[tb] = noise
