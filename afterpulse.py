@@ -828,7 +828,9 @@ class AfterPulse(toy.NpzLoad):
         Parameters
         ----------
         wavdata : array (nevents, 2, 15001)
-            The same array passed at initialization.
+            The same array passed at initialization. If the object is
+            a concatenation, the data passed to the object where the the event
+            originates from. Use `catindex()` to map the event to the object.
         ievent : int
             The event index.
         ilength : int, optional
@@ -1325,3 +1327,66 @@ class AfterPulse(toy.NpzLoad):
         
         fig.tight_layout()
         return fig
+
+    @classmethod
+    def concatenate(cls, aplist):
+        """
+        Concatenate afterpulse objects.
+        
+        Parameters
+        ----------
+        aplist : sequence of AfterPulse instances
+            The objects to concatenate. Must not be empty.
+        
+        Return
+        ------
+        self : AfterPulse
+            The concatenation.
+        """
+        ap0 = aplist[0]
+        outputs = []
+        lengths = []
+        for ap in aplist:
+            assert np.array_equal(ap.filtlengths, ap0.filtlengths)
+            assert ap.ptlength == ap0.ptlength
+            outputs.append(ap.output)
+            lengths += list(getattr(ap, '_catlengths', ap.output.shape))
+        
+        self = cls.__new__(cls)
+        
+        classattr = vars(cls)
+        for k, v in vars(ap0):
+            if k not in classattr and k != 'output' and not k.startswith('__'):
+                setattr(self, k, v)
+        
+        self.output = np.concatenate(outputs)
+        self._catlengths = np.array(lengths)
+        assert np.sum(lengths) == len(self.output)
+        
+        return self
+    
+    def catindex(self, ievent):
+        """
+        Get the concatenated object index from the event index.
+        
+        Parameters
+        ----------
+        ievent : int
+            The index of the event.
+        
+        Return
+        ------
+        idx : int
+            Zero if the object is not the concatenation of multiple objects.
+            Otherwise, the index of the position in the list passed to
+            `concatenate` of the object where the requested event originates
+            from. If one or more objects passed to `concatenate` where
+            themselves the result of a concatenation, the indices are computed
+            as if a single call to `concatenate` was done with all the original
+            unconcatenated objects in order.
+        """
+        lengths = getattr(self, '_catlengths', self.output.shape)
+        cumlen = np.pad(np.cumsum(lengths), (1, 0))
+        idx = np.searchsorted(cumlen, ievent, side='right') - 1
+        assert 0 <= idx < len(lengths), idx
+        return idx
