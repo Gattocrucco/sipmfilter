@@ -16,7 +16,7 @@ wlmargin = np.full_like(wlen, 64 - 32)
 wlmargin[0] = 16
 
 noise_proto0 = toy.DataCycleNoise()
-noise_proto0.load('merged_000886-adc_W201_Ch00.npz')
+noise_proto0.load('noises/merged_000886-adc_W201_Ch00.npz')
 noise_LNGS = toy.DataCycleNoise(allow_break=True)
 noise_LNGS.load('noises/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz')
 noise_white = toy.WhiteNoise()

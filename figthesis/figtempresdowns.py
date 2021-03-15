@@ -11,7 +11,7 @@ import textmatrix
 import num2si
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
-noisefile = 'merged_000886-adc_W201_Ch00.npz'
+noisefile = 'noises/merged_000886-adc_W201_Ch00.npz'
 tau_125MSa = 256
 snr_125MSa = np.logspace(np.log10(1), np.log10(6), 50)
 

@@ -9,7 +9,7 @@ import toy
 import textbox
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
-noisefile = 'merged_000886-adc_W201_Ch00.npz'
+noisefile = 'noises/merged_000886-adc_W201_Ch00.npz'
 tau = [8, 12, 16, 64, 384]
 snr = np.linspace(1.8, 6, 60)
 wlen = np.array(64 * np.array([1.5, 2, 2.5, 3, 4, 5, 6, 7]), int) - 32

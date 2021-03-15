@@ -89,15 +89,16 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
 
   * `figthesis/figspectra.npz`: spectra saved by `figspectra.py`.
 
-  * `merged_000886-adc_W201_Ch00.npz`: branch `adc_W201_Ch00` from
+  * `noises/merged_000886-adc_W201_Ch00.npz`: branch `adc_W201_Ch00` from
     `merged_000866.root`, to be loaded with `toy.DataCycleNoise`.
   
-  * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz`: noise from
+  * `noises/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-noise.npz`: noise from
     `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with
     `toy.DataCycleNoise`.
   
-  * `nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz`: template made from
-    `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with `toy.Template`.
+  * `templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz`: template made
+    from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with
+    `toy.Template`.
 
 ### Scripts
 

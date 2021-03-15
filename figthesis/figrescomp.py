@@ -8,7 +8,7 @@ import figlatex
 import toy
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
-noisefile = 'merged_000886-adc_W201_Ch00.npz'
+noisefile = 'noises/merged_000886-adc_W201_Ch00.npz'
 tau = [4, 8, 16, 24, 32, 40, 48, 64, 96, 128, 192, 256, 384]
 snr = np.linspace(1.8, 6, 60)
 
