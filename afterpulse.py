@@ -1,439 +1,19 @@
-"""
-Module to search afterpulses in an LNGS file.
-
-Classes
--------
-AfterPulse : the main class of the module
-
-Functions
----------
-correlate : compute the cross correlation
-firstbelowthreshold : to find the trigger leading edge
-maxprominencedip : search the minimum with maximum negative prominence
-argminrelmin : search the minimum relative minimum
-meanmedian : compute the mean of medians over strided subarrays
-"""
-
-import time
-
 import numpy as np
-from scipy import signal
 from matplotlib import pyplot as plt, colors
-import numba
 
-import toy
 import runsliced
 import readwav
 from single_filter_analysis import single_filter_analysis
 import textbox
 import breaklines
+import meanmedian
+import correlate
+import firstbelowthreshold
+import argminrelmin
+import maxprominencedip
+import npzload
 
-def correlate(waveform, template, method='fft', axis=-1, boundary=None, lpad=0):
-    """
-    Compute the cross correlation of two arrays.
-    
-    The correlation is computed with padding to the right but not to the left.
-    So the first element of the cross correlation is
-    
-        sum(waveform[:len(template)] * template),
-    
-    while the last is
-    
-        waveform[-1] * template[0] + sum(boundary * template[1:])
-    
-    Parameters
-    ----------
-    waveform : array (..., N, ...)
-        The non-inverted term of the convolution.
-    template : array (M,)
-        The inverted term of the convolution.
-    method : {'fft', 'oa'}
-        Use fft (default) or overlap-add to compute the convolution.
-    axis : int
-        The axis of `waveform` along which the convolution is computed, default
-        last.
-    boundary : scalar, optional
-        The padding value for `waveform`. If not specified, use the last value
-        in each subarray.
-    lpad : int
-        The amount of padding to the left. Default 0.
-    
-    Return
-    ------
-    corr : array (..., N, ...)
-        The cross correlation, with the same shape as `waveform`.
-    """
-    rpad = len(template) - 1
-    padspec = [(0, 0)] * len(waveform.shape)
-    padspec[axis] = (lpad, rpad)
-    if boundary is None:
-        padkw = dict(mode='edge')
-    else:
-        padkw = dict(mode='constant', constant_values=boundary)
-    waveform_padded = np.pad(waveform, padspec, **padkw)
-    
-    idx = [None] * len(waveform.shape)
-    idx[axis] = slice(None, None, -1)
-    template_bc = template[tuple(idx)]
-    
-    funcs = dict(oa=signal.oaconvolve, fft=signal.fftconvolve)    
-    return funcs[method](waveform_padded, template_bc, mode='valid', axes=axis)
-
-def test_correlate():
-    """
-    Plot a test of `correlate`.
-    """
-    waveform = 1 - np.pad(np.ones(100), 100)
-    waveform += 0.2 * np.random.randn(len(waveform))
-    template = np.exp(-np.linspace(0, 3, 50))
-    corr1 = correlate(np.repeat(waveform[None, :], 2, 0), template / np.sum(template), 'oa' , axis=1)[0, :]
-    corr2 = correlate(np.repeat(waveform[:, None], 2, 1), template / np.sum(template), 'fft', axis=0)[:, 0]
-    
-    fig, ax = plt.subplots(num='afterpulse.test_correlate', clear=True)
-    
-    ax.plot(waveform, label='waveform')
-    ax.plot(template, label='template')
-    ax.plot(corr1, label='corr oa')
-    ax.plot(corr2, label='corr fft', linestyle='--')
-    
-    ax.legend()
-    
-    fig.tight_layout()
-    fig.show()
-
-def timecorr(lenwaveform, lentemplate, method, n=100):
-    """
-    Time `correlate`.
-    
-    Parameters
-    ----------
-    lenwaveform : int
-        Length of each waveform.
-    lentemplate : int
-        Length of the template.
-    method : {'fft', 'oa'}
-        Algorithm.
-    n : int
-        Number of waveforms, default 100.
-    
-    Return
-    ------
-    time : scalar
-        The time, in seconds, taken by `correlate`.
-    """
-    waveform = np.random.randn(n, lenwaveform)
-    template = np.random.randn(lentemplate)
-    start = time.time()
-    correlate(waveform, template, method)
-    end = time.time()
-    return end - start
-
-def timecorrseries(lenwaveform, lentemplates, n=100):
-    """
-    Call `timecorr` for a range of values.
-    
-    Parameters
-    ----------
-    lenwaveform : int
-        The length of each waveform.
-    lentemplate : int
-        The length of the template.
-    n : int
-        The number of waveforms, default 100.
-    
-    Return
-    ------
-    times : dict
-        Dictionary of dictionaries with layout method -> (lentemplate -> time).
-    """
-    return {
-        method: {
-            lentemplate: timecorr(lenwaveform, lentemplate, method)
-            for lentemplate in lentemplates
-        } for method in ['oa', 'fft']
-    }
-
-def plot_timecorrseries(timecorrseries_output):
-    """
-    Plot the output of `timecorrseries`.
-    """
-    fig, ax = plt.subplots(num='afterpulse.plot_timecorrseries', clear=True)
-    
-    for method, time in timecorrseries_output.items():
-        ax.plot(list(time.keys()), list(time.values()), label=method)
-    
-    ax.legend()
-    ax.set_xlabel('Template length')
-    ax.set_ylabel('Time')
-    
-    fig.tight_layout()
-    fig.show()
-
-@numba.njit(cache=True)
-def firstbelowthreshold(events, threshold):
-    """
-    Find the first element below a threshold in arrays.
-    
-    Parameters
-    ----------
-    events : array (nevents, N)
-        The arrays.
-    threshold : scalar
-        The threshold. The comparison is strict.
-    
-    Return
-    ------
-    pos : int array (nevents,)
-        The index in each event of the first element below `threshold`.
-    """
-    output = np.full(len(events), -1)
-    for ievent, event in enumerate(events):
-        for isample, sample in enumerate(event):
-            if sample < threshold:
-                output[ievent] = isample
-                break
-    return output
-
-@numba.njit(cache=True)
-def maxprominencedip(events, start, top, n):
-    """
-    Find the negative peak with the maximum prominence in arrays.
-    
-    For computing the prominence, maxima occuring on the border of the array
-    are ignored, unless both the left and right maxima occur on the border.
-        
-    Parameters
-    ----------
-    events : array (nevents, N)
-        The arrays.
-    start : int array (nevents,)
-        Each row of `events` is used only from the sample specified by
-        `start` (inclusive).
-    top : array (nevents,)
-        For computing the prominence, maxima are capped at `top`.
-    n : int
-        The number of peaks to keep in order of prominence.
-    
-    Return
-    ------
-    position : int array (nevents, n)
-        The indices of the peaks in each event, sorted along the second axis
-        from lower to higher prominence. -1 for no peak found. If a local
-        minimum has a flat bottom, the index of the central (rounding toward
-        zero) sample is returned.
-    prominence : int array (nevents, n)
-        The prominence of the peaks.
-    """
-    
-    # TODO implement using guvectorize
-    
-    shape = (len(events), n)
-    prominence = np.full(shape, -2 ** 20, events.dtype)
-    position = np.full(shape, -1)
-    
-    for ievent, event in enumerate(events):
-        
-        maxprom = prominence[ievent]
-        maxprompos = position[ievent]
-        relminpos = -1
-        for i in range(start[ievent] + 1, len(event) - 1):
-            
-            if event[i - 1] > event[i] < event[i + 1]:
-                # narrow local minimum
-                relmin = True
-                relminpos = i
-            elif event[i - 1] > event[i] == event[i + 1]:
-                # possibly beginning of wide local minimum
-                relminpos = i
-            elif event[i - 1] == event[i] < event[i + 1] and relminpos >= 0:
-                # end of wide local minimum
-                relmin = True
-                relminpos = (relminpos + i) // 2
-            else:
-                relminpos = -1
-            
-            if relmin:
-                # search for maximum before minimum position
-                irev = relminpos
-                lmax = event[irev]
-                ilmax = irev
-                maxmax = top[ievent]
-                while irev >= start[ievent] and event[irev] >= event[relminpos] and lmax < maxmax:
-                    if event[irev] > lmax:
-                        lmax = event[irev]
-                        ilmax = irev
-                    irev -= 1
-                lmax = min(lmax, maxmax)
-                lmaxb = ilmax == start[ievent]
-                
-                # search for maximum after minimum position
-                ifwd = relminpos
-                rmax = event[ifwd]
-                irmax = ifwd
-                while ifwd < len(event) and event[ifwd] >= event[relminpos] and rmax < maxmax:
-                    if event[ifwd] > rmax:
-                        rmax = event[ifwd]
-                        irmax = ifwd
-                    ifwd += 1
-                rmax = min(rmax, maxmax)
-                rmaxb = irmax == len(event) - 1
-                
-                # compute prominence
-                if (not rmaxb and not lmaxb) or (rmaxb and lmaxb):
-                    maximum = min(lmax, rmax)
-                elif rmaxb:
-                    maximum = lmax
-                elif lmaxb:
-                    maximum = rmax
-                prom = maximum - event[relminpos]
-                
-                # insert minimum into list sorted by prominence
-                if prom > maxprom[0]:
-                    for j in range(1, n):
-                        if prom <= maxprom[j]:
-                            break
-                        else:
-                            maxprom[j - 1] = maxprom[j]
-                            maxprompos[j - 1] = maxprompos[j]
-                    else:
-                        j = n
-                    maxprom[j - 1] = prom
-                    maxprompos[j - 1] = relminpos
-                
-                # reset minimum flag
-                relmin = False
-                relminpos = -1
-    
-    return position, prominence
-
-def test_maxprominencedip():
-    """
-    Plot a random test of `maxprominencedip`.
-    """
-    t = np.linspace(0, 1, 1000)
-    mu = np.random.uniform(0, 1, 20)
-    logsigma = np.random.randn(len(mu))
-    sigma = 0.2 * np.exp(logsigma)
-    wf = -np.sum(np.exp(-1/2 * ((t[:, None] - mu) / sigma) ** 2), axis=-1)
-    start = 500
-    pos, prom = maxprominencedip(wf[None], np.array([start]), np.array([0]), 2)
-    
-    fig, ax = plt.subplots(num='afterpulse.test_maxprominencedip', clear=True)
-    
-    ax.plot(wf)
-    ax.axvline(start, linestyle='--')
-    for i, p in zip(pos[0], prom[0]):
-        print(i, p)
-        if i >= 0:
-            ax.vlines(i, wf[i], wf[i] + p)
-            ax.axhline(wf[i] + p)
-    
-    fig.tight_layout()
-    fig.show()
-
-def argminrelmin(a, axis=None, out=None):
-    """
-    Return the index of the minimum relative minimum.
-    
-    A relative minimum is an element which is lower than its neigbours, or the
-    central element of a series of contiguous elements which are equal to each
-    other and lower than their external neighbours.
-    
-    If there are more relative minima with the same value, return the first. If
-    there are no relative minima, return -1.
-
-    Parameters
-    ----------
-    a : array_like
-        Input array.
-    axis : int, optional
-        By default, the index is into the flattened array, otherwise
-        along the specified axis.
-    out : array, optional
-        If provided, the result will be inserted into this array. It should
-        be of the appropriate shape and dtype.
-
-    Returns
-    -------
-    index_array : ndarray of ints
-        Array of indices into the array. It has the same shape as `a.shape`
-        with the dimension along `axis` removed.
-    """
-    a = np.asarray(a)
-    if axis is None:
-        a = a.reshape(-1)
-    else:
-        a = np.moveaxis(a, axis, -1)
-    return _argminrelmin(a, out=out)
-
-@numba.guvectorize(['(f8[:],i8[:])'], '(n)->()', cache=True)
-def _argminrelmin(a, out):
-    idx = -1
-    val = 0
-    wide = -1
-    for i in range(1, len(a) - 1):
-        if a[i - 1] > a[i] < a[i + 1]:
-            if a[i] < val or idx < 0:
-                idx = i
-                val = a[i]
-        elif a[i - 1] > a[i] == a[i + 1]:
-            wide = i
-        elif wide >= 0 and a[i - 1] == a[i] < a[i + 1]:
-            if a[i] < val or idx < 0:
-                idx = (wide + i) // 2
-                val = a[i]
-        else:
-            wide = -1
-    out[0] = idx
-
-def test_argminrelmin():
-    """
-    Test argminrelmin. Should print "29 0.0".
-    """
-    a = np.concatenate([
-        np.linspace(-1, 1, 20),
-        np.linspace(1, 0, 10),
-        np.linspace(0, 1, 10),
-        np.linspace(1, 0.5, 10),
-        np.linspace(0.5, 1, 10),
-    ])
-    i = argminrelmin(a)
-    print(i, a[i])
-
-def meanmedian(x, n, axis=-1):
-    """
-    Compute the mean of medians over interlaced subarrays.
-    
-    Example: meanmedian(x, 2) == mean([median(x[::2]), median(x[1::2])]).
-    
-    Parameters
-    ----------
-    x : array
-        The array.
-    n : int
-        The number of subarrays `x` is divided into.
-    axis : int
-        The axis along which the operation is applied, default last.
-    
-    Return
-    ------
-    m : array
-        Array with the same shape of `x` but with the specified axis removed.
-    """
-    axis %= x.ndim
-    length = x.shape[axis]
-    trunclen = length // n * n
-    index = axis * (slice(None),) + (slice(None, trunclen),) + (x.ndim - axis - 1) * (slice(None),)
-    shape = x.shape[:axis] + (length // n, n) + x.shape[axis + 1:]
-    return np.mean(np.median(x[index].reshape(shape), axis=axis), axis=axis)
-
-def test_meanmedian():
-    x = np.random.randn(999)
-    m1 = meanmedian(x, 3)
-    m2 = np.mean([np.median(x[k::3]) for k in range(3)])
-    assert m1 == m2
-
-class AfterPulse(toy.NpzLoad):
+class AfterPulse(npzload.NPZLoad):
     
     def __init__(self,
         wavdata,
@@ -447,7 +27,10 @@ class AfterPulse(toy.NpzLoad):
         safeheight=8,
     ):
         """
-        Search afterpulses in LNGS laser data.
+        Analyze LNGS laser data.
+    
+        The analysis is appropriate for studying afterpulses but it can be
+        used as a general purpose tool.
         
         Parameters
         ----------
@@ -491,6 +74,12 @@ class AfterPulse(toy.NpzLoad):
         hist : plot the histogram of a variable.
         scatter : plot two variables.
         hist2d : plot the histogram of two variables.
+        catindex : map event index to object in a concatenation.
+        subindex : map global event index to event index in concatenated object.
+    
+        Class methods
+        -------------
+        concatenate : create an instance by concatenating instances.
         
         Members
         -------
@@ -658,7 +247,7 @@ class AfterPulse(toy.NpzLoad):
         Process a batch of events, filling `output`.
         """
         # find trigger
-        trigger = firstbelowthreshold(wavdata[:, 1], 600)
+        trigger = firstbelowthreshold.firstbelowthreshold(wavdata[:, 1], 600)
         assert np.all(trigger >= 0)
         startoffset = 10
         start = np.min(trigger) - startoffset
@@ -668,7 +257,7 @@ class AfterPulse(toy.NpzLoad):
         
         # compute the baseline, handling spurious pre-trigger signals
         lowbaseline = np.any(wavdata[:, 0, :start] < self.lowsample, axis=-1)
-        baseline = meanmedian(wavdata[:, 0, :start], 8)
+        baseline = meanmedian.meanmedian(wavdata[:, 0, :start], 8)
         okbs = np.flatnonzero(~lowbaseline)
         if len(okbs) > 0:
             ibs = okbs[-1]
@@ -680,7 +269,7 @@ class AfterPulse(toy.NpzLoad):
             templ, offset = self._mftempl(ilength)
             
             # filter the post-trigger region
-            filtered = correlate(wavdata[:, 0, start:], templ, boundary=mean_baseline)
+            filtered = correlate.correlate(wavdata[:, 0, start:], templ, boundary=mean_baseline)
             
             # find the main peak as the minimum local minimum near the trigger
             center = int(offset) + startoffset
@@ -688,12 +277,12 @@ class AfterPulse(toy.NpzLoad):
             left = max(0, center - margin)
             right = center + margin
             searchrange = filtered[:, left:right]
-            mainpos = argminrelmin(searchrange, axis=-1)
+            mainpos = argminrelmin.argminrelmin(searchrange, axis=-1)
             mainheight = searchrange[np.arange(len(mainpos)), mainpos]
             
             # find two other peaks with high prominence after the main one
             minorstart = np.where(mainpos < 0, 0, mainpos + left)
-            minorpos, minorprom = maxprominencedip(filtered, minorstart, baseline, 2)
+            minorpos, minorprom = maxprominencedip.maxprominencedip(filtered, minorstart, baseline, 2)
             minorheight = filtered[np.arange(len(minorpos))[:, None], minorpos]
             
             idx = (slice(None),) + ilength
@@ -721,8 +310,8 @@ class AfterPulse(toy.NpzLoad):
         # find peaks in pre-trigger region
         templ, offset = self._mftempl()
         lpad = 100
-        filtered = correlate(wavdata[:, 0, :start], templ, boundary=mean_baseline, lpad=lpad)
-        ptpos, ptprom = maxprominencedip(filtered, np.zeros(len(filtered)), baseline, 2)
+        filtered = correlate.correlate(wavdata[:, 0, :start], templ, boundary=mean_baseline, lpad=lpad)
+        ptpos, ptprom = maxprominencedip.maxprominencedip(filtered, np.zeros(len(filtered)), baseline, 2)
         ptheight = filtered[np.arange(len(ptpos))[:, None], ptpos]
         for ipeak, s in [(1, ''), (0, '2')]:
             pos = ptpos[:, ipeak]
@@ -827,10 +416,12 @@ class AfterPulse(toy.NpzLoad):
         
         Parameters
         ----------
-        wavdata : array (nevents, 2, 15001)
+        wavdata : array (nevents, 2, 15001) or list
             The same array passed at initialization. If the object is
             a concatenation, the data passed to the object where the the event
             originates from. Use `catindex()` to map the event to the object.
+            If a list, it must be the ordered list of arrays passed at
+            initialization to the concatenated objects.
         ievent : int
             The event index.
         ilength : int, optional
@@ -850,7 +441,9 @@ class AfterPulse(toy.NpzLoad):
         
         fig, ax = plt.subplots(num='afterpulse.AfterPulse.plotevent', clear=True)
         
-        wf = wavdata[ievent, 0]
+        if not hasattr(wavdata, 'astype'):
+            wavdata = wavdata[self.catindex(ievent)]
+        wf = wavdata[self.subindex(ievent), 0]
         ax.plot(wf, color='#f55')
         
         entry = self.output[ievent]
@@ -861,13 +454,13 @@ class AfterPulse(toy.NpzLoad):
         
         templ, _ = self._mftempl(ilength)
         start = entry['internals']['start']
-        filtered = correlate(wf[start:], templ, boundary=baseline)
+        filtered = correlate.correlate(wf[start:], templ, boundary=baseline)
         length = self.filtlengths[ilength]
         ax.plot(start + np.arange(len(filtered)), filtered, color='#000', label=f'filtered ({length} ns template)')
         
         templ, _ = self._mftempl()
         lpad = entry['internals']['lpad']
-        filtered = correlate(wf[:start], templ, boundary=baseline, lpad=lpad)
+        filtered = correlate.correlate(wf[:start], templ, boundary=baseline, lpad=lpad)
         ax.plot(-lpad + np.arange(len(filtered)), filtered, color='#000')
         
         left = entry['internals']['left'][ilength]
@@ -1355,7 +948,7 @@ class AfterPulse(toy.NpzLoad):
         self = cls.__new__(cls)
         
         classattr = vars(cls)
-        for k, v in vars(ap0):
+        for k, v in vars(ap0).items():
             if k not in classattr and k != 'output' and not k.startswith('__'):
                 setattr(self, k, v)
         
@@ -1390,3 +983,25 @@ class AfterPulse(toy.NpzLoad):
         idx = np.searchsorted(cumlen, ievent, side='right') - 1
         assert 0 <= idx < len(lengths), idx
         return idx
+    
+    def subindex(self, ievent):
+        """
+        Return the event index in a concatenated object.
+        
+        Parameters
+        ----------
+        ievent : int
+            The global event index on the concatenation.
+        
+        Return
+        ------
+        jdx : int
+            The event index relative to the object where the event originates.
+        """
+        lengths = getattr(self, '_catlengths', self.output.shape)
+        cumlen = np.pad(np.cumsum(lengths), (1, 0))
+        idx = np.searchsorted(cumlen, ievent, side='right') - 1
+        assert 0 <= idx < len(lengths), idx
+        jdx = ievent - cumlen[idx]
+        assert 0 <= jdx < lengths[idx]
+        return jdx

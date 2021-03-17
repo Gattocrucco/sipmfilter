@@ -72,6 +72,8 @@ def downsample(a, n, axis=-1, dtype=None):
 
 class NpzLoad:
     """
+    DEPRECATED, used npzload.NPZLoad.
+    
     Superclass for adding automatic save/load from npz files. Only scalar/array
     instance variables are considered.
     """

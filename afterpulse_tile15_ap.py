@@ -16,7 +16,7 @@ import toy
 savedir = 'afterpulse_tile15_ap'
 os.makedirs(savedir, exist_ok=True)
 
-wavfiles = list(sorted(glob.glob('darksidehd/LF_TILE15_77K_??V_?VoV_1.wav')))
+wavfiles = list(sorted(glob.glob('darksidehd/LF_TILE15_77K_??V_?VoV_?.wav')))
 
 vovdict = {}
 
@@ -32,7 +32,9 @@ for wavfile in wavfiles:
 
     vov, = re.search(r'(\d)VoV', prefix).groups()
     vov = int(vov)
-    vovdict[vov] = dict(simfile=simfile, wavfile=wavfile, templfile=templfile)
+    vd = vovdict.setdefault(vov, {})
+    filelist = vd.setdefault('files', [])
+    filelist.append(dict(simfile=simfile, wavfile=wavfile, templfile=templfile))
 
     if not os.path.exists(simfile):
     
@@ -47,10 +49,17 @@ for wavfile in wavfiles:
         sim.save(simfile)
     
 def apload(vov):
-    things = vovdict[vov]
-    data = readwav.readwav(things['wavfile'])
-    sim = afterpulse.AfterPulse.load(things['simfile'])
-    return data, sim
+    filelist = vovdict[vov]['files']
+    datalist = [
+        readwav.readwav(files['wavfile'])
+        for files in filelist
+    ]
+    simlist = [
+        afterpulse.AfterPulse.load(files['simfile'])
+        for files in filelist
+    ]
+    simcat = afterpulse.AfterPulse.concatenate(simlist)
+    return datalist, simcat
 
 def savef(fig, suffix=''):
     if not hasattr(savef, 'figcount'):
@@ -97,16 +106,13 @@ def vspan(ax, x0, x1=None):
 # hcut = cut on minorheight
 # dcut = cut on minorpos - mainpos
 # npe = pe of main peak to search afterpulses
-vovdict[2].update(cut= 8, l1pe= 5, r1pe=14, plotr=20, length=2048, hcut=10, dcut=500, npe=1)
-vovdict[4].update(cut=10, l1pe=10, r1pe=27, plotr=35, length= 512, hcut=16, dcut=500, npe=1)
-vovdict[6].update(cut=10, l1pe=10, r1pe=40, plotr=50, length= 512, hcut=25, dcut=500, npe=1)
-vovdict[8].update(cut=15, l1pe=20, r1pe=58, plotr=80, length= 512, hcut=30, dcut=500, npe=1)
-vovdict[9].update(cut=15, l1pe=20, r1pe=70, plotr=90, length= 512, hcut=35, dcut=500, npe=1)
+vovdict[2].update(cut= 8, l1pe= 5, r1pe=14, plotr=20, length=2048, hcut= 9.5, dcut=500, dcutr=5500, npe=1)
+vovdict[4].update(cut=10, l1pe=10, r1pe=27, plotr=35, length= 512, hcut=17  , dcut=500, dcutr=5500, npe=1)
+vovdict[6].update(cut=10, l1pe=10, r1pe=40, plotr=50, length= 512, hcut=25  , dcut=500, dcutr=5500, npe=1)
+vovdict[8].update(cut=15, l1pe=20, r1pe=58, plotr=80, length= 512, hcut=30  , dcut=500, dcutr=5500, npe=1)
+vovdict[9].update(cut=15, l1pe=20, r1pe=70, plotr=90, length= 512, hcut=35  , dcut=500, dcutr=5500, npe=1)
 
 for vov in vovdict:
-    
-    if vov == 0:
-        continue
     
     d = vovdict[vov]
     d['analfile'] = f'{savedir}/dict{vov}VoV.pickle'
@@ -116,7 +122,7 @@ for vov in vovdict:
             d.update(pickle.load(file))
         continue
     
-    data, sim = apload(vov)
+    datalist, sim = apload(vov)
     
     ilength = np.searchsorted(sim.filtlengths, length)
     assert sim.filtlengths[ilength] == length
@@ -138,7 +144,7 @@ for vov in vovdict:
     
     evts = sim.eventswhere(f'{ptsel}&(ptheight>{cut})')
     for ievt in evts[:3]:
-        fig = sim.plotevent(data, ievt, zoom='all')
+        fig = sim.plotevent(datalist[sim.catindex(ievt)], ievt, zoom='all')
         savef(fig, suffix)
     
     sigcount = sim.getexpr(f'count_nonzero({ptsel}&(ptheight>{cut}))')
@@ -176,16 +182,16 @@ for vov in vovdict:
     fig = sim.scatter('minorpos-mainpos', 'minorheight', minornpe)
     ax, = fig.get_axes()
     hspan(ax, hcut)
-    vspan(ax, dcut)
+    vspan(ax, dcut, dcutr)
     savef(fig, suffix)
-
+    
     nevents = sim.getexpr(f'count_nonzero({minornpe})')
-    apcond = f'{minornpe}&(minorheight>{hcut})&(minorpos-mainpos>{dcut})'
+    apcond = f'{minornpe}&(minorheight>{hcut})&(minorpos-mainpos>{dcut})&(minorpos-mainpos<{dcutr})'
     apcount = sim.getexpr(f'count_nonzero({apcond})')
 
     apevts = sim.eventswhere(apcond)
     for ievt in apevts[:3]:
-        fig = sim.plotevent(data, ievt, ilength)
+        fig = sim.plotevent(datalist[sim.catindex(ievt)], ievt, ilength)
         savef(fig, suffix)
 
     fig = sim.hist('minorpos-mainpos', apcond)
@@ -197,15 +203,15 @@ for vov in vovdict:
     l = np.min(dist)
     tau = uncertainties.ufloat((m - l), s / np.sqrt(len(dist)))
     print(f'expon tau = {tau:P} ns')
+    d.update(tau=tau)
 
-    dend = sim.getexpr('max(minorpos-mainpos)', minornpe)
     factors = [
-        stats.expon.cdf(dend, scale=s) - stats.expon.cdf(dcut, scale=s)
+        stats.expon.cdf(dcutr, scale=s) - stats.expon.cdf(dcut, scale=s)
         for s in [900, 1100]
     ]
     factor = 1 / usamples(factors)
 
-    time = (dend - dcut) * 1e-9 * nevents
+    time = (dcutr - dcut) * 1e-9 * nevents
     bkg = vovdict[2]['dcr'] * time
 
     count = upoisson(apcount)
@@ -231,8 +237,6 @@ def uerrorbar(ax, x, y, **kw):
     kwargs.update(kw)
     return ax.errorbar(x, ym, **kwargs)
 
-vovdict.pop(0)
-
 fig, axs = plt.subplots(1, 2, num='afterpulse_tile15_ap', clear=True, sharex=True, figsize=[9, 4.8])
 
 axdcr, axap = axs
@@ -250,6 +254,48 @@ axap.set_ylabel('Prob. of $\\geq$1 ap after 1 pe signal [%]')
 vov = list(vovdict)
 dcr = np.array([d['dcr'] for d in vovdict.values()])
 ap = np.array([d['ap'] for d in vovdict.values()])
+
+vov_fbk = [
+    3.993730407523511 ,  
+    6.00626959247649  ,  
+    7.003134796238245 ,  
+    8.018808777429467 ,  
+    9.015673981191222 ,  
+    10.012539184952978,
+]
+
+vov_lf = [
+    7.6050156739811925, 
+    8.58307210031348  , 
+    9.617554858934168 , 
+    10.595611285266457, 
+    11.630094043887148, 
+    12.570532915360502,
+] 
+
+dcr_fbk = [
+    0.0023342071127444575,
+    0.011135620473462282 ,
+    0.030621689547075892 ,
+    0.11045427521349038  ,
+    0.20321620635606957  ,
+    0.3304608961193384   ,
+]
+
+dcr_lf = [
+    0.043606772240838754,
+    0.0652463247216516  ,
+    0.09766680629121166 ,
+    0.15917704842719693 ,
+    0.2206923575829639  ,
+    0.47616473894714073 ,
+]
+
+dcr_factor = 250 / 0.1 # from cps/mm^2 to cps/PDM
+
+# axdcr.plot(vov_fbk, dcr_factor * np.array(dcr_fbk), '.-', label='FBK')
+# axdcr.plot(vov_lf, dcr_factor * np.array(dcr_lf), '.-', label='LF')
+# axdcr.legend()
 
 kw = dict(capsize=4, linestyle='', marker='.', color='#000')
 uerrorbar(axdcr, vov, dcr, **kw)

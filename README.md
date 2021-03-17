@@ -117,6 +117,8 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   
   * `fdrallplot.py`: plot results from `fdrall.py`.
   
+  * `fingerplot_tile21.py`: a quick fingerplot of tile 21 files.
+  
   * `fingerplot.py`: do a fingerplot with an LNGS wav.
 
   * `fingersnr.py`: compute the filtered SNR on an LNGS wav.
@@ -168,18 +170,32 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
       
 ### Modules
 
-  * `afterpulse.py`: find afterpulses in an LNGS file.
+  * `afterpulse.py`: class to analyze an LNGS file.
+  
+  * `argminrelmin.py`: index of the minimum local minimum.
   
   * `breaklines.py`: function to break lines in a string.
+  
+  * `correlate.py`: compute the cross correlation.
+  
+  * `downcast.py`: downcast a numpy data type recursively.
 
   * `fighelp.py`: **(DEPRECATED)** convenience functions for matplotlib figures.
   
   * `figlatex.py`: write LaTeX command for including a matplotlib figure.
+  
+  * `firstbelowthreshold.py`: index of first array element below a threshold.
     
   * `integrate.py`: filter an LNGS wav.
   
   * `make_template.py`: **(DEPRECATED)** make a template for the cross
     correlation filter from an LNGS wav.
+    
+  * `maxprominencedip.py`: find max prominence negative peaks.
+  
+  * `meanmedian.py`: mean of the median over strided subarrays.
+  
+  * `npzload.py`: class to serialize objects to numpy archives.
     
   * `num2si.py`: format a number using SI suffixes.
   
