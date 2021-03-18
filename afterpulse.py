@@ -2,7 +2,6 @@ import numpy as np
 from matplotlib import pyplot as plt, colors
 
 import runsliced
-import readwav
 from single_filter_analysis import single_filter_analysis
 import textbox
 import breaklines
@@ -25,6 +24,7 @@ class AfterPulse(npzload.NPZLoad):
         lowsample=700,
         safedist=2500,
         safeheight=8,
+        trigger=None,
     ):
         """
         Analyze LNGS laser data.
@@ -34,9 +34,10 @@ class AfterPulse(npzload.NPZLoad):
         
         Parameters
         ----------
-        wavdata : array (nevents, 2, 15001)
+        wavdata : array (nevents, nchannels, 15001)
             Data as returned by readwav.readwav(). The first channel is the
-            waveform, the second channel is the trigger.
+            waveform, the second channel is the trigger. If there is only one
+            channel, the trigger position must be specified with `trigger`.
         template : toy.Template
             A template object used for the cross correlation filter. Should be
             generated using the same wav file.
@@ -64,6 +65,9 @@ class AfterPulse(npzload.NPZLoad):
         safeheight : scalar
             The maximum height for peaks within `safedist` to be still
             considered negligible, default 8.
+        trigger : int array (nevents,), optional
+            The trigger leading edge position, used if there's no trigger
+            information in `wavdata`.
         
         Methods
         -------
@@ -196,6 +200,11 @@ class AfterPulse(npzload.NPZLoad):
         self.output['internals']['bsevent'] = -1
         self.output['done'] = False
         
+        if trigger is not None:
+            trigger = np.asarray(trigger)
+            assert trigger.shape == self.output.shape, trigger.shape
+            self.trigger = trigger
+        
         # tuple (event from which I copy the baseline, baseline)
         self._default_baseline = (-1, template.baseline)
         
@@ -247,8 +256,11 @@ class AfterPulse(npzload.NPZLoad):
         Process a batch of events, filling `output`.
         """
         # find trigger
-        trigger = firstbelowthreshold.firstbelowthreshold(wavdata[:, 1], 600)
-        assert np.all(trigger >= 0)
+        if wavdata.shape[1] == 2:
+            trigger = firstbelowthreshold.firstbelowthreshold(wavdata[:, 1], 600)
+            assert np.all(trigger >= 0)
+        else:
+            trigger = self.trigger[slic]
         startoffset = 10
         start = np.min(trigger) - startoffset
         

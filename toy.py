@@ -9,19 +9,15 @@ WhiteNoise : generate white noise
 DataCycleNoise : generate noise copying it from a source array
 Template : class to make a signal template and get other properties
 Filter : class to apply filters
-NpzLoad : class to load/save objects to npz files
 
 Functions
 ---------
-apply_threshold : find where a threshold is crossed
-min_snr_ratio : (BROKEN) compute the unfiltered-to-filtered SNR ratio
 downsample : downsample by averaging in groups
 """
 
 import abc
 
 import numpy as np
-from numpy.lib import format as nplf
 from matplotlib import pyplot as plt
 import numba
 import tqdm
@@ -31,6 +27,7 @@ import integrate
 from single_filter_analysis import single_filter_analysis
 import readwav
 import textbox
+import npzload
 
 def downsample(a, n, axis=-1, dtype=None):
     """
@@ -69,43 +66,6 @@ def downsample(a, n, axis=-1, dtype=None):
     shape += tuple(a.shape[i] for i in range(axis + 1, len(a.shape)))
     
     return np.mean(np.reshape(a[idx], shape), axis=axis + 1, dtype=dtype)
-
-class NpzLoad:
-    """
-    DEPRECATED, used npzload.NPZLoad.
-    
-    Superclass for adding automatic save/load from npz files. Only scalar/array
-    instance variables are considered.
-    """
-    
-    def save(self, filename):
-        """
-        Save the object to file as a `.npz` archive.
-        """
-        classdir = dir(type(self))
-        variables = {
-            n : x
-            for n, x in vars(self).items()
-            if n not in classdir
-            and not n.startswith('__')
-            and (np.isscalar(x) or isinstance(x, np.ndarray))
-        }
-        np.savez(filename, **variables)
-    
-    @classmethod
-    def load(cls, filename):
-        """
-        Return an instance loading the object from a file which was written by
-        `save`.
-        """
-        self = cls.__new__(cls)
-        arch = np.load(filename)
-        for n, x in arch.items():
-            # if x.shape == ():
-            #     x = x.item()
-            setattr(self, n, x)
-        arch.close()
-        return self
 
 class Noise(metaclass=abc.ABCMeta):
     """
@@ -349,8 +309,10 @@ class WhiteNoise(Noise):
             generator = np.random.default_rng()
         return generator.standard_normal(size=(nevents, event_length))
     
-class Template(NpzLoad):
+class Template(npzload.NPZLoad):
     """
+    DEPRECATED, use template.Template.
+    
     Class to make a signal template.
     
     Class methods
@@ -798,111 +760,6 @@ def _correlate(events, template, out):
         for j in range(out.shape[1]):
             out[i, j] = np.dot(events[i, j:j + len(template)], template)
 
-@numba.jit(cache=True, nopython=True)
-def apply_threshold(events, threshold):
-    """
-    For each event, find the first sample below a threshold
-    
-    Parameters
-    ----------
-    events : array (nevents, event_length)
-    threshold : scalar
-    
-    Return
-    ------
-    signal_indices : int array (nevents, 3)
-        The last axis is (threshold crossed down, minimum, threshold crossed up)
-    signal_found : bool array (nevents,)
-        True iff the threshold has been crossed.
-    """
-    nevents, event_length = events.shape
-    
-    signal_indices = np.zeros((nevents, 3), int)
-    signal_found = np.zeros(nevents, bool)
-    
-    for i in numba.prange(nevents):
-        event = events[i]
-        
-        for j in range(event_length):
-            if event[j] < threshold:
-                start = j
-                break
-        else:
-            break
-        
-        for j in range(start + 1, event_length):
-            if event[j] > threshold:
-                break
-        end = j
-        
-        signal_found[i] = True
-        signal_indices[i, 0] = start
-        signal_indices[i, 1] = start + np.argmin(event[start:end])
-        signal_indices[i, 2] = end
-    
-    return signal_indices, signal_found
-
-def min_snr_ratio(data, tau, mask=None, nnoise=128, generator=None, noisegen=WhiteNoise()):
-    """
-    BROKEN
-    
-    Compute the signal amplitude over noise rms needed to obtain a given
-    filtered signal amplitude over filtered noise rms, i.e. the ratio
-    "unfiltered SNR" over "filtered SNR".
-    
-    Parameters
-    ----------
-    data : array (nevents, 2, 15001)
-        LNGS data as read by readwav.readwav().
-    tau : array (ntau,)
-        The length parameter for filters @ 125 MSa/s.
-    mask : bool array (nevents,), optional
-        A mask for the first axis of `data`.
-    nnoise : int
-        Approximate effective sample size of generated noise to compute the
-        filtered noise standard deviation. The default should give a result
-        with at least 3 % precision.
-    generator : np.random.Generator, optional
-        A random number generator.
-    noisegen : Noise
-        An instance of a subclass of Noise. Default white noise.
-    
-    Return
-    ------
-    snrs : float array (ntau, 4)
-        The required unfiltered SNR if the filtered SNR is 1. Multiply it by the
-        target filtered SNR. The second axis is over filters as in
-        toy.Filter.all().
-    """
-    
-    # the following @ 125 MSa/s
-    dead_time = 3 * np.max(tau)
-    template_length = 512
-    noise_event_length = dead_time + nnoise * np.max(tau)
-    signal_event_length = dead_time + max(template_length, np.max(tau))
-    
-    # The noise event length is somewhat high because the filtered noise has
-    # an O(tau) autocorrelation length.
-
-    noise = noisegen.generate(1, noise_event_length, generator)
-    template = Template()
-    template.make(data, template_length * 8, mask)
-    signal = template.generate(signal_event_length, [dead_time], generator, False, False)
-    filt_noise = Filter(noise)
-    filt_signal = Filter(signal)
-
-    snrs = np.empty((len(tau), 4))
-    for i, t in enumerate(tau):
-        mftemp, mfoffset = template.matched_filter_template(t)
-        fnoise = filt_noise.all(mftemp)
-        fsignal = filt_signal.all(mftemp)
-        fnrms = np.std(fnoise[:, 0, dead_time:], axis=-1)
-        fsmin = np.abs(np.min(fsignal[:, 0, dead_time:], axis=-1))
-        snrs0 = template.maximum
-        snrs[i] = snrs0 * fnrms / fsmin
-
-    return snrs
-
 def run_sliced(fun, ntot, n=None):
     """
     Run a cycle which calls a given function with a progressing slice as sole
@@ -927,7 +784,7 @@ def run_sliced(fun, ntot, n=None):
             s = slice(start, end)
             fun(s)
 
-class Toy(NpzLoad):
+class Toy(npzload.NPZLoad):
         
     def __init__(self, template, tau, snr, noisegen=None, timebase=8, upsampling=False):
         """

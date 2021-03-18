@@ -1,12 +1,5 @@
 """
-Module to read an LNGS wav. Functions:
-
-readwav :
-    Read an LNGS wav.
-spurious_signals :
-    Determine which events have spurious signals before the trigger.
-firstbelowthreshold :
-    As the name suggests. Use it to find the trigger leading edge.
+Module to read an LNGS wav.
 """
 
 import os
@@ -26,7 +19,8 @@ def readwav(filename, maxevents=None, mmap=True, quiet=False, swapch='auto'):
     maxevents : int
         Maximum number of events read from the file. Default no limit.
     mmap : bool
-        If True, the array is memory mapped i.e. it is not actually on RAM.
+        If True (default), the array is memory mapped i.e. it is not actually
+        on RAM.
     quiet : bool
         Default False. If True, do not print a log message.
     swapch : {'auto', bool}
@@ -82,6 +76,8 @@ def readwav(filename, maxevents=None, mmap=True, quiet=False, swapch='auto'):
 
 def spurious_signals(data):
     """
+    DEPRECATED, do it manually.
+    
     Identify events with out-of-trigger signals.
     
     Parameters
@@ -124,6 +120,8 @@ def first_nonzero(cond):
 @numba.njit(cache=True)
 def firstbelowthreshold(events, threshold):
     """
+    DEPRECATED, use the homonymous module.
+    
     Find the first element below a threshold in arrays.
     
     Parameters

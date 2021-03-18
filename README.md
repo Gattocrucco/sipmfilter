@@ -105,6 +105,8 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   * `afterpulse_tile15_ap.py`: measure dcr and afterpulse in tile 15.
 
   * `afterpulse_tile15.py`: **(OUTDATED)** measure dcr in tile 15.
+  
+  * `afterpulse_tile21.py`: measure dcr and afterpulse in tile 21.
 
   * `afterpulse_tile57.py`: count afterpulses in tile 57.
 
@@ -167,6 +169,8 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   * `toycomparison.py`: temporal resolution at 125 MSa/s (also with windowing).
   
   * `toytest.py`: **(OUTDATED)** some functions to test the `toy.py` module.
+  
+  * `triggerhist.py`: histogram the trigger leading edge position.
       
 ### Modules
 
@@ -210,6 +214,8 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   * `runsliced.py`: do something in batches with a progressbar.
   
   * `single_filter_analysis.py`: make a fingerplot and compute the SNR.
+  
+  * `template.py`: class to make signal templates.
   
   * `textbox.py`: write text in a box on plots.
   

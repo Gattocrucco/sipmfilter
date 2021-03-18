@@ -2,6 +2,8 @@
 Plot a template object saved by `savetemplate.py`. Usage:
 
     templateplot.py something-template.npz
+
+Can be imported as a module, the function is `templateplot`.
 """
 
 import os
@@ -9,7 +11,7 @@ import os
 from matplotlib import pyplot as plt
 import numpy as np
 
-import toy
+import template
 import textbox
 
 def templateplot(dest, fig=None):
@@ -35,7 +37,7 @@ def templateplot(dest, fig=None):
     path, name = os.path.split(dest)
     source = 'darksidehd/' + name[:-len(suffix)] + '.wav'
 
-    template = toy.Template.load(dest)
+    templ = template.Template.load(dest)
     
     if fig is None:
         fig, axs = plt.subplots(3, 1, num='templateplot', clear=True, figsize=[6.4, 7.1])
@@ -46,8 +48,8 @@ def templateplot(dest, fig=None):
 
     ax.set_title(os.path.split(source)[1])
     textbox.textbox(ax, 'Full template @ 1 GSa/s', fontsize='medium', loc='lower center')
-    ax.plot(template.templates[0], color='#f55', label='Aligned to event window')
-    ax.plot(template.templates[1], color='#000', linestyle='--', label='Aligned to trigger')
+    ax.plot(templ.templates[0], color='#f55', label='Aligned to event window')
+    ax.plot(templ.templates[1], color='#000', linestyle='--', label='Aligned to trigger')
     ax.legend(loc='upper right')
     ax.minorticks_on()
     ax.grid(True, which='major', linestyle='--')
@@ -57,7 +59,7 @@ def templateplot(dest, fig=None):
 
     textbox.textbox(ax, 'Cross corr. filter templates @ 125 MSa/s', fontsize='medium', loc='lower center')
     template_offset = [
-        template.matched_filter_template(length, norm=False, aligned=True)
+        templ.matched_filter_template(length, norm=False, aligned=True)
         for length in [4, 8, 16, 32, 64]
     ]
     for i, (y, offset) in enumerate(reversed(template_offset)):
@@ -73,7 +75,7 @@ def templateplot(dest, fig=None):
 
     textbox.textbox(ax, 'Cross corr. filter templates @ 1 GSa/s', fontsize='medium', loc='lower center')
     template_offset = [
-        template.matched_filter_template(length, norm=False, timebase=1)
+        templ.matched_filter_template(length, norm=False, timebase=1)
         for length in np.array([2, 4, 8, 16, 32]) * 8
     ]
     for i, (y, offset) in enumerate(reversed(template_offset)):

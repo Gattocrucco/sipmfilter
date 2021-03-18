@@ -10,23 +10,27 @@ import os
 from matplotlib import pyplot as plt
 import numpy as np
 
-import toy
+import template
 import readwav
 import templateplot
+import firstbelowthreshold
 
 files = sys.argv[1:]
 
 for source in files:
     assert source.endswith('.wav')
-    destbase = os.path.split(source)[1][:-4] + '-template'
+    destbase = 'templates/' + os.path.split(source)[1][:-4] + '-template'
     dest = destbase + '.npz'
 
-    data = readwav.readwav(source, mmap=False)
+    data = readwav.readwav(source)
     print(f'computing template...')
-    ignore = readwav.spurious_signals(data)
-    template = toy.Template.from_lngs(data, 7 * 512, ~ignore)
+    if data.shape[1] == 1:
+        trigger = 8969
+    else:
+        trigger = None
+    templ = template.Template.from_lngs(data, 7 * 512, trigger=trigger)
     print(f'saving template to {dest}...')
-    template.save(dest)
+    templ.save(dest)
 
     fig = plt.figure(num='savetemplate', clear=True, figsize=[6.4, 7.1])
 
