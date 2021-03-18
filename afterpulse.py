@@ -38,7 +38,7 @@ class AfterPulse(npzload.NPZLoad):
             Data as returned by readwav.readwav(). The first channel is the
             waveform, the second channel is the trigger. If there is only one
             channel, the trigger position must be specified with `trigger`.
-        template : toy.Template
+        template : template.Template
             A template object used for the cross correlation filter. Should be
             generated using the same wav file.
         filtlengths : array, optional

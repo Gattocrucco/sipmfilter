@@ -6,6 +6,7 @@ from scipy import interpolate
 
 import figlatex
 import toy
+import template as _template
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 noisefile = 'noises/merged_000886-adc_W201_Ch00.npz'
@@ -28,7 +29,7 @@ if not all(os.path.exists(simfile(n)) for n in names):
     noise_white = toy.WhiteNoise()
     noise = dict(proto0=noise_proto0, white=noise_white, lngs=noise_lngs)
 
-    template = toy.Template.load(f'templates/{prefix}-template.npz')
+    template = _template.Template.load(f'templates/{prefix}-template.npz')
     
     for n in names:
         if os.path.exists(simfile(n)):
@@ -58,8 +59,8 @@ snrs = sim['proto0'].snrratio()
 ratio = snrs[1, itau(128)]
 snr10, snr12 = np.array([10, 12]) / ratio
 
-template = toy.Template.load(f'templates/{prefix}-template.npz')
-lngssnr = template.snr
+template = _template.Template.load(f'templates/{prefix}-template.npz')
+lngssnr = template.max(timebase=1) / template.noise_std
 noise_lngs = toy.DataCycleNoise(timebase=1)
 noise_lngs.load(f'noises/{prefix}-noise.npz')
 lngssnr /= np.std(toy.downsample(noise_lngs.noise_array, 8), axis=None)

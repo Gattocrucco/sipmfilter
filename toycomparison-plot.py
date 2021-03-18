@@ -15,8 +15,9 @@ from matplotlib import pyplot as plt
 from scipy import interpolate
 
 import toy
+import template as _template
 
-template = toy.Template.load('templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
+template = _template.Template.load('templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
 
 noise_name = ['proto0',     'LNGS',     'white'    ]
 toys = []
@@ -63,9 +64,10 @@ def plot_comparison(locfield='loc'):
 
     r = toys[0].templocres(locfield, sampleunit=False)
     emabestproto0 = np.min(r[2], axis=0)
-
+    
+    templatesnr = template.max(timebase=1) / template.noise_std
     lngssnrvalues = [
-        float(interpolate.interp1d(snr, res)(template.snr))
+        float(interpolate.interp1d(snr, res)(templatesnr))
         for res in [mf384proto0, mf384lngs, mf384white]
     ]
 
@@ -94,7 +96,7 @@ def plot_comparison(locfield='loc'):
     ax.plot(snr, mf384proto0, label='Matched, N=384, Proto0 noise', marker='v', **kw)
     ax.plot(snr, mf384lngs, label='Matched, N=384, LNGS noise', marker='^', **kw)
     ax.plot(snr, mf384white, label='Matched, N=384, white noise (best possible?)', marker='*', **kw)
-    ax.axvline(template.snr, 0, 0.5, linestyle='--', color='#000', label='LNGS LN SNR @ 1 GSa/s')
+    ax.axvline(templatesnr, 0, 0.5, linestyle='--', color='#000', label='LNGS LN SNR @ 1 GSa/s')
     ax.axvspan(snr10, snr12, color='#ccf', zorder=-11, label='Proto0 movavg128-filtered SNR 10–12')
     ax.axhspan(0, toys[0].timebase, color='#ddd', zorder=-10, label=f'{toys[0].timebase} ns')
 

@@ -7,6 +7,7 @@ import toy
 import read
 import num2si
 import textbox
+import template as _template
 
 parser = argparse.ArgumentParser(description='plot an event from an LNGS wav or Proto0 root')
 
@@ -18,7 +19,7 @@ args = parser.parse_args()
 
 signal, freq, ndigit = read.read(args.filespec, firstevent=args.event, maxevents=1, return_trigger=False)
 
-template = toy.Template.load('templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
+template = _template.Template.load('templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
 timebase = int(1e9 / freq)
 print(f'timebase = {timebase}')
 templ, offset = template.matched_filter_template(args.length, timebase=timebase)

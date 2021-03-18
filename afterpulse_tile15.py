@@ -7,7 +7,7 @@ from scipy import stats
 
 import afterpulse
 import readwav
-import toy
+import template as _template
 import uncertainties
 
 savedir = 'afterpulse_tile15'
@@ -35,7 +35,7 @@ for wavfile in wavfiles:
     
         data = readwav.readwav(wavfile)
     
-        template = toy.Template.load(templfile)
+        template = _template.Template.load(templfile)
         
         filtlength = 2048
         kw = dict(batch=100, pbar=True, filtlengths=filtlength, ptlength=filtlength)

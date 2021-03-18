@@ -98,7 +98,7 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   
   * `templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz`: template made
     from `nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav`, to be loaded with
-    `toy.Template`.
+    `template.Template`.
 
 ### Scripts
 

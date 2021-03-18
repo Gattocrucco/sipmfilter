@@ -6,6 +6,7 @@ file.
 import numpy as np
 
 import toy
+import template as _template
 
 tau = np.array([4, 8, 16, 24, 32, 40, 48, 64, 96, 128, 192, 256, 384]) * 8
 snr = np.linspace(1.8, 6, 15)
@@ -16,7 +17,7 @@ noise_white = toy.WhiteNoise(timebase=1)
 noise_obj  = [noise_LNGS, noise_white]
 noise_name = ['LNGS',     'white'    ]
 
-template = toy.Template.load('templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
+template = _template.Template.load('templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz')
 
 toys = []
 for name, noise in zip(noise_name, noise_obj):

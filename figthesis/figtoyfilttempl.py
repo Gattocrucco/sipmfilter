@@ -2,13 +2,13 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 import figlatex
-import toy
+import template as _template
 
 templfile = 'templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz'
 
 ###########################
 
-template = toy.Template.load(templfile)
+template = _template.Template.load(templfile)
 
 fig, ax = plt.subplots(num='figtoyfilttempl', clear=True, figsize=[6.4, 3.32])
 

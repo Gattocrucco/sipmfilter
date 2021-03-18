@@ -22,6 +22,7 @@ import os
 import numpy as np
 
 import toy
+import template as _template
 
 if len(sys.argv) == 1:
     source = 'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'
@@ -42,7 +43,7 @@ assert timebase[0] == 1
 
 templfile = f'templates/{prefix}-template.npz'
 print(f'read {templfile}...')
-template = toy.Template.load(templfile)
+template = _template.Template.load(templfile)
 
 savedir = 'toy1gvs125m'
 os.makedirs(savedir, exist_ok=True)

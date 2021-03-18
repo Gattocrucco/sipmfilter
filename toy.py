@@ -7,7 +7,6 @@ Toy : the main class to run the simulations
 Noise : abstract class to generate noise, see concrete subclasses
 WhiteNoise : generate white noise
 DataCycleNoise : generate noise copying it from a source array
-Template : class to make a signal template and get other properties
 Filter : class to apply filters
 
 Functions
@@ -22,12 +21,14 @@ from matplotlib import pyplot as plt
 import numba
 import tqdm
 import uproot
+from scipy import signal
 
 import integrate
 from single_filter_analysis import single_filter_analysis
 import readwav
 import textbox
 import npzload
+import template as _template
 
 def downsample(a, n, axis=-1, dtype=None):
     """
@@ -308,296 +309,6 @@ class WhiteNoise(Noise):
         if generator is None:
             generator = np.random.default_rng()
         return generator.standard_normal(size=(nevents, event_length))
-    
-class Template(npzload.NPZLoad):
-    """
-    DEPRECATED, use template.Template.
-    
-    Class to make a signal template.
-    
-    Class methods
-    -------------
-    load : load a template from a file.
-    from_lngs : make a template from LNGS data.
-    
-    Methods
-    -------
-    generate : generate signal waveforms from the template.
-    matched_filter_template : make a template for the matched filter.
-    maxoffset : return the position of the peak of the template.
-    save : save the template to file.
-    
-    Properties
-    ----------
-    maximum : peak amplitude of the template.
-    snr : SNR observed in the LNGS data used to make the template.
-    ready : True if the template object can be used.
-    template_length : the length of the 1 GSa/s template.
-    
-    Instance variables
-    ------------------
-    baseline : scalar
-        The average baseline.
-    template : 1D array
-        The source 1 GSa/s template used by methods.
-    """
-    
-    def __init__(self):
-        raise NotImplementedError('use a class method to construct Template objects')
-    
-    @property
-    def ready(self):
-        """
-        True if the template object has been filled either with `make` or
-        `load`.
-        """
-        return hasattr(self, 'template')
-    
-    @property
-    def template_length(self):
-        """
-        The length, in ns, of the 1 GSa/s template used to generate waveforms.
-        """
-        return len(self.template)
-    
-    @classmethod
-    def from_lngs(cls, data, length, mask=None):
-        """
-        Compute a template from 1 p.e. signals in an LNGS wav.
-        
-        Parameters
-        ----------
-        data : array (nevents, 2, 15001)
-            Wav data as read by readwav.readwav().
-        length : int
-            Number of samples of the template (@ 1 GSa/s), starting from the
-            beginning of the trigger impulse.
-        mask : bool array (nevents,), optional
-            Mask for the `data` array.
-        
-        Return
-        ------
-        self : Template
-            A template object.
-        """
-        self = cls.__new__(cls)
-        
-        if mask is None:
-            mask = np.ones(len(data), bool)
-        
-        # Run a moving average filter to find and separate the signals by
-        # number of photoelectrons.
-        trigger, baseline, value = integrate.filter(data, bslen=8000, length_ma=1470, delta_ma=1530)
-        corr_value = baseline - value[:, 0]
-        snr, center, width = single_filter_analysis(corr_value[mask], return_full=True)
-        minsnr = 5
-        assert snr >= minsnr, f'SNR = {snr:.3g} < {minsnr}'
-        assert len(center) > 2
-    
-        # Select the data corresponding to 1 photoelectron and subtract the
-        # baseline.
-        lower = (center[0] + center[1]) / 2
-        upper = (center[1] + center[2]) / 2
-        selection = (lower < corr_value) & (corr_value < upper) & mask
-        t = int(np.median(trigger))
-        data1pe = data[selection, 0, t:t + length] - baseline[selection].reshape(-1, 1)
-    
-        # Compute the waveform as the mean of the signals.
-        template = np.mean(data1pe, axis=0)
-        self.template_rel_std = np.std(np.mean(data1pe, axis=1)) / np.mean(template)
-        self.template_rel_std_alt = np.sqrt(width[1] ** 2 - width[0] ** 2) / center[1]
-        self.template_N = np.sum(selection)
-        
-        # Repeat but aligning the data to the trigger for each event instead of
-        # to the median of all triggers.
-        indices0 = np.flatnonzero(selection)[:, None]
-        indices2 = trigger[selection, None] + np.arange(length)
-        data1pe = data[indices0, 0, indices2] - baseline[selection][:, None]
-        template_aligned = np.mean(data1pe, axis=0)
-        
-        # Save variables.
-        self.templates = np.stack([template, template_aligned])
-        self.template = template # for backward compatibility
-        
-        # For the moving average.
-        self._cumsum_templates = np.pad(np.cumsum(self.templates, axis=1), [(0,0),(1,0)])
-        
-        # Compute the noise standard deviation.
-        STDs = np.std(data[:, 0, :t - 100], axis=1)
-        self.noise_std = np.sum(STDs, where=mask) / np.count_nonzero(mask)
-        
-        # Compute the baseline distribution.
-        bs = baseline[mask]
-        self.baseline = np.mean(bs)
-        self.baseline_std = np.std(bs)
-        self.baseline_std_alt = np.sqrt(np.var(bs) - self.noise_std ** 2 / 8000)
-        
-        # Save trigger distribution.
-        self.trigger_min = np.min(trigger)
-        self.trigger_max = np.max(trigger)
-        self.trigger_median = np.median(trigger)
-        
-        return self
-    
-    def _ma_template(self, n, idx=0):
-        """apply a n-moving average to the 1 GSa/s template"""
-        cs = self._cumsum_templates[idx]
-        x = (cs[n:] - cs[:-n]) / n
-        return x
-    
-    def generate(self, event_length, signal_loc, generator=None, randampl=True, timebase=8, aligned=False):
-        """
-        Simulate signals.
-        
-        Parameters
-        ----------
-        event_length : int
-            Number of samples in each event.
-        signal_loc : float array (nevents,)
-            An array of positions of the signal in each event. The position is
-            in unit of samples but it can be non-integer. The position is the
-            beginning of the template.
-        generator : np.random.Generator, optional
-            Random number generator.
-        randampl : bool
-            If True (default), vary the amplitude of signals.
-        timebase : int
-            Duration of a sample in nanoseconds. Default is 8 i.e. 125 MSa/s.
-        aligned : bool
-            If True, use the template made with trigger alignment.
-        
-        Return
-        ------
-        out : array (nevents, event_length)
-            Simulated signals.
-        """
-        signal_loc = np.asarray(signal_loc)
-        nevents = len(signal_loc)
-        
-        if generator is None:
-            generator = np.random.default_rng()
-            
-        out = np.zeros((nevents, event_length))
-        
-        loc_int = np.array(np.floor(signal_loc), int)
-        loc_ns = np.array(np.floor(signal_loc * timebase), int) % timebase
-        loc_subns = (signal_loc * timebase) % 1
-                
-        idx = 1 if aligned else 0
-        templ = self._ma_template(timebase, idx)
-        tlen = ((len(templ) - 1) // timebase) * timebase
-
-        indices0 = np.arange(nevents)[:, None]
-        indices1 = loc_int[:, None] + np.arange(tlen // timebase)
-        
-        tindices = 1 - loc_ns[:, None] + np.arange(0, tlen, timebase)
-        weight = loc_subns[:, None]
-        out[indices0, indices1] = (1 - weight) * templ[tindices] + weight * templ[tindices - 1]
-        if randampl:
-            out *= 1 + self.template_rel_std * generator.standard_normal((nevents, 1))
-        # if baseline:
-        #     out += self.baseline
-        #     if randbaseline:
-        #         out += self.baseline_std * generator.standard_normal((nevents, 1))
-        
-        return out
-    
-    @property
-    def maximum(self):
-        """
-        DEPRECATED, use max().
-        
-        Maximum amplitude of the original internal template used by
-        generate() (the unaligned one).
-        """
-        return np.max(np.abs(self.template))
-    
-    def max(self, timebase=8, aligned=False):
-        """
-        Compute the average maximum amplitude of the signals generated by
-        `generate` if the signal location varies randomly.
-        
-        Parameters
-        ----------
-        timebase : int
-            Duration of a sample in nanoseconds. Default is 8 i.e. 125 MSa/s.
-        aligned : bool
-            If True, use the template made with trigger alignment.
-    
-        Return
-        ------
-        ampl : scalar
-            The average maximum signal amplitude (positive).
-        """
-        event_length = 2 + self.templates.shape[1] // timebase
-        signal_loc = np.linspace(0, 1, 101)[:-1]
-        signals = self.generate(event_length, signal_loc, randampl=False, timebase=timebase, aligned=aligned)
-        return np.mean(np.max(np.abs(signals), axis=1))
-    
-    @property
-    def snr(self):
-        """
-        DEPRECATED
-        
-        Average peak signal amplitude over noise rms at 1 GSa/s.
-        """
-        return self.maximum / self.noise_std
-    
-    def maxoffset(self, timebase=8, aligned=False):
-        """
-        Time from the start of the template to the maximum.
-        
-        Parameters
-        ----------
-        timebase : int
-            The unit of time in nanoseconds.
-        aligned : bool
-            If True, use the template made with trigger alignment.
-        """
-        idx = 1 if aligned else 0
-        return np.argmax(np.abs(self.templates[idx])) / timebase
-    
-    def matched_filter_template(self, length, norm=True, timebase=8, aligned=False):
-        """
-        Return a template for the matched filter. The template is chosen to
-        maximize its vector norm.
-        
-        Parameters
-        ----------
-        length : int
-            Number of samples of the template.
-        norm : bool, optional
-            If True (default) the template is normalized to unit sum, so that
-            the output from the matched filter is comparable to the output from
-            a moving average filter.
-        timebase : int
-            The original template is at 1 GSa/s. The returned template is
-            downsampled by this factor. Default is 8 (125 MSa/s).
-        aligned : bool
-            If True, use the template made with trigger alignment.
-        
-        Return
-        ------
-        template : float array (length,)
-            The template.
-        offset : float
-            The offset in unit of sample number of the returned template from
-            the beginning of the template used to generate the fake signals to
-            the beginning of the returned template.
-        """
-        len1ghz = timebase * length
-        assert len1ghz <= self.templates.shape[1]
-        idx = 1 if aligned else 0
-        template = self.templates[idx]
-        cs = np.pad(np.cumsum(template ** 2), (1, 0))
-        s = cs[len1ghz:] - cs[:-len1ghz] # s[j] = sum(template[j:j+len1ghz]**2)
-        offset1ghz = np.argmax(s)
-        offset = offset1ghz / timebase
-        template = template[offset1ghz:offset1ghz + len1ghz]
-        template = np.mean(template.reshape(-1, timebase), axis=1)
-        if norm:
-            template /= np.sum(template)
-        return template, offset
 
 class Filter:
     
@@ -754,11 +465,15 @@ def _exponential_moving_average(events, a, boundary, out):
             out[i, j] = a * out[i, j - 1] + (1 - a) * boundary
 
 @numba.jit(cache=True, nopython=True)
-def _correlate(events, template, out):
-    # TODO should use np.correlate which uses fft
+def _correlate1(events, template, out):
     for i in numba.prange(len(events)):
         for j in range(out.shape[1]):
             out[i, j] = np.dot(events[i, j:j + len(template)], template)
+
+def _correlate2(events, template, out):
+    out[:] = signal.fftconvolve(events, template[None, ::-1], axes=1, mode='valid')
+    
+_correlate = _correlate2
 
 def run_sliced(fun, ntot, n=None):
     """
@@ -794,7 +509,7 @@ class Toy(npzload.NPZLoad):
         
         Parameters
         ----------
-        template : toy.Template
+        template : template.Template
             A template object.
         tau : array (ntau,)
             Values of the filters length parameter, in number of samples.
@@ -838,7 +553,7 @@ class Toy(npzload.NPZLoad):
         
         Members
         -------
-        template : toy.Template
+        template : template.Template
             The template object.
         tau : array (ntau,)
             The values of the length parameters of the filters.
@@ -859,7 +574,7 @@ class Toy(npzload.NPZLoad):
                 to compute results, the same for each event.
             'loctrue', float :
                 The sample number where the signal is generated. See
-                toy.Template.generate.
+                template.Template.generate.
             'loc', float, (4, ntau, nsnr) :
                 Signal localization. It is not calibrated. Computed with
                 parabolic interpolation.
@@ -899,7 +614,6 @@ class Toy(npzload.NPZLoad):
         wcenter : array (ncenter,)
             The `wcenter` argument to `run_window` (see `window_center`).
         """        
-        assert template.ready
         tau = np.asarray(tau)
         assert template.template_length >= np.max(tau) * timebase
         snr = np.asarray(snr)
@@ -914,7 +628,7 @@ class Toy(npzload.NPZLoad):
         self.timebase = timebase
         self.upsampling = upsampling
         
-        self.sigma = template.maximum / snr
+        self.sigma = template.max(timebase=1) / snr
                 
         self.margin = 512 // timebase
         self.event_length = np.max(tau) + template.template_length // timebase + self.margin
@@ -1557,6 +1271,8 @@ class Toy(npzload.NPZLoad):
     
     def filteredsnr(self):
         """
+        DEPRECATED, use snrratio.
+        
         Compute the SNR after filtering, i.e. the median peak filter output
         over the filtered noise rms.
         
@@ -1634,7 +1350,7 @@ class Toy(npzload.NPZLoad):
         width = self.templocres(locfield, sampleunit)
         
         if axs is None:
-            fig, axs = plt.subplots(2, 2, num='toy.Toy.plot_loc_all', figsize=[10.95, 7.19], clear=True)
+            fig, axs = plt.subplots(2, 2, num='toy.Toy.plot_loc_all', figsize=[10.95, 7.19], clear=True, sharey=True)
             returnfig = True
         else:
             returnfig = False
@@ -1673,7 +1389,7 @@ class Toy(npzload.NPZLoad):
         
         labels = [line.get_label() for line in lines]
         legendtitle = 'N or $\\tau$ [samples]'
-        axs[0].legend(lines, labels, ncol=3, fontsize='small', title=legendtitle, loc='best', framealpha=0.9)
+        axs[0].legend(lines, labels, ncol=3, fontsize='small', title=legendtitle, loc='lower left', framealpha=0.9)
         
         if logscale:
             axs[0].set_yscale('log')

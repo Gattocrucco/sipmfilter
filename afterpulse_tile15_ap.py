@@ -11,7 +11,7 @@ from uncertainties import unumpy
 
 import afterpulse
 import readwav
-import toy
+import template as _template
 
 savedir = 'afterpulse_tile15_ap'
 os.makedirs(savedir, exist_ok=True)
@@ -40,7 +40,7 @@ for wavfile in wavfiles:
     
         data = readwav.readwav(wavfile)
     
-        template = toy.Template.load(templfile)
+        template = _template.Template.load(templfile)
         
         kw = dict(batch=100, pbar=True)
         sim = afterpulse.AfterPulse(data, template, **kw)

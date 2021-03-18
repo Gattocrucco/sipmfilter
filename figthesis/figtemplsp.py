@@ -7,6 +7,7 @@ from scipy import signal
 import toy
 import figlatex
 import figspectra
+import template as _template
 
 templfile = 'templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz'
 maxfreq = 15
@@ -23,7 +24,7 @@ f2 = arch['f2']
 s1 = arch['s1']
 s2 = arch['s2']
 
-template = toy.Template.load(templfile)
+template = _template.Template.load(templfile)
 templ, offset = template.matched_filter_template(3000, timebase=1)
 
 def adapt(f, s):

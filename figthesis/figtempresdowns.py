@@ -9,6 +9,7 @@ import figlatex
 import toy
 import textmatrix
 import num2si
+import template as _template
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 noisefile = 'noises/merged_000886-adc_W201_Ch00.npz'
@@ -27,7 +28,7 @@ nicenames = dict(proto0='Proto0', lngs='LNGS', white='White')
 
 if not all(os.path.exists(simfile(n, tb)) for n in timebase for tb in timebase[n]):
     
-    template = toy.Template.load(f'templates/{prefix}-template.npz')
+    template = _template.Template.load(f'templates/{prefix}-template.npz')
 
     for n, timebases in timebase.items():
         

@@ -4,6 +4,7 @@ from matplotlib import pyplot as plt
 import toy
 import figlatex
 import readwav
+import template as _template
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 length = 1024
@@ -13,7 +14,7 @@ length = 1024
 data = readwav.readwav('darksidehd/' + prefix + '.wav', maxevents=1, mmap=False)
 signal = data[:, 0]
 
-template = toy.Template.load('templates/' + prefix + '-template.npz')
+template = _template.Template.load('templates/' + prefix + '-template.npz')
 templ, offset = template.matched_filter_template(length, timebase=1)
 
 filt = toy.Filter(signal, template.baseline)

@@ -49,7 +49,7 @@ prefix = os.path.split(source)[1][:-len(suffix)]
 def infobox(ax, **kw):
     kwargs = dict(fontsize='medium', loc='lower left', bbox=dict(alpha=0.95))
     kwargs.update(kw)
-    textbox.textbox(ax, source, **kwargs)
+    textbox.textbox(ax, os.path.split(source)[1], **kwargs)
 
 timebase = np.array(list(sorted(timebase)))
 # index 0 = higher sampling frequency
@@ -60,7 +60,7 @@ noise_names  = ['white', 'LNGS']
 for inoise in range(len(noise_labels)):
     toys.append([])
     for i in range(len(timebase)):
-        filename = f'toy1gvs125m-{prefix}-{timebase[i]}-{noise_labels[inoise]}.npz'
+        filename = f'toy1gvs125m/toy1gvs125m-{prefix}-{timebase[i]}-{noise_labels[inoise]}.npz'
         print(f'load {filename}...')
         t = toy.Toy.load(filename)
         toys[inoise].append(t)

@@ -5,12 +5,12 @@ from scipy import stats
 
 import afterpulse
 import readwav
-import toy
+import template as _template
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 
 data = readwav.readwav('darksidehd/' + prefix + '.wav')
-template = toy.Template.load(f'templates/{prefix}-template.npz')
+template = _template.Template.load(f'templates/{prefix}-template.npz')
 
 savedir = 'afterpulse_tile57'
 os.makedirs(savedir, exist_ok=True)

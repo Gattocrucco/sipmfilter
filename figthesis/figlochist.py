@@ -4,6 +4,7 @@ from matplotlib import pyplot as plt
 import figlatex
 import toy
 import num2si
+import template as _template
 
 templfile = 'templates/nuvhd_lf_3x_tile57_77K_64V_6VoV_1-template.npz'
 noisefile = 'noises/merged_000886-adc_W201_Ch00.npz'
@@ -14,7 +15,7 @@ snr = 5
 
 noise = toy.DataCycleNoise(maxcycles=1, chunk_skip=1000)
 noise.load(noisefile)
-template = toy.Template.load(templfile)
+template = _template.Template.load(templfile)
 sim = toy.Toy(template, [tau], [snr], noise)
 sim.run(1000, pbar=10, seed=202102172153)
 

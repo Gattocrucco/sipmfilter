@@ -2,13 +2,13 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 import figlatex
-import toy
+import template as _template
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 
 ###########################
 
-templ = toy.Template.load('templates/' + prefix + '-template.npz')
+templ = _template.Template.load('templates/' + prefix + '-template.npz')
 
 signal_loc = np.linspace(0, 1, 3 * 8 + 1)
 event_length = templ.template_length // 8 + int(np.max(np.ceil(signal_loc))) + 1

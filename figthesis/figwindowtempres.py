@@ -7,6 +7,7 @@ from scipy import interpolate
 import figlatex
 import toy
 import textbox
+import template as _template
 
 prefix = 'nuvhd_lf_3x_tile57_77K_64V_6VoV_1'
 noisefile = 'noises/merged_000886-adc_W201_Ch00.npz'
@@ -37,7 +38,7 @@ if not all(os.path.exists(simfile(n)) for n in names):
     noise_lngs.load(f'noises/{prefix}-noise.npz')
     noise = dict(proto0=noise_proto0, lngs=noise_lngs)
 
-    template = toy.Template.load(f'templates/{prefix}-template.npz')
+    template = _template.Template.load(f'templates/{prefix}-template.npz')
     
     for n in names:
         if os.path.exists(simfile(n)):
