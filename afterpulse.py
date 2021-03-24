@@ -538,7 +538,8 @@ class AfterPulse(npzload.NPZLoad):
         
         The expression can be any python expression involving the following
         numpy arrays:
-        
+            
+            event       : event index
             trigger     : the index of the trigger leading edge
             baseline    : the value of the baseline
             length      : the cross correlation filter template length
@@ -604,6 +605,7 @@ class AfterPulse(npzload.NPZLoad):
             globals = {}
 
         variables = dict(
+            event       = np.arange(len(self.output)),
             trigger     = self.output['trigger'],
             baseline    = self.output['baseline'],
             length      = self.filtlengths,

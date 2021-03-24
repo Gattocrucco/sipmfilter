@@ -27,8 +27,8 @@ for wavfile in wavfiles:
     templfile = f'templates/{prefix}-template.npz'
     simfile = f'{savedir}/{prefix}.npz'
 
-    vov1, vov2 = re.search(r'(\d)(\d)VoV', prefix).groups()
-    vov = int(vov1) + 0.1 * int(vov2)
+    vbreak, vbias = re.search(r'(\d\d)V_(\d\d)VoV', prefix).groups()
+    vov = (int(vbias) - int(vbreak)) / 2
     
     vd = vovdict.setdefault(vov, {})
     filelist = vd.setdefault('files', [])
@@ -99,16 +99,13 @@ def vspan(ax, x0, x1=None):
 # parameters:
 # cut = cut on ptheight to measure dcr
 # l1pe, r1pe = boundaries of 1 pe height distribution with filter length 2048
-# plotr = right bound to plot distribution of main height
 # length = filter length for afterpulse
 # hcut = cut on minorheight
-# dcut = cut on minorpos - mainpos
+# dcut, dcutr = left/right cut on minorpos - mainpos
 # npe = pe of main peak to search afterpulses
-vovdict[2].update(cut= 8, l1pe= 5, r1pe=14, plotr=20, length=2048, hcut= 9.5, dcut=500, dcutr=5500, npe=1)
-vovdict[4].update(cut=10, l1pe=10, r1pe=27, plotr=35, length= 512, hcut=17  , dcut=500, dcutr=5500, npe=1)
-vovdict[6].update(cut=10, l1pe=10, r1pe=40, plotr=50, length= 512, hcut=25  , dcut=500, dcutr=5500, npe=1)
-vovdict[8].update(cut=15, l1pe=20, r1pe=58, plotr=80, length= 512, hcut=30  , dcut=500, dcutr=5500, npe=1)
-vovdict[9].update(cut=15, l1pe=20, r1pe=70, plotr=90, length= 512, hcut=35  , dcut=500, dcutr=5500, npe=1)
+vovdict[5.5].update(cut=10, l1pe=10, r1pe=42, length=512, hcut=25, dcut=500, dcutr=5500, npe=1)
+vovdict[7.5].update(cut=15, l1pe=20, r1pe=58, length=512, hcut=30, dcut=500, dcutr=5500, npe=1)
+vovdict[9.5].update(cut=25, l1pe=20, r1pe=90, length=512, hcut=35, dcut=500, dcutr=5500, npe=1)
 
 for vov in vovdict:
     
@@ -128,13 +125,16 @@ for vov in vovdict:
     suffix = f'-{vov}VoV'
     
     mainsel = 'good&(mainpos>=0)&(length==2048)'
-    fig = sim.hist('mainheight', f'{mainsel}&(mainheight<{plotr})', nbins=200)
+    fig = sim.hist('mainheight', f'{mainsel}&(npe>=0)&(npe<=2)', nbins=200)
     ax, = fig.get_axes()
     vspan(ax, cut)
+    ax.axvline(l1pe, color='#000')
+    ax.axvline(r1pe, color='#000')
     savef(fig, suffix)
     
-    margin = 100
-    ptsel = f'~saturated&(ptpos>={margin})&(ptpos<trigger-{margin})&(length==2048)'
+    lmargin = 100
+    rmargin = 500
+    ptsel = f'(ptpos>={lmargin})&(ptpos<trigger-{rmargin})'
     fig = sim.hist('ptheight', ptsel, 'log')
     ax, = fig.get_axes()
     vspan(ax, cut)
@@ -149,7 +149,7 @@ for vov in vovdict:
     lowercount = sim.getexpr(f'count_nonzero({mainsel}&(mainheight<={cut})&(mainheight>{l1pe}))')
     uppercount = sim.getexpr(f'count_nonzero({mainsel}&(mainheight>{cut})&(mainheight<{r1pe}))')
     
-    time = sim.getexpr(f'mean(trigger-{2*margin})', ptsel)
+    time = sim.getexpr(f'mean(trigger-{lmargin}-{rmargin})', ptsel)
     nevents = sim.getexpr(f'count_nonzero({ptsel})')
     totalevt = len(sim.output)
 
@@ -210,7 +210,7 @@ for vov in vovdict:
     factor = 1 / usamples(factors)
 
     time = (dcutr - dcut) * 1e-9 * nevents
-    bkg = vovdict[2]['dcr'] * time
+    bkg = r * time
 
     count = upoisson(apcount)
     ccount = (count - bkg) * factor
@@ -235,7 +235,7 @@ def uerrorbar(ax, x, y, **kw):
     kwargs.update(kw)
     return ax.errorbar(x, ym, **kwargs)
 
-fig, axs = plt.subplots(1, 2, num='afterpulse_tile15_ap', clear=True, sharex=True, figsize=[9, 4.8])
+fig, axs = plt.subplots(1, 2, num='afterpulse_tile21', clear=True, sharex=True, figsize=[9, 4.8])
 
 axdcr, axap = axs
 
@@ -291,9 +291,9 @@ dcr_lf = [
 
 dcr_factor = 250 / 0.1 # from cps/mm^2 to cps/PDM
 
-# axdcr.plot(vov_fbk, dcr_factor * np.array(dcr_fbk), '.-', label='FBK')
-# axdcr.plot(vov_lf, dcr_factor * np.array(dcr_lf), '.-', label='LF')
-# axdcr.legend()
+axdcr.plot(vov_fbk, dcr_factor * np.array(dcr_fbk), '.-', label='FBK')
+axdcr.plot(vov_lf, dcr_factor * np.array(dcr_lf), '.-', label='LF')
+axdcr.legend()
 
 kw = dict(capsize=4, linestyle='', marker='.', color='#000')
 uerrorbar(axdcr, vov, dcr, **kw)

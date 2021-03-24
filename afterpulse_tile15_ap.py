@@ -212,7 +212,7 @@ for vov in vovdict:
     factor = 1 / usamples(factors)
 
     time = (dcutr - dcut) * 1e-9 * nevents
-    bkg = vovdict[2]['dcr'] * time
+    bkg = r * time
 
     count = upoisson(apcount)
     ccount = (count - bkg) * factor
