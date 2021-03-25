@@ -54,7 +54,7 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
     """
     
     # Make a histogram.
-    L, R = np.quantile(corr_value, [0, 0.98])
+    L, R = np.quantile(corr_value, [0, 1 - 200 / len(corr_value)])
     bins = np.linspace(L, R, 101)
     counts, _ = np.histogram(corr_value, bins=bins)
     
@@ -127,7 +127,6 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
             kwvspan.pop('label', None)
 
         ax.legend(loc='upper right')
-        ax.set_xlim(L - 10, R + 10)
         ax.set_ylim(0, ax.get_ylim()[1])
         ax.minorticks_on()
         ax.grid(True, which='major', linestyle='--')

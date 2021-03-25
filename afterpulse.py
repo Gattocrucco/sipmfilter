@@ -378,8 +378,11 @@ class AfterPulse(npzload.NPZLoad):
                 _, center, _ = single_filter_analysis(good_value, return_full=True, fig1=fig)
                 
                 if writenpe:
+                    last = center[-1] + (center[-1] - center[-2])
+                    center = np.pad(center, (0, 1), constant_values=last)
                     bins = (center[1:] + center[:-1]) / 2
                     npe = np.digitize(value[good2], bins)
+                    npe[npe >= len(bins)] = 1000
                     self.output['mainpeak']['npe'][(good2,) + ilength] = npe
     
     def _computenpe(self):
@@ -531,6 +534,58 @@ class AfterPulse(npzload.NPZLoad):
         
         fig.tight_layout()
         return fig
+    
+    @property
+    def _variables(self):
+        var = '_variables_'
+        if not hasattr(self, var):
+            setattr(self, var, dict(
+                event       = np.arange(len(self.output)),
+                trigger     = self.output['trigger'],
+                baseline    = self.output['baseline'],
+                length      = self.filtlengths,
+                saturated   = self.output['saturated'],
+                lowbaseline = self.output['lowbaseline'],
+                good        = self.output['good'],
+                mainpos     = self.output['mainpeak']['pos'],
+                mainheight  = self.output['mainpeak']['height'],
+                npe         = self.output['mainpeak']['npe'],
+                minorpos    = self.output['minorpeak']['pos'],
+                minorheight = self.output['minorpeak']['height'],
+                minorprom   = self.output['minorpeak']['prominence'],
+                thirdpos    = self.output['minorpeak2']['pos'],
+                thirdheight = self.output['minorpeak2']['height'],
+                thirdprom   = self.output['minorpeak2']['prominence'],
+                ptpos       = self.output['ptpeak']['pos'],
+                ptheight    = self.output['ptpeak']['height'],
+                ptprom      = self.output['ptpeak']['prominence'],
+                pt2pos      = self.output['ptpeak2']['pos'],
+                pt2height   = self.output['ptpeak2']['height'],
+                pt2prom     = self.output['ptpeak2']['prominence'],
+            ))
+        return getattr(self, var)
+    
+    def setvar(self, name, value, overwrite=False):
+        """
+        Set a named variable.
+        
+        Variables can be used in expressions with `getexpr` and other methods
+        accepting expressions.
+        
+        Parameters
+        ----------
+        name : str
+            The variable name.
+        value : numpy array
+            A numpy array with one of the shapes allowed, see `getexpr`.
+            Invalid values are catched lazily when they are used.
+        overwrite : bool
+            If False (default), do not allow setting the value of an existing
+            variable.
+        """
+        if not overwrite and name in self._variables:
+            raise ValueError(f'variable name `{name}` already used')
+        self._variables[name] = value
 
     def getexpr(self, expr, condexpr=None, allow_numpy=True, forcebroadcast=False):
         """
@@ -572,7 +627,10 @@ class AfterPulse(npzload.NPZLoad):
         filter template length have shape (nevents,).
         
         When there are missing values, the indices are set to -1, while the
-        heights and prominences are set to -1000.
+        heights and prominences are set to -1000. `npe` is -1 when missing and
+        1000 for the overflow bin.
+        
+        Additional variables can be added with `setvar`.
         
         Parameters
         ----------
@@ -603,31 +661,6 @@ class AfterPulse(npzload.NPZLoad):
             }
         else:
             globals = {}
-
-        variables = dict(
-            event       = np.arange(len(self.output)),
-            trigger     = self.output['trigger'],
-            baseline    = self.output['baseline'],
-            length      = self.filtlengths,
-            saturated   = self.output['saturated'],
-            lowbaseline = self.output['lowbaseline'],
-            good        = self.output['good'],
-            mainpos     = self.output['mainpeak']['pos'],
-            mainheight  = self.output['mainpeak']['height'],
-            npe         = self.output['mainpeak']['npe'],
-            minorpos    = self.output['minorpeak']['pos'],
-            minorheight = self.output['minorpeak']['height'],
-            minorprom   = self.output['minorpeak']['prominence'],
-            thirdpos    = self.output['minorpeak2']['pos'],
-            thirdheight = self.output['minorpeak2']['height'],
-            thirdprom   = self.output['minorpeak2']['prominence'],
-            ptpos       = self.output['ptpeak']['pos'],
-            ptheight    = self.output['ptpeak']['height'],
-            ptprom      = self.output['ptpeak']['prominence'],
-            pt2pos      = self.output['ptpeak2']['pos'],
-            pt2height   = self.output['ptpeak2']['height'],
-            pt2prom     = self.output['ptpeak2']['prominence'],
-        )
         
         class VariablesDict(dict):
             
@@ -654,7 +687,7 @@ class AfterPulse(npzload.NPZLoad):
                 
                 return v
         
-        locals = VariablesDict(variables)
+        locals = VariablesDict(self._variables)
         if condexpr is not None:
             locals.cond = eval(condexpr, globals, locals)
         return eval(expr, globals, locals)
@@ -969,6 +1002,7 @@ class AfterPulse(npzload.NPZLoad):
         self.output = np.concatenate(outputs)
         self._catlengths = np.array(lengths)
         assert np.sum(lengths) == len(self.output)
+        self._computenpe()
         
         return self
     

@@ -4,10 +4,10 @@ import re
 import pickle
 
 import numpy as np
-from scipy import stats
+from scipy import stats, special
 from matplotlib import pyplot as plt
-import uncertainties
-from uncertainties import unumpy
+import lsqfit
+import gvar
 
 import afterpulse
 import readwav
@@ -68,17 +68,17 @@ def savef(fig, suffix=''):
     fig.savefig(path)
 
 def upoisson(k):
-    return uncertainties.ufloat(k, np.sqrt(max(k, 1)))
+    return gvar.gvar(k, np.sqrt(np.maximum(k, 1)))
 
 def ubinom(k, n):
     p = k / n
     s = np.sqrt(n * p * (1 - p))
-    return uncertainties.ufloat(k, s)
+    return gvar.gvar(k, s)
 
 def usamples(x):
-    return uncertainties.ufloat(np.mean(x), np.std(x, ddof=1))
+    return gvar.gvar(np.mean(x), np.std(x, ddof=1))
 
-def hspan(ax, y0, y1=None):
+def hspan(ax, y0=None, y1=None):
     ylim = ax.get_ylim()
     if y0 is None:
         y0 = ylim[0]
@@ -87,7 +87,7 @@ def hspan(ax, y0, y1=None):
     ax.axhspan(y0, y1, color='#0002')
     ax.set_ylim(ylim)
     
-def vspan(ax, x0, x1=None):
+def vspan(ax, x0=None, x1=None):
     xlim = ax.get_xlim()
     if x0 is None:
         x0 = xlim[0]
@@ -96,19 +96,67 @@ def vspan(ax, x0, x1=None):
     ax.axvspan(x0, x1, color='#0002')
     ax.set_xlim(xlim)
 
+def vlines(ax, x, y0=None, y1=None, **kw):
+    ylim = ax.get_ylim()
+    if y0 is None:
+        y0 = ylim[0]
+    if y1 is None:
+        y1 = ylim[1]
+    ax.vlines(x, y0, y1, **kw)
+    ax.set_ylim(ylim)
+
+def hlines(ax, y, x0=None, x1=None, **kw):
+    xlim = ax.get_xlim()
+    if x0 is None:
+        x0 = xlim[0]
+    if x1 is None:
+        x1 = xlim[1]
+    ax.hlines(y, x0, x1, **kw)
+    ax.set_xlim(xlim)
+
+def fpmidpoints(x, pe):
+    x = np.sort(x)
+    pe = np.sort(pe)
+    pepos = 1 + np.searchsorted(x, pe)
+    values = []
+    for start, end in zip(pepos, pepos[1:]):
+        y = x[start:end]
+        i = np.argmax(np.diff(y))
+        values.append(np.mean(y[i:i+2]))
+    assert len(values) == len(pe) - 1, len(values)
+    return np.array(values)
+
+def borelpmf(n, mu):
+    return np.exp(-mu * n) * (mu * n) ** (n - 1) / special.factorial(n)
+
+def borelcdf(n, mu):
+    out = 0
+    for k in range(1, n + 1):
+        out += borelpmf(k, mu)
+    return out
+
+def uerrorbar(ax, x, y, **kw):
+    ym = gvar.mean(y)
+    ys = gvar.sdev(y)
+    kwargs = dict(yerr=ys)
+    kwargs.update(kw)
+    return ax.errorbar(x, ym, **kwargs)
+
 # parameters:
 # cut = cut on ptheight to measure dcr
-# l1pe, r1pe = boundaries of 1 pe height distribution with filter length 2048
 # length = filter length for afterpulse
 # hcut = cut on minorheight
 # dcut, dcutr = left/right cut on minorpos - mainpos
 # npe = pe of main peak to search afterpulses
-vovdict[5.5].update(cut=10, l1pe=10, r1pe=42, length=512, hcut=25, dcut=500, dcutr=5500, npe=1)
-vovdict[7.5].update(cut=15, l1pe=20, r1pe=58, length=512, hcut=30, dcut=500, dcutr=5500, npe=1)
-vovdict[9.5].update(cut=25, l1pe=20, r1pe=90, length=512, hcut=35, dcut=500, dcutr=5500, npe=1)
+vovdict[5.5].update(cut=10, length=512, hcut=25, dcut=500, dcutr=5500, npe=1)
+vovdict[7.5].update(cut=15, length=512, hcut=30, dcut=500, dcutr=5500, npe=1)
+vovdict[9.5].update(cut=25, length=512, hcut=35, dcut=500, dcutr=5500, npe=1)
 
 for vov in vovdict:
     
+    print(f'\n************** {vov} VoV **************')
+    
+    # load analysis file and skip if already saved
     d = vovdict[vov]
     d['analfile'] = f'{savedir}/dict{vov}VoV.pickle'
     globals().update(d) # YES
@@ -117,64 +165,137 @@ for vov in vovdict:
             d.update(pickle.load(file))
         continue
     
+    # load wav and AfterPulse object
     datalist, sim = apload(vov)
     
+    # get index of the filter length to use for afterpulses
     ilength = np.searchsorted(sim.filtlengths, length)
     assert sim.filtlengths[ilength] == length
     assert npe >= 1
     suffix = f'-{vov}VoV'
     
-    mainsel = 'good&(mainpos>=0)&(length==2048)'
-    fig = sim.hist('mainheight', f'{mainsel}&(npe>=0)&(npe<=2)', nbins=200)
+    # recompute pe boundaries
+    ptlength = sim.ptlength
+    mainsel = f'good&(mainpos>=0)&(length=={ptlength})'
+    maxnpe = sim.getexpr('max(npe)', f'(npe<1000)&(length=={ptlength})')
+    peaks = [
+        sim.getexpr('median(mainheight)', f'{mainsel}&(npe=={npe})')
+        for npe in range(1 + maxnpe)
+    ]
+    height = sim.getexpr('mainheight', mainsel)
+    boundaries = fpmidpoints(height, peaks)
+    
+    # plot a fingerplot
+    fig = sim.hist('mainheight', mainsel, 'log', 1000)
     ax, = fig.get_axes()
     vspan(ax, cut)
-    ax.axvline(l1pe, color='#000')
-    ax.axvline(r1pe, color='#000')
+    vlines(ax, boundaries, linestyle=':')
     savef(fig, suffix)
     
+    # plot pre-trigger height vs. position
     lmargin = 100
     rmargin = 500
+    fig = sim.scatter('ptpos', 'ptheight')
+    ax, = fig.get_axes()
+    trigger = sim.getexpr('trigger[0]')
+    vspan(ax, lmargin, trigger - rmargin)
+    hspan(ax, cut)
+    hlines(ax, boundaries, linestyle=':')
+    savef(fig, suffix)
+    
+    # plot a histogram of pre-trigger peak height
     ptsel = f'(ptpos>={lmargin})&(ptpos<trigger-{rmargin})'
     fig = sim.hist('ptheight', ptsel, 'log')
     ax, = fig.get_axes()
     vspan(ax, cut)
+    vlines(ax, boundaries, linestyle=':')
     savef(fig, suffix)
     
+    # plot <= 3 events with an high pre-trigger peak
     evts = sim.eventswhere(f'{ptsel}&(ptheight>{cut})')
     for ievt in evts[:3]:
-        fig = sim.plotevent(datalist[sim.catindex(ievt)], ievt, zoom='all')
+        fig = sim.plotevent(datalist, ievt, zoom='all')
         savef(fig, suffix)
     
+    # counts for computing the DCR
+    l1pe, r1pe = boundaries[:2]
     sigcount = sim.getexpr(f'count_nonzero({ptsel}&(ptheight>{cut}))')
     lowercount = sim.getexpr(f'count_nonzero({mainsel}&(mainheight<={cut})&(mainheight>{l1pe}))')
     uppercount = sim.getexpr(f'count_nonzero({mainsel}&(mainheight>{cut})&(mainheight<{r1pe}))')
     
+    # variables to compute the rate
     time = sim.getexpr(f'mean(trigger-{lmargin}-{rmargin})', ptsel)
     nevents = sim.getexpr(f'count_nonzero({ptsel})')
     totalevt = len(sim.output)
-
+    
+    # variables with uncertainties
     s = upoisson(sigcount)
     l = upoisson(lowercount)
     u = upoisson(uppercount)
     t = time * 1e-9 * ubinom(nevents, totalevt)
     
+    # correction factor and DCR
     f = (l + u) / u
     r = f * s / t
     
+    # print DCR results
     print(f'pre-trigger count = {sigcount} / {nevents}')
     print(f'total time = {t:P} s')
     print(f'correction factor = {f:P}')
     print(f'dcr = {r:P} cps @ {vov}VoV')
     
+    # save DCR results
     d.update(dcr=r, dcrcount=s, dcrtime=t, dcrfactor=f)
-
+    
+    # compute pe count of pre-trigger peaks
+    ptheight = sim.getexpr('ptheight')
+    ptpe = np.digitize(ptheight, boundaries)
+    sim.setvar('ptnpe', ptpe)
+    
+    # histogram pre-trigger pe and fit borel distribution
+    counts = np.bincount(sim.getexpr('ptnpe', ptsel))
+    prior = {
+        'U(mu)': gvar.BufferDict.uniform('U', 0, 1),
+    }
+    x = np.arange(1, len(counts) - 1)
+    y = {
+        'bins': gvar.gvar(counts[1:-1], np.sqrt(counts[1:-1])),
+        'overflow': gvar.gvar(counts[-1], np.sqrt(counts[-1])),
+    }
+    def fcn(x, p):
+        mu = p['mu']
+        return {
+            'bins': borelpmf(x, mu),
+            'overflow': 1 - borelcdf(x[-1], mu),
+        }
+    fit = lsqfit.nonlinear_fit((x, y), fcn, prior)
+    fitdsc = fit.format(maxline=True)
+    print(fitdsc)
+    
+    # plot histogram and fit results
+    fig = sim.hist('ptnpe', f'{ptsel}&(ptnpe>0)')
+    ax, = fig.get_axes()
+    kw = dict(linestyle='', capsize=4, marker='.', color='k')
+    uerrorbar(ax, x, y['bins'], **kw)
+    uerrorbar(ax, x[-1] + 1, y['overflow'], **kw)
+    yfit = fcn(x, fit.palt)
+    xs = np.pad(x, (0, 1), constant_values=x[-1] + 1)
+    ys = np.concatenate([yfit['bins'], [yfit['overflow']]])
+    ax.fill_between(xs, ys, color='#0004')
+    
+    # save fit results
+    d.update(dcrmu=fit.p['mu'])
+    
+    # plot fingerplot 0-2 pe, this time with parameters for afterpulse counting
     mainsel = f'good&(mainpos>=0)&(length=={length})'
     fig = sim.hist('mainheight', f'{mainsel}&(npe>={npe-1})&(npe<={npe+1})', nbins=200)
     savef(fig, suffix)
-
+    
+    # compute median height of 1pe
     hnpe = sim.getexpr('median(mainheight)', f'{mainsel}&(npe=={npe})')
     print(f'1 pe median height with {length} ns = {hnpe:.3g}')
-
+    
+    # plot afterpulses height vs. distance from main pulse
     minorsel = f'{mainsel}&(minorpos>=0)'
     minornpe = f'{minorsel}&(npe=={npe})'
     fig = sim.scatter('minorpos-mainpos', 'minorheight', minornpe)
@@ -183,57 +304,60 @@ for vov in vovdict:
     vspan(ax, dcut, dcutr)
     savef(fig, suffix)
     
+    # counts for computing the afterpulse probability
     nevents = sim.getexpr(f'count_nonzero({minornpe})')
     apcond = f'{minornpe}&(minorheight>{hcut})&(minorpos-mainpos>{dcut})&(minorpos-mainpos<{dcutr})'
     apcount = sim.getexpr(f'count_nonzero({apcond})')
-
+    
+    # plot some events with afterpulses
     apevts = sim.eventswhere(apcond)
     for ievt in apevts[:3]:
-        fig = sim.plotevent(datalist[sim.catindex(ievt)], ievt, ilength)
+        fig = sim.plotevent(datalist, ievt, ilength)
         savef(fig, suffix)
-
+    
+    # histogram of selected afterpulses height
     fig = sim.hist('minorpos-mainpos', apcond)
     savef(fig, suffix)
 
+    # compute decaying time constant of afterpulses
     dist = sim.getexpr('minorpos-mainpos', apcond)
     m = np.mean(dist)
     s = np.std(dist)
     l = np.min(dist)
-    tau = uncertainties.ufloat((m - l), s / np.sqrt(len(dist)))
+    tau = gvar.gvar((m - l), s / np.sqrt(len(dist)))
     print(f'expon tau = {tau:P} ns')
     d.update(tau=tau)
-
+    
+    # correction factor for temporal selection
     factors = [
         stats.expon.cdf(dcutr, scale=s) - stats.expon.cdf(dcut, scale=s)
         for s in [900, 1100]
     ]
     factor = 1 / usamples(factors)
-
+    
+    # expected background from DCR
     time = (dcutr - dcut) * 1e-9 * nevents
     bkg = r * time
-
+    
+    # afterpulse probability
     count = upoisson(apcount)
     ccount = (count - bkg) * factor
     p = ccount / nevents
     
+    # print afterpulse results
     print(f'correction factor = {factor:P} (assuming tau a priori)')
     print(f'expected background = {bkg:P} counts in {time:.3g} s')
     print(f'ap count = {apcount} / {nevents}')
     print(f'corrected ap count = {ccount:P}')
     print(f'afterpulse probability = {p:P} @ {vov}VoV')
     
+    # save afterpulse results
     d.update(ap=p, apcount=count, apnevents=nevents, apbkg=bkg, aptime=time, apfactor=factor)
 
+    # save analysis results to file
     with open(analfile, 'wb') as file:
         print(f'save {analfile}...')
         pickle.dump(d, file)
-
-def uerrorbar(ax, x, y, **kw):
-    ym = unumpy.nominal_values(y)
-    ys = unumpy.std_devs(y)
-    kwargs = dict(yerr=ys)
-    kwargs.update(kw)
-    return ax.errorbar(x, ym, **kwargs)
 
 fig, axs = plt.subplots(1, 2, num='afterpulse_tile21', clear=True, sharex=True, figsize=[9, 4.8])
 
