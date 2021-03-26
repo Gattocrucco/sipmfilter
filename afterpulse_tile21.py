@@ -12,6 +12,7 @@ import gvar
 import afterpulse
 import readwav
 import template as _template
+import textbox
 
 savedir = 'afterpulse_tile21'
 os.makedirs(savedir, exist_ok=True)
@@ -142,6 +143,15 @@ def uerrorbar(ax, x, y, **kw):
     kwargs.update(kw)
     return ax.errorbar(x, ym, **kwargs)
 
+def fcn_pefit(x, p):
+    mu = p['mu']
+    return {
+        'bins': norm * borelpmf(x, mu),
+        'overflow': norm * (1 - borelcdf(x[-1], mu)),
+    }
+
+gvar.BufferDict.uniform('U', 0, 1)
+
 # parameters:
 # cut = cut on ptheight to measure dcr
 # length = filter length for afterpulse
@@ -211,12 +221,6 @@ for vov in vovdict:
     vlines(ax, boundaries, linestyle=':')
     savef(fig, suffix)
     
-    # plot <= 3 events with an high pre-trigger peak
-    evts = sim.eventswhere(f'{ptsel}&(ptheight>{cut})')
-    for ievt in evts[:3]:
-        fig = sim.plotevent(datalist, ievt, zoom='all')
-        savef(fig, suffix)
-    
     # counts for computing the DCR
     l1pe, r1pe = boundaries[:2]
     sigcount = sim.getexpr(f'count_nonzero({ptsel}&(ptheight>{cut}))')
@@ -240,9 +244,9 @@ for vov in vovdict:
     
     # print DCR results
     print(f'pre-trigger count = {sigcount} / {nevents}')
-    print(f'total time = {t:P} s')
-    print(f'correction factor = {f:P}')
-    print(f'dcr = {r:P} cps @ {vov}VoV')
+    print(f'total time = {t} s')
+    print(f'correction factor = {f}')
+    print(f'dcr = {r} cps @ {vov}VoV')
     
     # save DCR results
     d.update(dcr=r, dcrcount=s, dcrtime=t, dcrfactor=f)
@@ -253,22 +257,18 @@ for vov in vovdict:
     sim.setvar('ptnpe', ptpe)
     
     # histogram pre-trigger pe and fit borel distribution
-    counts = np.bincount(sim.getexpr('ptnpe', ptsel))
+    counts = np.bincount(sim.getexpr('ptnpe', ptsel), minlength=len(boundaries) + 1)
+    assert len(counts) == len(boundaries) + 1
     prior = {
         'U(mu)': gvar.BufferDict.uniform('U', 0, 1),
     }
     x = np.arange(1, len(counts) - 1)
     y = {
-        'bins': gvar.gvar(counts[1:-1], np.sqrt(counts[1:-1])),
-        'overflow': gvar.gvar(counts[-1], np.sqrt(counts[-1])),
+        'bins': upoisson(counts[1:-1]),
+        'overflow': upoisson(counts[-1]),
     }
-    def fcn(x, p):
-        mu = p['mu']
-        return {
-            'bins': borelpmf(x, mu),
-            'overflow': 1 - borelcdf(x[-1], mu),
-        }
-    fit = lsqfit.nonlinear_fit((x, y), fcn, prior)
+    norm = np.sum(counts[1:])
+    fit = lsqfit.nonlinear_fit((x, y), fcn_pefit, prior)
     fitdsc = fit.format(maxline=True)
     print(fitdsc)
     
@@ -278,13 +278,28 @@ for vov in vovdict:
     kw = dict(linestyle='', capsize=4, marker='.', color='k')
     uerrorbar(ax, x, y['bins'], **kw)
     uerrorbar(ax, x[-1] + 1, y['overflow'], **kw)
-    yfit = fcn(x, fit.palt)
+    yfit = fcn_pefit(x, fit.palt)
     xs = np.pad(x, (0, 1), constant_values=x[-1] + 1)
     ys = np.concatenate([yfit['bins'], [yfit['overflow']]])
-    ax.fill_between(xs, ys, color='#0004')
+    ym = gvar.mean(ys)
+    ysdev = gvar.sdev(ys)
+    ax.fill_between(xs, ym + ysdev, ym - ysdev, color='#0004')
+    info = f"""\
+chi2/dof = {fit.chi2:.1f}/{fit.dof} = {fit.chi2/fit.dof:.3g}
+mu = {fit.p['mu']}"""
+    textbox.textbox(ax, info, loc='center right', fontsize='small')
+    savef(fig, suffix)
     
-    # save fit results
-    d.update(dcrmu=fit.p['mu'])
+    # print and save fit results
+    mu = fit.p['mu']
+    print(f'dcr cross-talk mu = {mu}')
+    d.update(dcrfit=fit)
+    
+    # plot <= 3 events with an high pre-trigger peak
+    evts = sim.eventswhere(f'{ptsel}&(ptheight>{cut})')
+    for ievt in evts[:3]:
+        fig = sim.plotevent(datalist, ievt, zoom='all')
+        savef(fig, suffix)
     
     # plot fingerplot 0-2 pe, this time with parameters for afterpulse counting
     mainsel = f'good&(mainpos>=0)&(length=={length})'
@@ -325,7 +340,7 @@ for vov in vovdict:
     s = np.std(dist)
     l = np.min(dist)
     tau = gvar.gvar((m - l), s / np.sqrt(len(dist)))
-    print(f'expon tau = {tau:P} ns')
+    print(f'expon tau = {tau} ns')
     d.update(tau=tau)
     
     # correction factor for temporal selection
@@ -345,11 +360,11 @@ for vov in vovdict:
     p = ccount / nevents
     
     # print afterpulse results
-    print(f'correction factor = {factor:P} (assuming tau a priori)')
-    print(f'expected background = {bkg:P} counts in {time:.3g} s')
+    print(f'correction factor = {factor} (assuming tau a priori)')
+    print(f'expected background = {bkg} counts in {time:.3g} s')
     print(f'ap count = {apcount} / {nevents}')
-    print(f'corrected ap count = {ccount:P}')
-    print(f'afterpulse probability = {p:P} @ {vov}VoV')
+    print(f'corrected ap count = {ccount}')
+    print(f'afterpulse probability = {p} @ {vov}VoV')
     
     # save afterpulse results
     d.update(ap=p, apcount=count, apnevents=nevents, apbkg=bkg, aptime=time, apfactor=factor)
@@ -359,9 +374,9 @@ for vov in vovdict:
         print(f'save {analfile}...')
         pickle.dump(d, file)
 
-fig, axs = plt.subplots(1, 2, num='afterpulse_tile21', clear=True, sharex=True, figsize=[9, 4.8])
+fig, axs = plt.subplots(1, 3, num='afterpulse_tile21', clear=True, figsize=[11, 4.8])
 
-axdcr, axap = axs
+axdcr, axct, axap = axs
 
 for ax in axs:
     if ax.is_last_row():
@@ -373,9 +388,13 @@ axdcr.set_ylabel('Pre-trigger rate [cps]')
 axap.set_title('Afterpulse')
 axap.set_ylabel('Prob. of $\\geq$1 ap after 1 pe signal [%]')
 
+axct.set_title('Cross talk')
+axct.set_ylabel('Prob. of > 1 pe in dark counts [%]')
+
 vov = list(vovdict)
 dcr = np.array([d['dcr'] for d in vovdict.values()])
 ap = np.array([d['ap'] for d in vovdict.values()])
+pct = np.array([1 - np.exp(-d['dcrfit'].palt['mu']) for d in vovdict.values()])
 
 vov_fbk = [
     3.993730407523511 ,  
@@ -422,6 +441,7 @@ axdcr.legend()
 kw = dict(capsize=4, linestyle='', marker='.', color='#000')
 uerrorbar(axdcr, vov, dcr, **kw)
 uerrorbar(axap, vov, ap * 100, **kw)
+uerrorbar(axct, vov, pct * 100, **kw)
 
 for ax in axs:
     l, u = ax.get_ylim()
