@@ -14,6 +14,34 @@ import argminrelmin
 import maxprominencedip
 import npzload
 
+def maxdiff_boundaries(x, pe):
+    """
+    Compute the 'maxdiff' boudaries for AfterPulse.npeboundaries.
+    
+    Parameters
+    ----------
+    x : 1D array
+        The height values.
+    pe : array (M,)
+        The heights of the peaks.
+    
+    Return
+    ------
+    values : array (M - 1,)
+        The midpoint between the two most distant consecutive height samples
+        between each pair of peaks.
+    """
+    x = np.sort(x)
+    pe = np.sort(pe)
+    pepos = 1 + np.searchsorted(x, pe)
+    values = []
+    for start, end in zip(pepos, pepos[1:]):
+        y = x[start:end]
+        i = np.argmax(np.diff(y))
+        values.append(np.mean(y[i:i+2]))
+    assert len(values) == len(pe) - 1, len(values)
+    return np.array(values)
+
 class AfterPulse(npzload.NPZLoad):
     
     def __init__(self,
@@ -59,6 +87,7 @@ class AfterPulse(npzload.NPZLoad):
         
         Methods
         -------
+        filtertempl : get a cross correlation filter template.
         good : determine when the main peak height is reliable.
         npeboundaries : divide peak heights in pe bins.
         npe : assign heights to pe bins.
@@ -220,10 +249,23 @@ class AfterPulse(npzload.NPZLoad):
         ilength_flat = np.argmax(self.filtlengths)
         return np.unravel_index(ilength_flat, self.filtlengths.shape)
     
-    def _mftempl(self, ilength=None):
+    def filtertempl(self, ilength=None):
         """
-        Return template, offset. If length not specified, return longest
-        template.
+        Return a cross correlation filter template.
+        
+        Parameters
+        ----------
+        ilength : {int, tuple, None}
+            The index of the filter length in `filtlengths`. If not specified,
+            use the longest filter.
+        
+        Return
+        ------
+        templ : 1D array
+            The normalized template.
+        offset : scalar
+            The offset of the template start relative to the original
+            untruncated template.
         """
         if ilength is None:
             ilength = self._max_ilength()
@@ -259,7 +301,7 @@ class AfterPulse(npzload.NPZLoad):
         mean_baseline = np.mean(baseline)
         
         for ilength in np.ndindex(*self.templates.shape):
-            templ, offset = self._mftempl(ilength)
+            templ, offset = self.filtertempl(ilength)
             
             # filter the post-trigger region
             filtered = correlate.correlate(wavdata[:, 0, start:], templ, boundary=mean_baseline)
@@ -365,7 +407,7 @@ class AfterPulse(npzload.NPZLoad):
         
         return good
     
-    def npeboundaries(self, height, plot=False):
+    def npeboundaries(self, height, plot=False, algorithm='maxdiff'):
         """
         Determine boundaries to divide peak heights by number of pe.
         
@@ -375,6 +417,10 @@ class AfterPulse(npzload.NPZLoad):
             The heights.
         plot : bool
             If True, plot the fingerplot used separate the peaks.
+        algorithm : {'maxdiff', 'midpoints'}
+            The algorithm used to place the boundaries. 'midpoints' uses the
+            midpoints between the peaks. 'maxdiff' (default) uses the midpoint
+            between the two most distant consecutive samples between two peaks.
         
         Return
         ------
@@ -396,7 +442,17 @@ class AfterPulse(npzload.NPZLoad):
         
         last = center[-1] + (center[-1] - center[-2])
         center = np.pad(center, (0, 1), constant_values=last)
-        boundaries = (center[1:] + center[:-1]) / 2
+        if algorithm == 'midpoints':
+            boundaries = (center[1:] + center[:-1]) / 2
+        elif algorithm == 'maxdiff':
+            boundaries = maxdiff_boundaries(height, center)
+            if plot:
+                ax, = fig.get_axes()
+                ylim = ax.get_ylim()
+                ax.vlines(boundaries, *ylim, linestyle='-.', label='final boundaries')
+                ax.legend(loc='upper right')
+        else:
+            raise KeyError(algorithm)
         
         if plot:
             return boundaries, fig
@@ -546,7 +602,7 @@ class AfterPulse(npzload.NPZLoad):
         baseline = entry['baseline']
         ax.axhline(baseline, color='#000', linestyle=':', label='baseline')
         
-        templ, _ = self._mftempl(ilength)
+        templ, _ = self.filtertempl(ilength)
         start = entry['internals']['start']
         filtered = correlate.correlate(wf[start:], templ, boundary=baseline)
         length = self.filtlengths[ilength]
@@ -807,8 +863,9 @@ class AfterPulse(npzload.NPZLoad):
         
         The values are histogrammed separately for each filter length.
         
-        The expression must evaluate to an array broadcastable to shape
-        filtlengths.shape + (nevents,). If not, the behaviour is undefined.
+        The expression must evaluate to an array. If the array is not 1D, it
+        must be broadcastable to a shape filtlengths.shape + (N,). If not, the
+        behaviour is undefined.
         
         Parameters
         ----------
@@ -816,7 +873,8 @@ class AfterPulse(npzload.NPZLoad):
             A python expression. See the method `getexpr` for an explanation.
         where : str
             An expression for a boolean condition to select the values of
-            `expr`.
+            `expr`. The condition is broadcasted with `expr` prior to applying
+            it.
         yscale : str
             The y scale of the plot, default 'linear'.
         nbins : int, optional
@@ -834,42 +892,45 @@ class AfterPulse(npzload.NPZLoad):
         
         fig, ax = plt.subplots(num='afterpulse.AfterPulse.hist', clear=True)
         
+        histkw = dict(
+            histtype = 'step',
+            color = '#600',
+            zorder = 2,
+        )
+        
         if values.ndim == 1:
             if where is not None:
                 values = values[cond]
             if len(values) > 0:
-                histkw = dict(
+                histkw.update(
                     bins = self._binedges(values, nbins=nbins),
-                    histtype = 'step',
-                    color = '#600',
-                    zorder = 2,
                 )
                 ax.hist(values, **histkw)
-            textbox.textbox(ax, f'{len(values)} events', fontsize='small', loc='upper right')
+            textbox.textbox(ax, f'{len(values)} entries', fontsize='small', loc='upper right')
         else:
+            xlength = []
             for ilength, length in np.ndenumerate(self.filtlengths):
                 x = values[ilength]
                 if where is not None:
                     x = x[cond[ilength]]
                 if len(x) > 0:
-                    iflat = np.ravel_multi_index(ilength, self.filtlengths.shape) if ilength else 0
-                    histkw = dict(
-                        bins = self._binedges(x, nbins=nbins),
-                        histtype = 'step',
-                        color = '#600',
-                        label = f'{length} ({len(x)})',
-                        zorder = 2,
-                        alpha = (1 + iflat) / self.filtlengths.size,
-                    )
-                    ax.hist(x, **histkw)
-            ax.legend(title='Filter length (events)', fontsize='small', ncol=2, loc='upper right')
+                    xlength.append((x, length))
+                
+            for i, (x, length) in enumerate(xlength):
+                histkw.update(
+                    bins = self._binedges(x, nbins=nbins),
+                    label = f'{length} ({len(x)})',
+                    alpha = (1 + i) / len(xlength),
+                )
+                ax.hist(x, **histkw)
+            ax.legend(title='Filter length (entries)', fontsize='small', ncol=2, loc='upper right')
         
         if where is not None:
             s = breaklines.breaklines(f'Selection: {where}', 40, ')', '&|')
             textbox.textbox(ax, s, fontsize='small', loc='upper left')
         
         ax.set_xlabel(expr)
-        ax.set_ylabel('Counts per bin')
+        ax.set_ylabel('Count per bin')
         
         ax.set_yscale(yscale)
         ax.minorticks_on()
@@ -885,8 +946,9 @@ class AfterPulse(npzload.NPZLoad):
         
         The values are separated by filter length.
         
-        The expressions must evaluate to arrays broadcastable to shape
-        filtlengths.shape + (nevents,). If not, the behaviour is undefined.
+        The expressions must evaluate to arrays. If an array is not 1D, it
+        must be broadcastable to a shape filtlengths.shape + (N,). If not, the
+        behaviour is undefined.
         
         Parameters
         ----------
@@ -897,7 +959,8 @@ class AfterPulse(npzload.NPZLoad):
             Expression for the y coordinate.
         where : str
             An expression for a boolean condition to select the values of
-            `xexpr` and `yexpr`.
+            `xexpr` and `yexpr`. The condition is broadcasted with `xexpr` and
+            `yexpr` prior to applying it.
         
         Return
         ------
@@ -925,8 +988,9 @@ class AfterPulse(npzload.NPZLoad):
                 xvalues = xvalues[cond]
                 yvalues = yvalues[cond]
             ax.plot(xvalues, yvalues, **plotkw)
-            textbox.textbox(ax, f'{len(xvalues)} events', fontsize='small', loc='upper right')
+            textbox.textbox(ax, f'{len(xvalues)} entries', fontsize='small', loc='upper right')
         else:
+            xylength = []
             for ilength, length in np.ndenumerate(self.filtlengths):
                 x = xvalues[ilength]
                 y = yvalues[ilength]
@@ -934,13 +998,15 @@ class AfterPulse(npzload.NPZLoad):
                     x = x[cond[ilength]]
                     y = y[cond[ilength]]
                 if len(x) > 0:
-                    iflat = np.ravel_multi_index(ilength, self.filtlengths.shape)
-                    plotkw.update(
-                        label = f'{length} ({len(x)})',
-                        alpha = (1 + iflat) / self.filtlengths.size,
-                    )
-                    ax.plot(x, y, **plotkw)
-            ax.legend(title='Filter length (events)', fontsize='small', ncol=2, loc='upper right')
+                    xylength.append((x, y, length))
+            
+            for i, (x, y, length) in xylength:
+                plotkw.update(
+                    label = f'{length} ({len(x)})',
+                    alpha = (1 + i) / len(xylength),
+                )
+                ax.plot(x, y, **plotkw)
+            ax.legend(title='Filter length (entries)', fontsize='small', ncol=2, loc='upper right')
         
         if where is not None:
             s = breaklines.breaklines(f'Selection: {where}', 40, ')', '&|')
@@ -1039,7 +1105,7 @@ class AfterPulse(npzload.NPZLoad):
             
             xstep = xbins[1] - xbins[0]
             ystep = ybins[1] - ybins[0]
-            fig.colorbar(im, label=f'Counts per bin ({xstep:.3g} x {ystep:.3g})')
+            fig.colorbar(im, label=f'Count per bin ({xstep:.3g} x {ystep:.3g})')
         
         textbox.textbox(ax, f'{len(x)} entries', fontsize='small', loc='upper right')
         if where is not None:

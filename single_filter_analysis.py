@@ -34,7 +34,8 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
     Parameters
     ----------
     corr_value : 1D array
-        The filter output already corrected for sign and baseline.
+        The filter output already corrected for sign and baseline. May not
+        work if there are less than 1000 values.
     fig1, fig2 : matplotlib figure objects (optional)
         If given, make a fingerplot and a plot of the peak centers and widths.
     return_full : bool
