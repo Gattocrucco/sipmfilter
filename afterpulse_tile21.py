@@ -2,6 +2,7 @@ import os
 import glob
 import re
 import pickle
+import collections
 
 import numpy as np
 from scipy import stats, special
@@ -60,13 +61,18 @@ def apload(vov):
     simcat = afterpulse.AfterPulse.concatenate(simlist)
     return datalist, simcat
 
-def savef(fig, suffix=''):
-    if not hasattr(savef, 'figcount'):
-        savef.figcount = 0
-    savef.figcount += 1
-    path = f'{savedir}/fig{savef.figcount:02d}{suffix}.png'
-    print(f'save {path}...')
-    fig.savefig(path)
+class SaveFigure:
+    
+    def __init__(self):
+        self._counts = collections.defaultdict(int)
+
+    def __call__(self, fig, prefix=''):
+        self._counts[prefix] += 1
+        path = f'{savedir}/{prefix}fig{self._counts[prefix]:02d}.png'
+        print(f'save {path}...')
+        fig.savefig(path)
+
+savef = SaveFigure()
 
 def upoisson(k):
     return gvar.gvar(k, np.sqrt(np.maximum(k, 1)))
@@ -115,25 +121,19 @@ def hlines(ax, y, x0=None, x1=None, **kw):
     ax.hlines(y, x0, x1, **kw)
     ax.set_xlim(xlim)
 
-def fpmidpoints(x, pe):
-    x = np.sort(x)
-    pe = np.sort(pe)
-    pepos = 1 + np.searchsorted(x, pe)
-    values = []
-    for start, end in zip(pepos, pepos[1:]):
-        y = x[start:end]
-        i = np.argmax(np.diff(y))
-        values.append(np.mean(y[i:i+2]))
-    assert len(values) == len(pe) - 1, len(values)
-    return np.array(values)
-
-def borelpmf(n, mu):
+def borelpmf(n, params):
+    mu = params['mu']
     return np.exp(-mu * n) * (mu * n) ** (n - 1) / special.factorial(n)
 
-def borelcdf(n, mu):
+def geompmf(k, params):
+    # p is 1 - p respect to the conventional definition to match the borel mu
+    p = params['p']
+    return p ** (k - 1) * (1 - p)
+
+def cdf(pmf, n, params):
     out = 0
     for k in range(1, n + 1):
-        out += borelpmf(k, mu)
+        out += pmf(k, params)
     return out
 
 def uerrorbar(ax, x, y, **kw):
@@ -143,24 +143,123 @@ def uerrorbar(ax, x, y, **kw):
     kwargs.update(kw)
     return ax.errorbar(x, ym, **kwargs)
 
-def fcn_pefit(x, p):
-    mu = p['mu']
-    return {
-        'bins': norm * borelpmf(x, mu),
-        'overflow': norm * (1 - borelcdf(x[-1], mu)),
+def exponinteg(x1, x2, scale):
+    return np.exp(-x1 / scale) - np.exp(-x2 / scale)
+
+def intbins(min, max):
+    return -0.5 + np.arange(min, max + 2)
+
+def fcn(x, p):
+    pmf = x['pmf']
+    center = x['center']
+    norm = x['norm']
+    out = dict(bins=norm * pmf(center, p))
+    if x['hasoverflow']:
+        out.update(overflow=norm * (1 - cdf(pmf, center[-1], p)))
+    return out
+
+def fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow=None, histcond=None):
+    # histogram
+    sample = sim.getexpr(expr, condexpr)
+    counts, _ = np.histogram(sample, bins)
+    hasoverflow = bins_overflow is not None
+    if hasoverflow:
+        (overflow,), _ = np.histogram(sample, bins_overflow)
+    else:
+        overflow = 0
+    
+    # add bins to the overflow bin until it has at least 3 counts
+    if hasoverflow:
+        lencounts = len(counts)
+        for i in range(len(counts) - 1, -1, -1):
+            if overflow < 3:
+                overflow += counts[i]
+                lencounts -= 1
+            else:
+                break
+        counts = counts[:lencounts]
+        bins = bins[:lencounts + 1]
+    
+    center = (bins[1:] + bins[:-1]) / 2
+    norm = np.sum(counts) + overflow
+    assert norm == sim.getexpr(f'count_nonzero({condexpr})')
+    
+    # fit
+    x = dict(
+        pmf = pmf,
+        center = center.astype(int),
+        norm = norm,
+        hasoverflow = hasoverflow,
+    )
+    y = dict(bins=upoisson(counts))
+    if hasoverflow:
+        y.update(overflow=upoisson(overflow))
+    fit = lsqfit.nonlinear_fit((x, y), fcn, prior)
+    print(fit.format(maxline=True))
+    
+    # plot histogram
+    if histcond is None:
+        histcond = condexpr
+    fig = sim.hist(expr, histcond)
+    ax, = fig.get_axes()
+    kw = dict(linestyle='', capsize=4, marker='.', color='k')
+    uerrorbar(ax, center, y['bins'], **kw)
+    if hasoverflow:
+        uerrorbar(ax, center[-1] + 1, y['overflow'], **kw)
+
+    # plot fit results
+    yfit = fcn(x, fit.palt)
+    if hasoverflow:
+        xs = np.pad(center, (0, 1), constant_values=center[-1] + 1)
+        ys = np.concatenate([yfit['bins'], [yfit['overflow']]])
+    else:
+        xs = center
+        ys = yfit['bins']
+    ym = gvar.mean(ys)
+    ysdev = gvar.sdev(ys)
+    ax.fill_between(xs, ym + ysdev, ym - ysdev, color='#0004')
+    
+    # write fit results
+    info = f"""\
+chi2/dof = {fit.chi2/fit.dof:.3g}
+pvalue = {fit.Q:.2g}"""
+    for k, v in fit.palt.items():
+        info += f'\n{k} = {v}'
+    for k in fit.palt.extension_keys():
+        v = fit.palt[k]
+        info += f'\n{k} = {v}'
+    textbox.textbox(ax, info, loc='center right', fontsize='small')
+    
+    return fit, fig
+
+def fitpe(sim, expr, condexpr, boundaries, kind='borel', **kw):
+    if kind == 'borel':
+        pmf = borelpmf
+        param = 'mu'
+    elif kind == 'geom':
+        pmf = geompmf
+        param = 'p'
+    else:
+        raise KeyError(kind)
+    bins = intbins(1, len(boundaries) - 1)
+    bins_overflow = intbins(1000, 1000)
+    prior = {
+        f'U({param})': gvar.BufferDict.uniform('U', 0, 1),
     }
+    return fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow, **kw)
 
 gvar.BufferDict.uniform('U', 0, 1)
 
 # parameters:
-# cut = cut on ptheight to measure dcr
-# length = filter length for afterpulse
+# ptlength = length used for pre-trigger region
+# aplength = filter length for afterpulse
 # hcut = cut on minorheight
 # dcut, dcutr = left/right cut on minorpos - mainpos
 # npe = pe of main peak to search afterpulses
-vovdict[5.5].update(cut=10, length=512, hcut=25, dcut=500, dcutr=5500, npe=1)
-vovdict[7.5].update(cut=15, length=512, hcut=30, dcut=500, dcutr=5500, npe=1)
-vovdict[9.5].update(cut=25, length=512, hcut=35, dcut=500, dcutr=5500, npe=1)
+defaults = dict(ptlength=512, aplength=512, dcut=500, dcutr=5500, npe=1)
+vovdict[5.5].update(hcut=25, **defaults)
+vovdict[7.5].update(hcut=30, **defaults)
+vovdict[9.5].update(hcut=35, **defaults)
 
 for vov in vovdict:
     
@@ -172,56 +271,47 @@ for vov in vovdict:
     globals().update(d) # YES
     if os.path.exists(analfile):
         with open(analfile, 'rb') as file:
-            d.update(pickle.load(file))
+            vovdict[vov] = gvar.load(file)
         continue
+    prefix = f'{vov}VoV-'
     
     # load wav and AfterPulse object
     datalist, sim = apload(vov)
     
-    # get index of the filter length to use for afterpulses
-    ilength = np.searchsorted(sim.filtlengths, length)
-    assert sim.filtlengths[ilength] == length
-    assert npe >= 1
-    suffix = f'-{vov}VoV'
-    
-    # recompute pe boundaries
-    ptlength = sim.ptlength
-    mainsel = f'good&(mainpos>=0)&(length=={ptlength})'
-    maxnpe = sim.getexpr('max(npe)', f'(npe<1000)&(length=={ptlength})')
-    peaks = [
-        sim.getexpr('median(mainheight)', f'{mainsel}&(npe=={npe})')
-        for npe in range(1 + maxnpe)
-    ]
-    height = sim.getexpr('mainheight', mainsel)
-    boundaries = fpmidpoints(height, peaks)
+    # get index of the filter length to use for pre-trigger pulses
+    ilength = np.searchsorted(sim.filtlengths, ptlength)
+    assert sim.filtlengths[ilength] == ptlength
     
     # plot a fingerplot
+    mainsel = f'good&(mainpos>=0)&(length=={ptlength})'
+    boundaries = sim.computenpeboundaries(ilength)
+    cut = boundaries[0]
     fig = sim.hist('mainheight', mainsel, 'log', 1000)
     ax, = fig.get_axes()
     vspan(ax, cut)
     vlines(ax, boundaries, linestyle=':')
-    savef(fig, suffix)
+    savef(fig, prefix)
     
     # plot pre-trigger height vs. position
     lmargin = 100
     rmargin = 500
-    fig = sim.scatter('ptpos', 'ptheight')
+    fig = sim.scatter('ptpos', 'ptheight', f'length=={ptlength}')
     ax, = fig.get_axes()
     trigger = sim.getexpr('trigger[0]')
     vspan(ax, lmargin, trigger - rmargin)
     hspan(ax, cut)
     hlines(ax, boundaries, linestyle=':')
-    savef(fig, suffix)
+    savef(fig, prefix)
     
     # plot a histogram of pre-trigger peak height
-    ptsel = f'(ptpos>={lmargin})&(ptpos<trigger-{rmargin})'
+    ptsel = f'(length=={ptlength})&(ptpos>={lmargin})&(ptpos<trigger-{rmargin})'
     fig = sim.hist('ptheight', ptsel, 'log')
     ax, = fig.get_axes()
     vspan(ax, cut)
     vlines(ax, boundaries, linestyle=':')
-    savef(fig, suffix)
+    savef(fig, prefix)
     
-    # counts for computing the DCR
+    # variables to compute the dark count
     l1pe, r1pe = boundaries[:2]
     sigcount = sim.getexpr(f'count_nonzero({ptsel}&(ptheight>{cut}))')
     lowercount = sim.getexpr(f'count_nonzero({mainsel}&(mainheight<={cut})&(mainheight>{l1pe}))')
@@ -246,69 +336,35 @@ for vov in vovdict:
     print(f'pre-trigger count = {sigcount} / {nevents}')
     print(f'total time = {t} s')
     print(f'correction factor = {f}')
-    print(f'dcr = {r} cps @ {vov}VoV')
+    print(f'dcr = {r} cps')
     
     # save DCR results
     d.update(dcr=r, dcrcount=s, dcrtime=t, dcrfactor=f)
     
     # compute pe count of pre-trigger peaks
-    ptheight = sim.getexpr('ptheight')
-    ptpe = np.digitize(ptheight, boundaries)
-    sim.setvar('ptnpe', ptpe)
+    sim.setvar('ptnpe', sim.computenpe('ptpeak'))
     
-    # histogram pre-trigger pe and fit borel distribution
-    counts = np.bincount(sim.getexpr('ptnpe', ptsel), minlength=len(boundaries) + 1)
-    assert len(counts) == len(boundaries) + 1
-    prior = {
-        'U(mu)': gvar.BufferDict.uniform('U', 0, 1),
-    }
-    x = np.arange(1, len(counts) - 1)
-    y = {
-        'bins': upoisson(counts[1:-1]),
-        'overflow': upoisson(counts[-1]),
-    }
-    norm = np.sum(counts[1:])
-    fit = lsqfit.nonlinear_fit((x, y), fcn_pefit, prior)
-    fitdsc = fit.format(maxline=True)
-    print(fitdsc)
+    # histogram pre-trigger pe and fit
+    fit, fig = fitpe(sim, 'ptnpe', f'{ptsel}&(ptnpe>0)', boundaries, 'borel', histcond=f'{ptsel}&(ptnpe>0)&(ptnpe<1000)')
     
-    # plot histogram and fit results
-    fig = sim.hist('ptnpe', f'{ptsel}&(ptnpe>0)')
-    ax, = fig.get_axes()
-    kw = dict(linestyle='', capsize=4, marker='.', color='k')
-    uerrorbar(ax, x, y['bins'], **kw)
-    uerrorbar(ax, x[-1] + 1, y['overflow'], **kw)
-    yfit = fcn_pefit(x, fit.palt)
-    xs = np.pad(x, (0, 1), constant_values=x[-1] + 1)
-    ys = np.concatenate([yfit['bins'], [yfit['overflow']]])
-    ym = gvar.mean(ys)
-    ysdev = gvar.sdev(ys)
-    ax.fill_between(xs, ym + ysdev, ym - ysdev, color='#0004')
-    info = f"""\
-chi2/dof = {fit.chi2:.1f}/{fit.dof} = {fit.chi2/fit.dof:.3g}
-mu = {fit.p['mu']}"""
-    textbox.textbox(ax, info, loc='center right', fontsize='small')
-    savef(fig, suffix)
-    
-    # print and save fit results
-    mu = fit.p['mu']
-    print(f'dcr cross-talk mu = {mu}')
+    # save figure and fit results
+    savef(fig, prefix)
     d.update(dcrfit=fit)
     
     # plot <= 3 events with an high pre-trigger peak
     evts = sim.eventswhere(f'{ptsel}&(ptheight>{cut})')
     for ievt in evts[:3]:
         fig = sim.plotevent(datalist, ievt, zoom='all')
-        savef(fig, suffix)
+        savef(fig, prefix)
     
+    # get index of the filter length to use for afterpulses
+    ilength = np.searchsorted(sim.filtlengths, aplength)
+    assert sim.filtlengths[ilength] == aplength
+
     # plot fingerplot 0-2 pe, this time with parameters for afterpulse counting
-    mainsel = f'good&(mainpos>=0)&(length=={length})'
+    mainsel = f'good&(mainpos>=0)&(length=={aplength})'
     fig = sim.hist('mainheight', f'{mainsel}&(npe>={npe-1})&(npe<={npe+1})', nbins=200)
-    savef(fig, suffix)
-    
-    # compute median height of 1pe
-    hnpe = sim.getexpr('median(mainheight)', f'{mainsel}&(npe=={npe})')
-    print(f'1 pe median height with {length} ns = {hnpe:.3g}')
+    savef(fig, prefix)
     
     # plot afterpulses height vs. distance from main pulse
     minorsel = f'{mainsel}&(minorpos>=0)'
@@ -317,23 +373,23 @@ mu = {fit.p['mu']}"""
     ax, = fig.get_axes()
     hspan(ax, hcut)
     vspan(ax, dcut, dcutr)
-    savef(fig, suffix)
+    savef(fig, prefix)
     
     # counts for computing the afterpulse probability
     nevents = sim.getexpr(f'count_nonzero({minornpe})')
     apcond = f'{minornpe}&(minorheight>{hcut})&(minorpos-mainpos>{dcut})&(minorpos-mainpos<{dcutr})'
     apcount = sim.getexpr(f'count_nonzero({apcond})')
     
+    # histogram of selected afterpulses height
+    fig = sim.hist('minorpos-mainpos', apcond)
+    savef(fig, prefix)
+
     # plot some events with afterpulses
     apevts = sim.eventswhere(apcond)
     for ievt in apevts[:3]:
         fig = sim.plotevent(datalist, ievt, ilength)
-        savef(fig, suffix)
+        savef(fig, prefix)
     
-    # histogram of selected afterpulses height
-    fig = sim.hist('minorpos-mainpos', apcond)
-    savef(fig, suffix)
-
     # compute decaying time constant of afterpulses
     dist = sim.getexpr('minorpos-mainpos', apcond)
     m = np.mean(dist)
@@ -344,11 +400,7 @@ mu = {fit.p['mu']}"""
     d.update(tau=tau)
     
     # correction factor for temporal selection
-    factors = [
-        stats.expon.cdf(dcutr, scale=s) - stats.expon.cdf(dcut, scale=s)
-        for s in [900, 1100]
-    ]
-    factor = 1 / usamples(factors)
+    factor = 1 / exponinteg(dcut, dcutr, tau)
     
     # expected background from DCR
     time = (dcutr - dcut) * 1e-9 * nevents
@@ -360,11 +412,11 @@ mu = {fit.p['mu']}"""
     p = ccount / nevents
     
     # print afterpulse results
-    print(f'correction factor = {factor} (assuming tau a priori)')
+    print(f'correction factor = {factor}')
     print(f'expected background = {bkg} counts in {time:.3g} s')
     print(f'ap count = {apcount} / {nevents}')
     print(f'corrected ap count = {ccount}')
-    print(f'afterpulse probability = {p} @ {vov}VoV')
+    print(f'afterpulse probability = {p}')
     
     # save afterpulse results
     d.update(ap=p, apcount=count, apnevents=nevents, apbkg=bkg, aptime=time, apfactor=factor)
@@ -372,7 +424,7 @@ mu = {fit.p['mu']}"""
     # save analysis results to file
     with open(analfile, 'wb') as file:
         print(f'save {analfile}...')
-        pickle.dump(d, file)
+        gvar.dump(d, file)
 
 fig, axs = plt.subplots(1, 3, num='afterpulse_tile21', clear=True, figsize=[11, 4.8])
 

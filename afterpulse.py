@@ -93,6 +93,7 @@ class AfterPulse(npzload.NPZLoad):
         npe : assign heights to pe bins.
         fingerplot : plot fingerplot used to determine pe bins.
         computenpe : assign number of pe to a peak.
+        computenpeboundaries : get the pe bins used by `computenpe`.
         plotevent : plot the analysis of a single event.
         getexpr : compute the value of an expression on all events.
         setvar : set a variable accessible from `getexpr`.
@@ -413,7 +414,7 @@ class AfterPulse(npzload.NPZLoad):
         
         Parameters
         ----------
-        height : array (N,)
+        height : 1D array
             The heights.
         plot : bool
             If True, plot the fingerplot used separate the peaks.
@@ -440,9 +441,9 @@ class AfterPulse(npzload.NPZLoad):
             kw.update(fig1=fig)
         _, center, _ = single_filter_analysis(height, **kw)
         
-        last = center[-1] + (center[-1] - center[-2])
-        center = np.pad(center, (0, 1), constant_values=last)
         if algorithm == 'midpoints':
+            last = center[-1] + (center[-1] - center[-2])
+            center = np.pad(center, (0, 1), constant_values=last)
             boundaries = (center[1:] + center[:-1]) / 2
         elif algorithm == 'maxdiff':
             boundaries = maxdiff_boundaries(height, center)
@@ -519,6 +520,19 @@ class AfterPulse(npzload.NPZLoad):
             fig.tight_layout()
             return fig
     
+    @functools.cached_property
+    def _computenpe_boundaries(self):
+        boundaries = {}
+        mainpeak = self.output['mainpeak']
+        good = self.getexpr('good')
+        for ilength, _ in np.ndenumerate(self.filtlengths):
+            idx = (slice(None),) + ilength
+            peak = mainpeak[idx]
+            height = peak['height']
+            valid = peak['pos'] >= 0
+            boundaries[ilength] = self.npeboundaries(height[valid & good])
+        return boundaries
+    
     def computenpe(self, peaklabel):
         """
         Compute the number of pe of peaks.
@@ -534,33 +548,36 @@ class AfterPulse(npzload.NPZLoad):
             The pe assigned to each peak height. -1 when the peak is missing,
             1000 for height larger than the highest classified pe.
         """
-        if not hasattr(self, '_computenpe_boundaries'):
-            self._computenpe_boundaries = {}
-            mainpeak = self.output['mainpeak']
-            good = self.getexpr('good')
-        
         boundaries = self._computenpe_boundaries
         targetpeak = self.output[peaklabel]
-        
         npe = np.full(self.filtlengths.shape + self.output.shape, -1)
-        
         for ilength, _ in np.ndenumerate(self.filtlengths):
             idx = (slice(None),) + ilength
-            
-            if ilength not in boundaries:
-                peak = mainpeak[idx]
-                height = peak['height']
-                valid = peak['pos'] >= 0
-                boundaries[ilength] = self.npeboundaries(height[valid & good])
-            
             bnd = boundaries[ilength]
             peak = targetpeak[idx]
             height = peak['height']
             valid = peak['pos'] >= 0
             npe[ilength + (valid,)] = self.npe(height[valid], bnd)
-        
         return npe
     
+    def computenpeboundaries(self, ilength):
+        """
+        Get the pe height bins used by `computenpe`.
+        
+        Parameters
+        ----------
+        ilength : {int, tuple}
+            The index of the filter length in `filtlengths`.
+        
+        Return
+        ------
+        boundaries : 1D array
+            See `npeboundaries` for a detailed description.
+        """
+        if not isinstance(ilength, tuple):
+            ilength = (ilength,)
+        return self._computenpe_boundaries[ilength]
+
     def plotevent(self, wavdata, ievent, ilength=None, zoom='posttrigger'):
         """
         Plot a single event.
@@ -1000,7 +1017,7 @@ class AfterPulse(npzload.NPZLoad):
                 if len(x) > 0:
                     xylength.append((x, y, length))
             
-            for i, (x, y, length) in xylength:
+            for i, (x, y, length) in enumerate(xylength):
                 plotkw.update(
                     label = f'{length} ({len(x)})',
                     alpha = (1 + i) / len(xylength),
