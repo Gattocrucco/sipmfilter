@@ -1,7 +1,9 @@
 import numpy as np
 
-# TODO put the downcasting condition in its own function, write an upcast
-# function, share the code using an internal function with a boolean parameter.
+# TODO put the downcasting condition in its own function and do a single
+# function with a downcast and an upcast list. It is not equivalent to applying
+# a downcast function followed by an upcast function because it could reupcast
+# downcasted types.
 
 def downcast(dtype, *shorttypes):
     """

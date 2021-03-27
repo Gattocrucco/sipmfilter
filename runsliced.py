@@ -2,6 +2,8 @@ import tqdm
 
 def runsliced(fun, ntot, n=None, pbar=None):
     """
+    Do a task in batches.
+    
     Run a cycle which calls a given function with a progressing slice as sole
     argument until a range is covered, printing a progressbar.
     
@@ -18,6 +20,11 @@ def runsliced(fun, ntot, n=None, pbar=None):
         By default, a progressbar is printed if n is specified. Force the
         progressbar to be printed or not with this option.
     """
+    
+    # TODO parallel processing, possible code:
+    # with multiprocessing.Pool(nprocesses) as pool:
+    #      for _ in tqdm.tqdm(pool.imap_unordered(task, slices), total=nslices):
+    #          pass
     
     if pbar is None:
         pbar = n is not None
