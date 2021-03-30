@@ -88,7 +88,7 @@ class AfterPulse(npzload.NPZLoad):
         Methods
         -------
         filtertempl : get a cross correlation filter template.
-        good : determine when the main peak height is reliable.
+        closept : find pre-trigger peaks close to the trigger.
         npeboundaries : divide peak heights in pe bins.
         npe : assign heights to pe bins.
         fingerplot : plot fingerplot used to determine pe bins.
@@ -367,46 +367,43 @@ class AfterPulse(npzload.NPZLoad):
         output['internals']['lpad'] = lpad
         output['done'] = True
     
-    def good(self, safedist=2500, safeheight=8):
+    def closept(self, safedist=2500, safeheight=8):
         """
-        Find events where the main peak height is accurate.
-        
-        The conditions are that there's no saturation and that there are no
-        pre-trigger pulses near the main peak. The height can still be
-        inaccurate due to close afterpulses.
-        
+        Find events where there are pre-trigger peaks close to the trigger.
+                
         The pre-trigger pulses are identified using the longest filter.
         
         Parameters
         ----------
         safedist : scalar
             Distance from a peak in the pre-trigger region to the trigger above
-            which the peak is assumed not to influence the post-trigger region,
-            default 2500.
+            which the peak is not considered close, default 2500.
         safeheight : scalar
             The maximum height for peaks within `safedist` to be still
             considered negligible, default 8.
         
         Return
         ------
-        good : bool array (nevents,)
-            Where `True` the main peak height is determined accurately, apart
-            from afterpulses.
+        closept : bool array (nevents,)
+            True where there's a peak.
         """
-        good = ~self.output['saturated']
         ptlength = self.output['internals']['start']
         idx = (slice(None),) + self._max_ilength()
+        closept = None
         for s in ['', '2']:
             peak = self.output['ptpeak' + s][idx]
             pos = peak['pos']
             height = peak['height']
-            bad = pos < 0
             
-            notgood = ptlength - pos < safedist
-            notgood &= height > safeheight
-            good &= bad | ~notgood
+            close = pos >= 0
+            close &= ptlength - pos < safedist
+            close &= height > safeheight
+            if closept is None:
+                closept = close
+            else:
+                closept |= close
         
-        return good
+        return closept
     
     def npeboundaries(self, height, plot=False, algorithm='maxdiff'):
         """
@@ -709,7 +706,8 @@ class AfterPulse(npzload.NPZLoad):
             pt2pos      = "self.output['ptpeak2']['pos']",
             pt2height   = "self.output['ptpeak2']['height']",
             pt2prom     = "self.output['ptpeak2']['prominence']",
-            good        = "self.good()",
+            closept     = "self.closept()",
+            good        = "self.getexpr('~saturated & ~closept')",
             npe         = "self.computenpe('mainpeak')",
         )
     
@@ -758,8 +756,8 @@ class AfterPulse(npzload.NPZLoad):
             length      : the cross correlation filter template length
             saturated   : if there is a sample equal to zero in the event
             lowbaseline : if there is sample too low before the trigger
-            good        : if not saturated and without high pre-trigger peaks
-                          near the trigger
+            closept     : if there are pre-trigger peaks near the trigger
+            good        : ~closept & ~saturated
             mainpos     : the index of the main peak
             mainheight  : the positive height of the main peak
             npe         : the number of photoelectrons of the main peak,

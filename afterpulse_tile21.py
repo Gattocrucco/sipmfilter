@@ -121,21 +121,6 @@ def hlines(ax, y, x0=None, x1=None, **kw):
     ax.hlines(y, x0, x1, **kw)
     ax.set_xlim(xlim)
 
-def borelpmf(n, params):
-    mu = params['mu']
-    return np.exp(-mu * n) * (mu * n) ** (n - 1) / special.factorial(n)
-
-def geompmf(k, params):
-    # p is 1 - p respect to the conventional definition to match the borel mu
-    p = params['p']
-    return p ** (k - 1) * (1 - p)
-
-def cdf(pmf, n, params):
-    out = 0
-    for k in range(1, n + 1):
-        out += pmf(k, params)
-    return out
-
 def uerrorbar(ax, x, y, **kw):
     ym = gvar.mean(y)
     ys = gvar.sdev(y)
@@ -146,19 +131,49 @@ def uerrorbar(ax, x, y, **kw):
 def exponinteg(x1, x2, scale):
     return np.exp(-x1 / scale) - np.exp(-x2 / scale)
 
-def intbins(min, max):
-    return -0.5 + np.arange(min, max + 2)
+def borelpmf(n, params):
+    mu = params['mu']
+    effmu = mu * n
+    return np.exp(-effmu) * effmu ** (n - 1) / special.factorial(n)
+
+def geompmf(k, params):
+    # p is 1 - p respect to the conventional definition to match the borel mu
+    p = params['p']
+    return p ** (k - 1) * (1 - p)
+
+def genpoissonpmf(k, params):
+    # P(k;mu,lambda) = mu (mu + k lambda)^(k - 1) exp(-(mu + k lambda)) / k!
+    mu = params['mu_poisson']
+    lamda = params['mu_borel']
+    effmu = mu + k * lamda
+    return np.exp(-effmu) * mu * effmu ** (k - 1) / special.factorial(k)
+
+genpoissonpmf.start = 0
+
+def cdf(pmf, n, params):
+    start = getattr(pmf, 'start', 1)
+    out = 0
+    for k in range(start, n + 1):
+        out += pmf(k, params)
+    return out
 
 def fcn(x, p):
     pmf = x['pmf']
     center = x['center']
     norm = x['norm']
-    out = dict(bins=norm * pmf(center, p))
+    dist = pmf(center, p)
+    integral = cdf(pmf, center[-1], p)
     if x['hasoverflow']:
-        out.update(overflow=norm * (1 - cdf(pmf, center[-1], p)))
-    return out
+        return dict(
+            bins = norm * dist,
+            overflow = norm * (1 - integral),
+        )
+    else:
+        return dict(
+            bins = norm * dist / integral,
+        )
 
-def fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow=None, histcond=None):
+def fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow=None, histcond=None, **kw):
     # histogram
     sample = sim.getexpr(expr, condexpr)
     counts, _ = np.histogram(sample, bins)
@@ -194,7 +209,7 @@ def fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow=None, hist
     y = dict(bins=upoisson(counts))
     if hasoverflow:
         y.update(overflow=upoisson(overflow))
-    fit = lsqfit.nonlinear_fit((x, y), fcn, prior)
+    fit = lsqfit.nonlinear_fit((x, y), fcn, prior, **kw)
     print(fit.format(maxline=True))
     
     # plot histogram
@@ -232,21 +247,37 @@ pvalue = {fit.Q:.2g}"""
     
     return fit, fig
 
-def fitpe(sim, expr, condexpr, boundaries, kind='borel', **kw):
+def intbins(min, max):
+    return -0.5 + np.arange(min, max + 2)
+
+def pebins(boundaries, start=1):
+    return intbins(start, len(boundaries) - 1), intbins(1000, 1000)
+
+def getkind(kind):
     if kind == 'borel':
-        pmf = borelpmf
-        param = 'mu'
+        return borelpmf, 'mu'
     elif kind == 'geom':
-        pmf = geompmf
-        param = 'p'
+        return geompmf, 'p'
     else:
         raise KeyError(kind)
-    bins = intbins(1, len(boundaries) - 1)
-    bins_overflow = intbins(1000, 1000)
+
+def fitpe(sim, expr, condexpr, boundaries, kind='borel', **kw):
+    pmf, param = getkind(kind)
+    bins, bins_overflow = pebins(boundaries)
     prior = {
         f'U({param})': gvar.BufferDict.uniform('U', 0, 1),
     }
     return fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow, **kw)
+
+def fitpepoisson(sim, expr, condexpr, boundaries, prior=None, **kw):
+    bins, bins_overflow = pebins(boundaries, 0)
+    prior0 = {
+        'U(mu_borel)': gvar.BufferDict.uniform('U', 0, 1),
+        'log(mu_poisson)': gvar.gvar(0, 1),
+    }
+    if prior is not None:
+        prior0.update(prior)
+    return fithistogram(sim, expr, condexpr, prior0, genpoissonpmf, bins, bins_overflow, **kw)
 
 gvar.BufferDict.uniform('U', 0, 1)
 
@@ -341,22 +372,24 @@ for vov in vovdict:
     # save DCR results
     d.update(dcr=r, dcrcount=s, dcrtime=t, dcrfactor=f)
     
-    # compute pe count of pre-trigger peaks
+    # fit pre-trigger pe histogram
     sim.setvar('ptnpe', sim.computenpe('ptpeak'))
-    
-    # histogram pre-trigger pe and fit
     fit, fig = fitpe(sim, 'ptnpe', f'{ptsel}&(ptnpe>0)', boundaries, 'borel', histcond=f'{ptsel}&(ptnpe>0)&(ptnpe<1000)')
-    
-    # save figure and fit results
     savef(fig, prefix)
     d.update(dcrfit=fit)
+    
+    # fit main peak pe histogram
+    mainsel = f'~closept&(mainpos>=0)&(length=={ptlength})'
+    fit, fig = fitpepoisson(sim, 'npe', mainsel, boundaries, histcond=f'{mainsel}&(npe<1000)')
+    savef(fig, prefix)
+    d.update(mainfit=fit)
     
     # plot <= 3 events with an high pre-trigger peak
     evts = sim.eventswhere(f'{ptsel}&(ptheight>{cut})')
     for ievt in evts[:3]:
         fig = sim.plotevent(datalist, ievt, zoom='all')
         savef(fig, prefix)
-    
+        
     # get index of the filter length to use for afterpulses
     ilength = np.searchsorted(sim.filtlengths, aplength)
     assert sim.filtlengths[ilength] == aplength
