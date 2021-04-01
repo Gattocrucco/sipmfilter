@@ -148,21 +148,17 @@ def genpoissonpmf(k, params):
     effmu = mu + k * lamda
     return np.exp(-effmu) * mu * effmu ** (k - 1) / special.factorial(k)
 
-genpoissonpmf.start = 0
-
-def cdf(pmf, n, params):
-    start = getattr(pmf, 'start', 1)
-    out = 0
-    for k in range(start, n + 1):
-        out += pmf(k, params)
-    return out
-
 def fcn(x, p):
     pmf = x['pmf']
-    center = x['center']
+    bins = x['bins']
     norm = x['norm']
-    dist = pmf(center, p)
-    integral = cdf(pmf, center[-1], p)
+    dist = np.empty(len(bins) - 1, object)
+    for i, (left, right) in enumerate(zip(bins, bins[1:])):
+        ints = np.arange(np.ceil(left), right)
+        dist[i] = np.sum(pmf(ints, p))
+    if bins[-1] == int(bins[-1]):
+        dist[-1] += pmf(bins[-1], p)
+    integral = np.sum(dist)
     if x['hasoverflow']:
         return dict(
             bins = norm * dist,
@@ -183,8 +179,8 @@ def fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow=None, hist
     else:
         overflow = 0
     
-    # add bins to the overflow bin until it has at least 3 counts
     if hasoverflow:
+        # add bins to the overflow bin until it has at least 3 counts
         lencounts = len(counts)
         for i in range(len(counts) - 1, -1, -1):
             if overflow < 3:
@@ -194,15 +190,26 @@ def fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow=None, hist
                 break
         counts = counts[:lencounts]
         bins = bins[:lencounts + 1]
+    else:
+        # group last bins until there are at least 3 counts
+        while len(counts) > 1:
+            if counts[-1] < 3:
+                counts[-2] += counts[-1]
+                counts = counts[:-1]
+                bins[-2] = bins[-1]
+                bins = bins[:-1]
+            else:
+                break
     
     center = (bins[1:] + bins[:-1]) / 2
+    wbar = np.diff(bins) / 2
     norm = np.sum(counts) + overflow
     assert norm == sim.getexpr(f'count_nonzero({condexpr})')
     
     # fit
     x = dict(
         pmf = pmf,
-        center = center.astype(int),
+        bins = bins,
         norm = norm,
         hasoverflow = hasoverflow,
     )
@@ -218,11 +225,11 @@ def fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow=None, hist
     fig = sim.hist(expr, histcond)
     ax, = fig.get_axes()
     kw = dict(linestyle='', capsize=4, marker='.', color='k')
-    uerrorbar(ax, center, y['bins'], **kw)
+    uerrorbar(ax, center, y['bins'], xerr=wbar, **kw)
     if hasoverflow:
         uerrorbar(ax, center[-1] + 1, y['overflow'], **kw)
 
-    # plot fit results
+    # plot data and fit
     yfit = fcn(x, fit.palt)
     if hasoverflow:
         xs = np.pad(center, (0, 1), constant_values=center[-1] + 1)
@@ -234,7 +241,7 @@ def fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow=None, hist
     ysdev = gvar.sdev(ys)
     ax.fill_between(xs, ym + ysdev, ym - ysdev, color='#0004')
     
-    # write fit results
+    # write fit results on the plot
     info = f"""\
 chi2/dof = {fit.chi2/fit.dof:.3g}
 pvalue = {fit.Q:.2g}"""
@@ -261,16 +268,20 @@ def getkind(kind):
     else:
         raise KeyError(kind)
 
-def fitpe(sim, expr, condexpr, boundaries, kind='borel', **kw):
+def fitpe(sim, expr, condexpr, boundaries, kind='borel', overflow=True, **kw):
     pmf, param = getkind(kind)
     bins, bins_overflow = pebins(boundaries)
+    if not overflow:
+        bins_overflow = None
     prior = {
         f'U({param})': gvar.BufferDict.uniform('U', 0, 1),
     }
     return fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow, **kw)
 
-def fitpepoisson(sim, expr, condexpr, boundaries, prior=None, **kw):
+def fitpepoisson(sim, expr, condexpr, boundaries, prior=None, overflow=True, **kw):
     bins, bins_overflow = pebins(boundaries, 0)
+    if not overflow:
+        bins_overflow = None
     prior0 = {
         'U(mu_borel)': gvar.BufferDict.uniform('U', 0, 1),
         'log(mu_poisson)': gvar.gvar(0, 1),
@@ -281,42 +292,59 @@ def fitpepoisson(sim, expr, condexpr, boundaries, prior=None, **kw):
 
 gvar.BufferDict.uniform('U', 0, 1)
 
+def scalesdev(x, f):
+    return x + (f - 1) * (x - gvar.mean(x))
+
 # parameters:
 # ptlength = length used for pre-trigger region
-# aplength = filter length for afterpulse
-# hcut = cut on minorheight
+# aplength = filter length for afterpulse (default same as ptlength)
 # dcut, dcutr = left/right cut on minorpos - mainpos
 # npe = pe of main peak to search afterpulses
-defaults = dict(ptlength=512, aplength=512, dcut=500, dcutr=5500, npe=1)
-vovdict[5.5].update(hcut=25, **defaults)
-vovdict[7.5].update(hcut=30, **defaults)
-vovdict[9.5].update(hcut=35, **defaults)
+defaults = dict(dcut=500, dcutr=5500, npe=1)
+vovdict[5.5].update(ptlength=128, **defaults)
+vovdict[7.5].update(ptlength= 64, **defaults)
+vovdict[9.5].update(ptlength= 64, **defaults)
 
 for vov in vovdict:
     
     print(f'\n************** {vov} VoV **************')
     
     # load analysis file and skip if already saved
+    prefix = f'{vov}VoV-'
     d = vovdict[vov]
-    d['analfile'] = f'{savedir}/dict{vov}VoV.pickle'
+    d['analfile'] = f'{savedir}/{prefix}archive.pickle'
+    d['aplength'] = d.get('aplength', d['ptlength'])
     globals().update(d) # YES
     if os.path.exists(analfile):
         with open(analfile, 'rb') as file:
+            print(f'load {analfile}...')
             vovdict[vov] = gvar.load(file)
         continue
-    prefix = f'{vov}VoV-'
     
     # load wav and AfterPulse object
     datalist, sim = apload(vov)
     
+    
+    ### DARK COUNT ###
+    
     # get index of the filter length to use for pre-trigger pulses
     ilength = np.searchsorted(sim.filtlengths, ptlength)
     assert sim.filtlengths[ilength] == ptlength
-    
-    # plot a fingerplot
+
+    # compute dark count height cut
     mainsel = f'good&(mainpos>=0)&(length=={ptlength})'
+    p01 = [
+        sim.getexpr('median(mainheight)', f'{mainsel}&(npe=={npe})')
+        for npe in [0, 1]
+    ]
+    lmargin = 100
+    rmargin = 500
+    ptsel = f'(length=={ptlength})&(ptpos>={lmargin})&(ptpos<trigger-{rmargin})'
+    ptheight = sim.getexpr('ptheight', ptsel)
+    cut, = afterpulse.maxdiff_boundaries(ptheight, p01)
+
+    # plot a fingerplot
     boundaries = sim.computenpeboundaries(ilength)
-    cut = boundaries[0]
     fig = sim.hist('mainheight', mainsel, 'log', 1000)
     ax, = fig.get_axes()
     vspan(ax, cut)
@@ -324,8 +352,6 @@ for vov in vovdict:
     savef(fig, prefix)
     
     # plot pre-trigger height vs. position
-    lmargin = 100
-    rmargin = 500
     fig = sim.scatter('ptpos', 'ptheight', f'length=={ptlength}')
     ax, = fig.get_axes()
     trigger = sim.getexpr('trigger[0]')
@@ -335,7 +361,6 @@ for vov in vovdict:
     savef(fig, prefix)
     
     # plot a histogram of pre-trigger peak height
-    ptsel = f'(length=={ptlength})&(ptpos>={lmargin})&(ptpos<trigger-{rmargin})'
     fig = sim.hist('ptheight', ptsel, 'log')
     ax, = fig.get_axes()
     vspan(ax, cut)
@@ -380,7 +405,7 @@ for vov in vovdict:
     
     # fit main peak pe histogram
     mainsel = f'~closept&(mainpos>=0)&(length=={ptlength})'
-    fit, fig = fitpepoisson(sim, 'npe', mainsel, boundaries, histcond=f'{mainsel}&(npe<1000)')
+    fit, fig = fitpepoisson(sim, 'npe', f'{mainsel}&(npe<1000)', boundaries, overflow=False, histcond=f'{mainsel}&(npe<1000)')
     savef(fig, prefix)
     d.update(mainfit=fit)
     
@@ -389,33 +414,56 @@ for vov in vovdict:
     for ievt in evts[:3]:
         fig = sim.plotevent(datalist, ievt, zoom='all')
         savef(fig, prefix)
+    
+    
+    ### AFTERPULSES ###
         
     # get index of the filter length to use for afterpulses
     ilength = np.searchsorted(sim.filtlengths, aplength)
     assert sim.filtlengths[ilength] == aplength
 
-    # plot fingerplot 0-2 pe, this time with parameters for afterpulse counting
+    # compute dark count height cut
     mainsel = f'good&(mainpos>=0)&(length=={aplength})'
-    fig = sim.hist('mainheight', f'{mainsel}&(npe>={npe-1})&(npe<={npe+1})', nbins=200)
+    p01 = [
+        sim.getexpr('median(mainheight)', f'{mainsel}&(npe=={npe})')
+        for npe in [0, 1]
+    ]
+    minornpe = f'{mainsel}&(minorpos>=0)&(npe=={npe})'
+    apsel = f'{minornpe}&(minorpos-mainpos>{dcut})&(minorpos-mainpos<{dcutr})'
+    apheight = sim.getexpr('minorheight', apsel)
+    hcut, = afterpulse.maxdiff_boundaries(apheight, p01)
+    hcut = np.round(hcut, 1)
+
+    # plot a fingerplot
+    boundaries = sim.computenpeboundaries(ilength)
+    fig = sim.hist('mainheight', mainsel, 'log', 1000)
+    ax, = fig.get_axes()
+    vspan(ax, hcut)
+    vlines(ax, boundaries, linestyle=':')
     savef(fig, prefix)
     
     # plot afterpulses height vs. distance from main pulse
-    minorsel = f'{mainsel}&(minorpos>=0)'
-    minornpe = f'{minorsel}&(npe=={npe})'
     fig = sim.scatter('minorpos-mainpos', 'minorheight', minornpe)
     ax, = fig.get_axes()
     hspan(ax, hcut)
     vspan(ax, dcut, dcutr)
+    hlines(ax, boundaries, linestyle=':')
     savef(fig, prefix)
     
     # counts for computing the afterpulse probability
     nevents = sim.getexpr(f'count_nonzero({minornpe})')
-    apcond = f'{minornpe}&(minorheight>{hcut})&(minorpos-mainpos>{dcut})&(minorpos-mainpos<{dcutr})'
+    apcond = f'{apsel}&(minorheight>{hcut})'
     apcount = sim.getexpr(f'count_nonzero({apcond})')
     
-    # histogram of selected afterpulses height
+    # histogram of selected afterpulses delay
     fig = sim.hist('minorpos-mainpos', apcond)
     savef(fig, prefix)
+
+    # fit afterpulses pe histogram
+    sim.setvar('apnpe', sim.computenpe('minorpeak'))
+    fit, fig = fitpe(sim, 'apnpe', f'{apcond}&(apnpe>0)&(apnpe<1000)', boundaries, 'borel', overflow=False, histcond=f'{apcond}&(apnpe>0)&(apnpe<1000)')
+    savef(fig, prefix)
+    d.update(apfit=fit)
 
     # plot some events with afterpulses
     apevts = sim.eventswhere(apcond)
@@ -459,11 +507,11 @@ for vov in vovdict:
         print(f'save {analfile}...')
         gvar.dump(d, file)
 
-fig, axs = plt.subplots(1, 3, num='afterpulse_tile21', clear=True, figsize=[11, 4.8])
+fig, axs = plt.subplots(2, 2, num='afterpulse_tile21', clear=True, figsize=[9, 7.1])
 
-axdcr, axct, axap = axs
+axdcr, axap, axpct, axnct = axs.flat
 
-for ax in axs:
+for ax in axs.flat:
     if ax.is_last_row():
         ax.set_xlabel('VoV')
 
@@ -473,13 +521,49 @@ axdcr.set_ylabel('Pre-trigger rate [cps]')
 axap.set_title('Afterpulse')
 axap.set_ylabel('Prob. of $\\geq$1 ap after 1 pe signal [%]')
 
-axct.set_title('Cross talk')
-axct.set_ylabel('Prob. of > 1 pe in dark counts [%]')
+axpct.set_title('Cross talk')
+axpct.set_ylabel('Prob. of > 1 pe [%]')
 
-vov = list(vovdict)
-dcr = np.array([d['dcr'] for d in vovdict.values()])
-ap = np.array([d['ap'] for d in vovdict.values()])
-pct = np.array([1 - np.exp(-d['dcrfit'].palt['mu']) for d in vovdict.values()])
+axnct.set_title('Cross talk')
+axnct.set_ylabel('Average excess pe')
+
+vov = np.array(list(vovdict))
+def listdict(getter):
+    return np.array([getter(d) for d in vovdict.values()])
+dcr = listdict(lambda d: d['dcr'])
+ap = listdict(lambda d: d['ap'])
+def ct(mugetter):
+    pct = listdict(lambda d: 1 - np.exp(-mugetter(d)))
+    nct = listdict(lambda d: 1 / (1 - mugetter(d)) - 1)
+    return pct, nct
+def mugetter(fitkey, param):
+    def getter(d):
+        fit = d[fitkey]
+        mu = fit.palt[param]
+        if fit.Q < 0.01:
+            factor = np.sqrt(fit.chi2 / fit.dof)
+            mu = scalesdev(mu, factor)
+        return mu
+    return getter
+mus = [
+    ('Dark count' , mugetter('dcrfit' , 'mu'      )),
+    ('Laser'      , mugetter('mainfit', 'mu_borel')),
+    ('Afterpulses', mugetter('apfit'  , 'mu'      )),
+]
+
+kw = dict(capsize=4, linestyle='', marker='.')
+uerrorbar(axdcr, vov, dcr, **kw)
+uerrorbar(axap, vov, ap * 100, **kw)
+for i, (label, getter) in enumerate(mus):
+    pct, nct = ct(getter)
+    offset = 0.1 * (i/(len(mus)-1) - 1/2)
+    kw.update(label=label)
+    x = vov + offset
+    uerrorbar(axpct, x, pct * 100, **kw)
+    uerrorbar(axnct, x, nct, **kw)
+
+axpct.legend()
+axnct.legend()
 
 vov_fbk = [
     3.993730407523511 ,  
@@ -523,12 +607,7 @@ axdcr.plot(vov_fbk, dcr_factor * np.array(dcr_fbk), '.-', label='FBK')
 axdcr.plot(vov_lf, dcr_factor * np.array(dcr_lf), '.-', label='LF')
 axdcr.legend()
 
-kw = dict(capsize=4, linestyle='', marker='.', color='#000')
-uerrorbar(axdcr, vov, dcr, **kw)
-uerrorbar(axap, vov, ap * 100, **kw)
-uerrorbar(axct, vov, pct * 100, **kw)
-
-for ax in axs:
+for ax in axs.flat:
     l, u = ax.get_ylim()
     ax.set_ylim(0, u)
     ax.minorticks_on()
