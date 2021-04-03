@@ -13,6 +13,7 @@ import firstbelowthreshold
 import argminrelmin
 import maxprominencedip
 import npzload
+import peaksampl
 
 def maxdiff_boundaries(x, pe):
     """
@@ -94,6 +95,8 @@ class AfterPulse(npzload.NPZLoad):
         fingerplot : plot fingerplot used to determine pe bins.
         computenpe : assign number of pe to a peak.
         computenpeboundaries : get the pe bins used by `computenpe`.
+        signal : compute the filtered signal shape.
+        peaksampl : compute the peak amplitude subtracting other peaks.
         plotevent : plot the analysis of a single event.
         getexpr : compute the value of an expression on all events.
         setvar : set a variable accessible from `getexpr`.
@@ -166,6 +169,8 @@ class AfterPulse(npzload.NPZLoad):
             'offset' : float
                 The number of samples from the trigger to the beginning of
                 the truncated template.
+        template : 1D array
+            The full signal template.
         """
         
         if filtlengths is None:
@@ -224,8 +229,10 @@ class AfterPulse(npzload.NPZLoad):
         
     def _maketemplates(self, template):
         """
-        Fill the `templates` and `pttemplate` members.
+        Fill the `templates` and `template` members.
         """
+        kw = dict(timebase=1, aligned=True)
+        
         def templates(lengths):
             templates = np.zeros(lengths.shape, dtype=[
                 ('template', float, (np.max(lengths),)),
@@ -234,7 +241,7 @@ class AfterPulse(npzload.NPZLoad):
             ])
             templates['length'] = lengths
             for _, entry in np.ndenumerate(templates):
-                templ, offset = template.matched_filter_template(entry['length'], timebase=1, aligned=True)
+                templ, offset = template.matched_filter_template(entry['length'], **kw)
                 assert len(templ) == entry['length']
                 entry['template'][:len(templ)] = templ
                 entry['length'] = len(templ)
@@ -242,6 +249,9 @@ class AfterPulse(npzload.NPZLoad):
             return templates
         
         self.templates = templates(self.filtlengths)
+        
+        kw.update(randampl=False)
+        self.template, = template.generate(template.template_length, [0], **kw)
     
     def _max_ilength(self):
         """
@@ -519,7 +529,7 @@ class AfterPulse(npzload.NPZLoad):
     
     @functools.cached_property
     def _computenpe_boundaries(self):
-        boundaries = {}
+        boundaries = np.empty(self.filtlengths.shape, object)
         mainpeak = self.output['mainpeak']
         good = self.getexpr('good')
         for ilength, _ in np.ndenumerate(self.filtlengths):
@@ -571,10 +581,106 @@ class AfterPulse(npzload.NPZLoad):
         boundaries : 1D array
             See `npeboundaries` for a detailed description.
         """
-        if not isinstance(ilength, tuple):
-            ilength = (ilength,)
         return self._computenpe_boundaries[ilength]
+    
+    def signal(self, ilength):
+        """
+        Filter the signal template.
+        
+        Parameters
+        ----------
+        ilength : {int, tuple of ints}
+            The index of the filter length.
+        
+        Return
+        ------
+        s : 1D array
+            The filtered signal waveform. It is positive and the amplitude is 1.
+        """
+        templ, _ = self.filtertempl(ilength)
+        s = np.correlate(self.template, templ, 'full')
+        s /= s[np.argmax(np.abs(s))]
+        return s
+    
+    def peaksampl(self, pt=False, minheight='auto', minprom=0):
+        """
+        Compute the amplitude of peaks.
+        
+        The amplitude is like the height but is corrected for the effect of
+        other peaks on the height.
+        
+        Parameters
+        ----------
+        pt : bool
+            If True, compute the amplitude of the peaks in the pre-trigger
+            region. If False (default) the laser peak and the afterpulses.
+        minheight : {array_like, 'auto'}
+            Minimum height of a peak to be considered a true peak. If 'auto'
+            (default), use the boundary between 0 and 1 pe returned by
+            `computenpeboundaries`. If an array it must broadcast against
+            `filtlengths`.
+        minprom : array_like
+            The minimum prominence (does not apply to the laser peak). Default
+            zero.
+        
+        Return
+        ------
+        ampl : array filtlengths.shape + (nevents, 2 or 3)
+            The amplitude (positive). If pt=False the last axis has size 3 and
+            corresponds to peaks 'mainpeak', 'minorpeak' and 'minorpeak2'; if
+            pt=True the peaks are 'ptpeak' and 'ptpeak2'. Peaks missing or
+            ignored are set to -1000.
+        """
+        if minheight == 'auto':
+            minheight = np.reshape([
+                self.computenpeboundaries(ilength)[0]
+                for ilength, _ in np.ndenumerate(self.filtlengths)
+            ], self.filtlengths.shape)
+        
+        minheight = np.broadcast_to(minheight, self.filtlengths.shape)
+        minprom = np.broadcast_to(minprom, self.filtlengths.shape)
+        
+        maxflen = np.max(self.filtlengths)
+        maxlen = len(self.template) + maxflen - 1
+        signal = np.zeros(self.filtlengths.shape + (maxlen,))
+        for ilength, _ in np.ndenumerate(self.filtlengths):
+            s = self.signal(ilength)
+            signal[ilength][:len(s)] = s
+        signal = signal[..., None, :]
+        
+        if pt:
+            peaks = ['ptpeak', 'ptpeak2']
+        else:
+            peaks = ['mainpeak', 'minorpeak', 'minorpeak2']
+            
+        pos, height, prom = [
+            np.stack([
+                np.moveaxis(self.output[peak][label], 0, -1)
+                if not (label == 'prominence' and peak == 'mainpeak')
+                else np.broadcast_to(np.inf, self.filtlengths.shape + self.output.shape)
+                for peak in peaks
+            ], axis=-1)
+            for label in ['pos', 'height', 'prominence']
+        ]
 
+        ignore  =    pos < 0
+        ignore |= height < minheight[..., None, None]
+        ignore |=   prom <   minprom[..., None, None]
+        
+        height[ignore] = 0
+        ampl = peaksampl.peaksampl(signal, height, pos)
+        ampl[ignore] = -1000
+        
+        return ampl
+    
+    @functools.cached_property
+    def _peaksampl_pt(self):
+        return self.peaksampl(pt=True)
+    
+    @functools.cached_property
+    def _peaksampl_ap(self):
+        return self.peaksampl(pt=False)
+    
     def plotevent(self, wavdata, ievent, ilength=None, zoom='posttrigger'):
         """
         Plot a single event.
@@ -583,7 +689,7 @@ class AfterPulse(npzload.NPZLoad):
         ----------
         wavdata : array (nevents, 2, 15001) or list
             The same array passed at initialization. If the object is
-            a concatenation, the data passed to the object where the the event
+            a concatenation, the data passed to the object where the event
             originates from. Use `catindex()` to map the event to the object.
             If a list, it must be the ordered list of arrays passed at
             initialization to the concatenated objects.
@@ -620,7 +726,7 @@ class AfterPulse(npzload.NPZLoad):
         start = entry['internals']['start']
         filtered = correlate.correlate(wf[start:], templ, boundary=baseline)
         length = self.filtlengths[ilength]
-        ax.plot(start + np.arange(len(filtered)), filtered, color='#000', label=f'filtered ({length} ns template)')
+        ax.plot(start + np.arange(len(filtered)), filtered, color='#000', label=f'filtered ({length} ns templ)')
         
         lpad = entry['internals']['lpad']
         filtered = correlate.correlate(wf[:start], templ, boundary=baseline, lpad=lpad)
@@ -629,38 +735,60 @@ class AfterPulse(npzload.NPZLoad):
         left = entry['internals']['left'][ilength]
         right = entry['internals']['right'][ilength]
         base = start - 0.5
-        ax.axvspan(base + left, base + right, color='#ddd', label='main peak search range')
+        ax.axvspan(base + left, base + right, color='#ddd', label='laser peak search range')
         
-        markerkw = dict(linestyle='', markersize=10, markeredgecolor='#000', markerfacecolor='#fff0')
-        
-        mainpeak = entry['mainpeak'][ilength]
-        mainpos = mainpeak['pos']
-        if mainpos >= 0:
-            mainheight = mainpeak['height']
-            npe = self.getexpr('npe')[ilength][ievent]
-            base = baseline - mainheight
-            ax.vlines(mainpos, base, baseline, zorder=2.1)
-            ax.plot(mainpos, base, marker='o', label=f'main peak, h={mainheight:.1f}, npe={npe}', **markerkw)
+        markerkw = dict(
+            linestyle = '',
+            markersize = 10,
+            markeredgecolor = '#000',
+            markerfacecolor = '#fff0',
+        )
         
         peaks = [
-            # field, label, marker
-            ('minorpeak' , 'minor peak'          , 's'),
-            ('minorpeak2', 'third peak'          , 'v'),
-            ('ptpeak'    , 'pre-trigger peak'    , '<'),
-            ('ptpeak2'   , '2nd pre-trigger peak', '>'),
+            # field, label, marker, ampl array
+            ('mainpeak'  , 'laser'       , 'o', self._peaksampl_ap[..., 0]),
+            ('minorpeak' , '1st posttrig', 's', self._peaksampl_ap[..., 1]),
+            ('minorpeak2', '2nd posttrig', 'v', self._peaksampl_ap[..., 2]),
+            ('ptpeak'    , '1st pretrig' , '<', self._peaksampl_pt[..., 0]),
+            ('ptpeak2'   , '2nd pretrig' , '>', self._peaksampl_pt[..., 1]),
         ]
-        for field, label, marker in peaks:
-            minorpeak = entry[field]
-            if minorpeak.shape:
-                minorpeak = minorpeak[ilength]
-            minorpos = minorpeak['pos']
-            if minorpos >= 0:
-                minorheight = minorpeak['height']
-                minorprom = minorpeak['prominence']
-                base = baseline - minorheight
-                ax.vlines(minorpos, base, base + minorprom, zorder=2.1)
-                ax.hlines(base + minorprom, minorpos - 100, minorpos + 100, zorder=2.1)
-                ax.plot(minorpos, base, marker=marker, label=f'{label}, h={minorheight:.1f}, prom={minorprom:.1f}', **markerkw)
+        
+        if zoom == 'all':
+            xlim = (0, len(wf) - 1)
+        elif zoom == 'posttrigger':
+            xlim = (start - 500, len(wf) - 1)
+        elif zoom == 'main':
+            xlim = (start - 200, start + right + 500)
+        else:
+            raise KeyError(zoom)
+        
+        boundaries = self.computenpeboundaries(ilength)
+        
+        for field, label, marker, aampl in peaks:
+            peak = entry[field]
+            if peak.shape:
+                peak = peak[ilength]
+            pos = peak['pos']
+            ampl = aampl[ilength, ievent]
+            if pos < 0 or ampl < 0 or not xlim[0] <= pos <= xlim[1]:
+                continue
+            height = peak['height']
+            labels = [label]
+            if ampl >= 0:
+                npe = np.digitize(ampl, boundaries)
+                pe = '' if npe == len(boundaries) else f' ({npe} pe)'
+                labels.append(f'a={ampl:.3g}{pe}')
+            else:
+                labels.append(f'h={height:.3g}')
+            top = baseline - height
+            if ampl >= 0:
+                base = top + ampl
+                ticks = base - boundaries[:npe + 1]
+                ax.vlines(pos, min(top, ticks[-1]), base, zorder=2.1)
+                ax.plot(pos, base, 'ok', zorder=2.1)
+                wtick = 0.015 * (xlim[1] - xlim[0])
+                ax.hlines(ticks, pos - wtick, pos + wtick, zorder=2.1)
+            ax.plot(pos, top, label=', '.join(labels), marker=marker, **markerkw)
         
         ax.minorticks_on()
         ax.grid(which='major', linestyle='--')
@@ -669,15 +797,7 @@ class AfterPulse(npzload.NPZLoad):
         ax.legend(fontsize='small', loc='lower right')
         textbox.textbox(ax, f'Event {ievent}', fontsize='medium', loc='upper center')
         
-        if zoom == 'all':
-            pass
-        elif zoom == 'posttrigger':
-            ax.set_xlim(start - 500, len(wf) - 1)
-        elif zoom == 'main':
-            ax.set_xlim(start - 200, start + right + 500)
-        else:
-            raise KeyError(zoom)
-        
+        ax.set_xlim(xlim)
         ax.set_xlabel('Sample number @ 1 GSa/s')
         
         fig.tight_layout()
@@ -694,18 +814,23 @@ class AfterPulse(npzload.NPZLoad):
             lowbaseline = "self.output['lowbaseline']",
             mainpos     = "self.output['mainpeak']['pos']",
             mainheight  = "self.output['mainpeak']['height']",
+            mainampl    = "self._peaksampl_ap[..., 0]",
             minorpos    = "self.output['minorpeak']['pos']",
             minorheight = "self.output['minorpeak']['height']",
             minorprom   = "self.output['minorpeak']['prominence']",
+            minorampl   = "self._peaksampl_ap[..., 1]",
             thirdpos    = "self.output['minorpeak2']['pos']",
             thirdheight = "self.output['minorpeak2']['height']",
             thirdprom   = "self.output['minorpeak2']['prominence']",
+            thirdampl   = "self._peaksampl_ap[..., 2]",
             ptpos       = "self.output['ptpeak']['pos']",
             ptheight    = "self.output['ptpeak']['height']",
             ptprom      = "self.output['ptpeak']['prominence']",
+            ptampl      = "self._peaksampl_pt[..., 0]",
             pt2pos      = "self.output['ptpeak2']['pos']",
             pt2height   = "self.output['ptpeak2']['height']",
             pt2prom     = "self.output['ptpeak2']['prominence']",
+            pt2ampl     = "self._peaksampl_pt[..., 1]",
             closept     = "self.closept()",
             good        = "self.getexpr('~saturated & ~closept')",
             npe         = "self.computenpe('mainpeak')",
@@ -760,22 +885,27 @@ class AfterPulse(npzload.NPZLoad):
             good        : ~closept & ~saturated
             mainpos     : the index of the main peak
             mainheight  : the positive height of the main peak
+            mainampl    : the height corrected for other peaks of the main peak
             npe         : the number of photoelectrons of the main peak,
                           determined separately with each filter length
             minorpos    : the index of the maximum promince peak after the main
             minorheight : ...its height
             minorprom   : ...its prominence, capped to the baseline, and
                           measured without crossing the main peak
+            minorampl   : ...its corrected height
             thirdpos    : the index of the second highest prominence peak
             thirdheight : as above
             thirdprom   : as above
+            thirdampl   : as above
             ptpos       : the index of the higher prominence peak before the
                           trigger
             ptheight    : as above
             ptprom      : as above
+            ptampl      : as above
             pt2pos      : like ptpos, but the second highest
             pt2height   : as above
             pt2prom     : as above
+            pt2ampl     : as above
         
         Variables which depends on the filter template length have shape
         filtlengths.shape + (nevents,), apart from the variable `length` which
@@ -1138,6 +1268,10 @@ class AfterPulse(npzload.NPZLoad):
         """
         Concatenate afterpulse objects.
         
+        The `output` member is the concatenation of the corresponding members
+        of the concatenated object. Other members are set to the ones of the
+        first object in the concatenation, without copying.
+        
         Parameters
         ----------
         aplist : sequence of AfterPulse instances
@@ -1160,7 +1294,7 @@ class AfterPulse(npzload.NPZLoad):
         
         classattr = vars(cls)
         for k, v in vars(ap0).items():
-            if k not in classattr and k != 'output' and not k.startswith('__'):
+            if k not in classattr and not k.startswith('__'):
                 setattr(self, k, v)
         
         self.output = np.concatenate(outputs)
