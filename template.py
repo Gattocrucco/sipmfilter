@@ -9,6 +9,13 @@ import argminrelmin
 
 @numba.njit(cache=True)
 def meanat(x, t, l):
+    """
+    x : array (N, M)
+    t : int array (N,)
+    l : int
+    out : array (N,)
+        The mean of x from t to t+l.
+    """
     out = np.empty(len(x))
     for i, a in enumerate(x):
         out[i] = np.mean(a[t[i]:t[i] + l])
@@ -16,6 +23,15 @@ def meanat(x, t, l):
 
 @numba.njit(cache=True)
 def vecmeanat(x, x0, mask, t, l):
+    """
+    x : array (N, M)
+    x0 : array (N,)
+    mask : bool array (N,)
+    t : int array (N,)
+    l : int
+    out : array (l,)
+        The mean of x - x0 from t to t+l, only where mask.
+    """
     out = np.zeros(l)
     count = 0
     for i, a in enumerate(x):
@@ -195,6 +211,9 @@ class Template(npzload.NPZLoad):
         out : array (nevents, event_length)
             Simulated signals.
         """
+        # TODO alignment bug: when signal_loc=[0] the template starts from
+        # the second sample.
+        
         signal_loc = np.asarray(signal_loc)
         nevents = len(signal_loc)
         

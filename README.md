@@ -174,7 +174,7 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
       
 ### Modules
 
-  * `afterpulse.py`: class to analyze an LNGS file.
+  * `afterpulse.py`: class to analyze an LNGS wav file.
   
   * `argminrelmin.py`: index of the minimum local minimum.
   
@@ -202,6 +202,8 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   * `npzload.py`: class to serialize objects to numpy archives.
     
   * `num2si.py`: format a number using SI suffixes.
+  
+  * `peaksampl.py`: separate summed signals.
   
   * `poissonsup.py`: compute upper confidence limits for the poisson.
   
@@ -237,13 +239,17 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   
   * `min_snr_ratio.py`: **(OUTDATED)** saved ratios filtered SNR/unfiltered SNR.
   
-  * `slides-2020-11-03/`: presentation on the filtered SNR.
+  * `slides-2020-11-03/`: filtered SNR.
   
-  * `slides-2020-12-01/`: presentation on the temporal resolution.
+  * `slides-2020-12-01/`: temporal resolution.
   
-  * `slides-2020-12-10/`: presentation on the effect of waveform truncation.
+  * `slides-2020-12-10/`: effect of waveform truncation.
   
-  * `slides-2021-03-11/`: presentation on DCR and afterpulses of LF_TILE15. 
+  * `slides-2021-03-11/`: DCR and afterpulses of LF_TILE15.
+  
+  * `slides-2021-04-02/`: DCR, afterpulses and crosstalk of LF_TILE21.
+  
+  * `slides-2021-xx-xx/`: pulse finder fake rate.
   
   * `toy1gsa/`: figures made with `toy1gsa-plot.py`.
   

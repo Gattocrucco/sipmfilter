@@ -2,7 +2,7 @@ import numpy as np
 import numba
 
 @numba.njit(cache=True)
-def maxprominencedip(events, start, top, n):
+def maxprominencedip(events, start, end, top, n):
     """
     Find the negative peaks with the maximum prominence in arrays.
     
@@ -13,9 +13,9 @@ def maxprominencedip(events, start, top, n):
     ----------
     events : array (nevents, N)
         The arrays.
-    start : int array (nevents,)
+    start, end : int array (nevents,)
         Each row of `events` is used only from the sample specified by
-        `start` (inclusive).
+        `start` (inclusive) to `end` (exclusive).
     top : array (nevents,)
         For computing the prominence, maxima are capped at `top`.
     n : int
@@ -40,10 +40,13 @@ def maxprominencedip(events, start, top, n):
     
     for ievent, event in enumerate(events):
         
+        assert start[ievent] >= 0
+        assert end[ievent] <= len(event)
+        
         maxprom = prominence[ievent]
         maxprompos = position[ievent]
         relminpos = -1
-        for i in range(start[ievent] + 1, len(event) - 1):
+        for i in range(start[ievent] + 1, end[ievent] - 1):
             
             if event[i - 1] > event[i] < event[i + 1]:
                 # narrow local minimum
@@ -77,13 +80,13 @@ def maxprominencedip(events, start, top, n):
                 ifwd = relminpos
                 rmax = event[ifwd]
                 irmax = ifwd
-                while ifwd < len(event) and event[ifwd] >= event[relminpos] and rmax < maxmax:
+                while ifwd < end[ievent] and event[ifwd] >= event[relminpos] and rmax < maxmax:
                     if event[ifwd] > rmax:
                         rmax = event[ifwd]
                         irmax = ifwd
                     ifwd += 1
                 rmax = min(rmax, maxmax)
-                rmaxb = irmax == len(event) - 1
+                rmaxb = irmax == end[ievent] - 1
                 
                 # compute prominence
                 if (not rmaxb and not lmaxb) or (rmaxb and lmaxb):

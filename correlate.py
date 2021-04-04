@@ -36,6 +36,8 @@ def correlate(waveform, template, method='fft', axis=-1, boundary=None, lpad=0):
     corr : array (..., N, ...)
         The cross correlation, with the same shape as `waveform`.
     """
+    assert len(template) <= waveform.shape[axis]
+    
     rpad = len(template) - 1
     padspec = [(0, 0)] * len(waveform.shape)
     padspec[axis] = (lpad, rpad)

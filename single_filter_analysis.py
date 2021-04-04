@@ -111,8 +111,8 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
         ax.set_xlabel('Baseline-corrected filter output [ADC unit]')
         ax.set_ylabel('Counts per bin')
 
-        plot_histogram(ax, counts, bins, color='black', zorder=10, label='histogram')
-        ax.plot(peaks_loc, ph, 'o', color='#f55', zorder=11, label='auto-detected peaks')
+        plot_histogram(ax, counts, bins, color='black', zorder=2.1, label='histogram')
+        ax.plot(peaks_loc, ph, 'o', color='#f55', zorder=2.2, label='auto-detected peaks')
 
         kwvline = dict(linestyle=':', color='black', label='boundaries')
         for i in range(len(window)):
