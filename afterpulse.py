@@ -692,7 +692,7 @@ class AfterPulse(npzload.NPZLoad):
         ignore  = height < minheight[..., None, None]
         ignore |=   prom <   minprom[..., None, None]
 
-        cond = missing | low
+        cond = missing | ignore
         height[cond] = 0
         pos[cond] = 0
         ampl = peaksampl.peaksampl(signal, height, pos)

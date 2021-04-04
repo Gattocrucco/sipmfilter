@@ -398,7 +398,7 @@ for vov in vovdict:
     d.update(dcr=r, dcrcount=s, dcrtime=t, dcrfactor=f)
     
     # fit pre-trigger pe histogram
-    sim.setvar('ptnpe', sim.computenpe('ptpeak'))
+    sim.setvar('ptnpe', sim.computenpe(sim.getexpr('ptheight')))
     fit, fig = fitpe(sim, 'ptnpe', f'{ptsel}&(ptnpe>0)', boundaries, 'borel', histcond=f'{ptsel}&(ptnpe>0)&(ptnpe<1000)')
     savef(fig, prefix)
     d.update(dcrfit=fit)
@@ -460,7 +460,7 @@ for vov in vovdict:
     savef(fig, prefix)
 
     # fit afterpulses pe histogram
-    sim.setvar('apnpe', sim.computenpe('minorpeak'))
+    sim.setvar('apnpe', sim.computenpe(sim.getexpr('minorheight')))
     fit, fig = fitpe(sim, 'apnpe', f'{apcond}&(apnpe>0)&(apnpe<1000)', boundaries, 'borel', overflow=False, histcond=f'{apcond}&(apnpe>0)&(apnpe<1000)')
     savef(fig, prefix)
     d.update(apfit=fit)
