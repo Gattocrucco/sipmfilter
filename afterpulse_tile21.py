@@ -412,7 +412,7 @@ for vov in vovdict:
     # plot <= 3 events with an high pre-trigger peak
     evts = sim.eventswhere(f'{ptsel}&(ptheight>{cut})')
     for ievt in evts[:3]:
-        fig = sim.plotevent(datalist, ievt, zoom='all')
+        fig = sim.plotevent(datalist, ievt, ilength, zoom='all')
         savef(fig, prefix)
     
     

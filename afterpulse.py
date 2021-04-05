@@ -48,6 +48,24 @@ def _posampl1(x):
 
 class AfterPulse(npzload.NPZLoad):
     
+    # TODO (complicated)
+    # Add a parameter `npeaks`
+    # Search `npeaks` peaks in the whole filtered waveform using prominence
+    # Save in a field 'peak' with shape filtlengths.shape + (npeaks,)
+    # Use a single variable in `getexpr` for each peak property
+    # The common shape is filtlenghts.shape + (npeaks, nevents)
+    # `hist` and `scatter` flatten over npeaks
+    # A boolean variable 'laser' for the closest to trigger + offset
+    # Boolean variables 'pre' and 'post' for before/after the trigger
+    # Do the fingerplot using 'laser' with a cut on the position
+    # Compute the amplitudes, filter away 0 pe again afterward
+    # 'apre', 'apost' indices for sorting by amplitude (reversed)
+    # 'tpre', 'tpost' indices for sorting by position
+    
+    # TODO
+    # When concatenating, align the filter and signal templates with the peak
+    # and average them. Use argmax(abs(x)).
+    
     def __init__(self,
         wavdata,
         template,
@@ -57,6 +75,7 @@ class AfterPulse(npzload.NPZLoad):
         lowsample=700,
         trigger=None,
         badvalue=-1000,
+        mainsearchrange=60,
     ):
         """
         Analyze LNGS laser data.
@@ -69,7 +88,9 @@ class AfterPulse(npzload.NPZLoad):
         wavdata : array (nevents, nchannels, eventlength)
             Data as returned by readwav.readwav(). The first channel is the
             waveform, the second channel is the trigger. If there is only one
-            channel, the trigger position must be specified with `trigger`.
+            channel, the trigger position can be specified with `trigger`. If
+            `trigger` is not specified, the trigger position is constant and
+            taken from `template`.
         template : template.Template
             A template object used for the cross correlation filter. Should be
             generated using the same wav file.
@@ -91,6 +112,10 @@ class AfterPulse(npzload.NPZLoad):
             information in `wavdata`.
         badvalue : scalar
             Filler used for missing values, default -1000.
+        mainsearchrange : int
+            The width of the interval where the main peak is searched. It is
+            centered on the trigger, plus an offset to keep into account filter
+            template truncation.
         
         Methods
         -------
@@ -121,7 +146,7 @@ class AfterPulse(npzload.NPZLoad):
         
         Members
         -------
-        lowsample, badvalue : scalar
+        lowsample, badvalue, mainsearchrange : scalar
             The arguments given at initialization.
         filtlengths : array
             The cross correlation filter lengths.
@@ -193,6 +218,7 @@ class AfterPulse(npzload.NPZLoad):
         self.eventlength = wavdata.shape[-1]
         assert badvalue < 0, badvalue
         self.badvalue = badvalue
+        self.mainsearchrange = mainsearchrange
         
         peakdtype = [
             ('pos', int),
@@ -212,11 +238,9 @@ class AfterPulse(npzload.NPZLoad):
             ('ptpeak', peakdtype, self.filtlengths.shape),
             ('ptpeak2', peakdtype, self.filtlengths.shape),
             ('internals', [
-                # left:right is the main peak search range relative to start
-                # start is the beginning of the filtered post-trigger region
+                # left:right is the main peak search range
                 ('left', int, self.filtlengths.shape),
                 ('right', int, self.filtlengths.shape),
-                ('start', int),
                 ('bsevent', int), # event from which the baseline was copied
                 ('lpad', int), # left padding on pre-trigger region
             ]),
@@ -232,6 +256,8 @@ class AfterPulse(npzload.NPZLoad):
             trigger = np.asarray(trigger)
             assert trigger.shape == self.output.shape, trigger.shape
             self.trigger = trigger
+        elif wavdata.shape[1] == 1:
+            self.trigger = np.full(len(wavdata), int(template.trigger_median))
         
         # tuple (event from which I copy the baseline, baseline)
         self._default_baseline = (-1, template.baseline)
@@ -311,15 +337,16 @@ class AfterPulse(npzload.NPZLoad):
             assert np.all(trigger >= 0)
         else:
             trigger = self.trigger[slic]
-        startoffset = 10
-        start = np.min(trigger) - startoffset
         
         # find saturated events
         saturated = np.any(wavdata[:, 0] == 0, axis=-1)
         
         # compute the baseline, handling spurious pre-trigger signals
-        lowbaseline = np.any(wavdata[:, 0, :start] < self.lowsample, axis=-1)
-        baseline = meanmedian.meanmedian(wavdata[:, 0, :start], 8)
+        margin = self.mainsearchrange // 2
+        bsend = np.min(trigger) - margin
+        bszone = wavdata[:, 0, :bsend]
+        lowbaseline = np.any(bszone < self.lowsample, axis=-1)
+        baseline = meanmedian.meanmedian(bszone, 8)
         okbs = np.flatnonzero(~lowbaseline)
         if len(okbs) > 0:
             ibs = okbs[-1]
@@ -327,7 +354,7 @@ class AfterPulse(npzload.NPZLoad):
         baseline[lowbaseline] = self._default_baseline[1]
         mean_baseline = np.mean(baseline)
         
-        for ilength in np.ndindex(*self.templates.shape):
+        for ilength, _ in np.ndenumerate(self.filtlengths):
             templ, offset = self.filtertempl(ilength)
             
             # filter
@@ -335,9 +362,8 @@ class AfterPulse(npzload.NPZLoad):
             filtered = correlate.correlate(wavdata[:, 0], templ, boundary=mean_baseline, lpad=lpad)
             
             # divide the waveform in regions
-            center = start + startoffset + int(offset)
-            margin = 80
-            left = max(start, center - margin)
+            center = int(np.median(trigger)) + int(offset)
+            left = center - margin
             right = center + margin
             poststart = lpad + left
 
@@ -389,7 +415,6 @@ class AfterPulse(npzload.NPZLoad):
         output['baseline'] = baseline
         output['saturated'] = saturated
         output['lowbaseline'] = lowbaseline
-        output['internals']['start'] = start
         output['internals']['bsevent'][lowbaseline] = self._default_baseline[0]
         output['internals']['lpad'] = lpad
         output['done'] = True
@@ -414,17 +439,18 @@ class AfterPulse(npzload.NPZLoad):
         closept : bool array (nevents,)
             True where there's a peak.
         """
-        ptlength = self.output['internals']['start']
-        idx = (slice(None),) + self._max_ilength()
+        idx = np.s_[:,] + self._max_ilength()
         closept = None
         for s in ['', '2']:
             peak = self.output['ptpeak' + s][idx]
             pos = peak['pos']
             height = peak['height']
+            ptlength = self.output['internals']['left'][idx]
             
-            close = pos >= 0
+            close  = pos >= 0
             close &= ptlength - pos < safedist
             close &= height > safeheight
+            
             if closept is None:
                 closept = close
             else:
