@@ -22,21 +22,18 @@ def breaklines(s, maxcol=80, after='', before='', strip=True):
     lines : str
         The string with line breaks inserted.
     """
-    pieces = [s[0]]
+    pieces = [c for c in s[:1]]
     for i in range(1, len(s)):
         if s[i - 1] in after or s[i] in before:
             pieces.append('')
         pieces[-1] += s[i]
     
-    lines = []
-    line = ''
-    for p in pieces:
-        if len(line) + len(p) <= maxcol:
-            line += p
+    lines = [p for p in pieces[:1]]
+    for p in pieces[1:]:
+        if len(lines[-1]) + len(p) <= maxcol:
+            lines[-1] += p
         else:
-            lines.append(line)
-            line = p
-    lines.append(line)
+            lines.append(p)
     
     if strip:
         lines = [line.strip() for line in lines]

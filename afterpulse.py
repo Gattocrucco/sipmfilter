@@ -48,7 +48,7 @@ def _posampl1(x):
 
 class AfterPulse(npzload.NPZLoad):
     
-    # TODO (complicated)
+    # TODO (long)
     # Add a parameter `npeaks`
     # Search `npeaks` peaks in the whole filtered waveform using prominence
     # Save in a field 'peak' with shape filtlengths.shape + (npeaks,)
@@ -65,6 +65,11 @@ class AfterPulse(npzload.NPZLoad):
     # TODO
     # When concatenating, align the filter and signal templates with the peak
     # and average them. Use argmax(abs(x)).
+    
+    # TODO
+    # Instead of using correlate.correlate, use directly
+    # signal.fftconvolve(waveform - baseline, templ[None, ::-1], mode='full')
+    # and then subtract len(templ) - 1 from the indices
     
     def __init__(self,
         wavdata,
@@ -97,7 +102,7 @@ class AfterPulse(npzload.NPZLoad):
         filtlengths : array, optional
             A series of template lengths for the cross correlation filters, in
             unit of 1 GSa/s samples. If not specified, a logarithmically spaced
-            range from 32 ns to 2048 ns is used.
+            range from 16 ns to 1024 ns is used.
         batch : int
             The events batch size, default 10.
         pbar : bool
@@ -210,7 +215,7 @@ class AfterPulse(npzload.NPZLoad):
         """
         
         if filtlengths is None:
-            self.filtlengths = 2 ** np.arange(5, 11 + 1)
+            self.filtlengths = 2 ** np.arange(4, 10 + 1)
         else:
             self.filtlengths = np.array(filtlengths, int)
             
@@ -462,6 +467,10 @@ class AfterPulse(npzload.NPZLoad):
     def _closept(self):
         return self.closept()
     
+    @functools.cached_property
+    def _good(self):
+        return ~self.output['saturated'] & ~self._closept
+    
     def npeboundaries(self, height, plot=False, algorithm='maxdiff'):
         """
         Determine boundaries to divide peak heights by number of pe.
@@ -520,9 +529,9 @@ class AfterPulse(npzload.NPZLoad):
         
         Parameters
         ----------
-        height : array (N,)
+        height : array
             The heights.
-        boundaries : array (M,)
+        boundaries : 1D array
             The height boundaries separating different pe. boundaries[0]
             divides 0 pe from 1 pe, boundaries[-1] divides the maximum pe
             from the overflow.
@@ -531,10 +540,13 @@ class AfterPulse(npzload.NPZLoad):
         
         Return
         ------
-        npe : int array (N,)
-            The number of pe assigned to each height.
+        npe : int array
+            The number of pe assigned to each height. The array has the same
+            shape of `height`
         """
         npe = np.digitize(height, boundaries)
+        if np.isscalar(npe):
+            npe = np.array(npe)
         npe[npe >= len(boundaries)] = overflow
         return npe
         
@@ -561,9 +573,8 @@ class AfterPulse(npzload.NPZLoad):
         idx = np.s_[:,] + ilength
         peak = self.output['mainpeak'][idx]
         height = peak['height']
-        good = ~self.output['saturated'] & ~self._closept
         valid = peak['pos'] >= 0
-        value = height[valid & good]
+        value = height[valid & self._good]
         
         if len(value) >= 100:
             boundaries, fig = self.npeboundaries(value, plot=True)
@@ -575,10 +586,10 @@ class AfterPulse(npzload.NPZLoad):
             return fig
     
     @functools.cached_property
-    def _computenpe_boundaries(self):
+    def _computenpe_boundaries_height(self):
         boundaries = np.empty(self.filtlengths.shape, object)
         mainpeak = self.output['mainpeak']
-        good = ~self.output['saturated'] & ~self._closept
+        good = self._good
         for ilength, _ in np.ndenumerate(self.filtlengths):
             idx = np.s_[:,] + ilength
             peak = mainpeak[idx]
@@ -587,7 +598,31 @@ class AfterPulse(npzload.NPZLoad):
             boundaries[ilength] = self.npeboundaries(height[valid & good])
         return boundaries
     
-    def computenpe(self, height):
+    @functools.cached_property
+    def _computenpe_boundaries_ampl(self):
+        boundaries = np.empty(self.filtlengths.shape, object)
+        mainampl = self._peaksampl[..., 0]
+        mainpeak = self.output['mainpeak']
+        notsaturated = ~self.output['saturated']
+        good = self._good
+        for ilength, _ in np.ndenumerate(self.filtlengths):
+            ampl = mainampl[ilength + np.s_[:,]]
+            peak = mainpeak[np.s_[:,] + ilength]
+            height = peak['height']
+            pos = peak['pos']
+            cond = ampl >= 0
+            x = np.where(cond, ampl, height)
+            valid = (pos >= 0) & np.where(cond, notsaturated, good)
+            boundaries[ilength] = self.npeboundaries(height[valid])
+        return boundaries
+    
+    def _computenpe_boundaries(self, ampl):
+        if ampl:
+            return self._computenpe_boundaries_ampl
+        else:
+            return self._computenpe_boundaries_height
+    
+    def computenpe(self, height, ampl=True):
         """
         Compute the number of pe of peaks.
         
@@ -598,6 +633,9 @@ class AfterPulse(npzload.NPZLoad):
         ----------
         height : array filtlengths.shape + (nevents,)
             The height of a peak.
+        ampl : bool
+            If True (default), compute the pe bins using the amplitude
+            computed by `peaksampl`. If False, use the height.
         
         Return
         ------
@@ -605,13 +643,13 @@ class AfterPulse(npzload.NPZLoad):
             The pe assigned to each peak height. 1000 for height larger than
             the highest classified pe. Negative heights are assigned 0 pe.
         """
-        boundaries = self._computenpe_boundaries
+        boundaries = self._computenpe_boundaries(ampl)
         npe = np.empty(self.filtlengths.shape + self.output.shape, int)
         for ilength, _ in np.ndenumerate(self.filtlengths):
             npe[ilength] = self.npe(height[ilength], boundaries[ilength])
         return npe
     
-    def computenpeboundaries(self, ilength):
+    def computenpeboundaries(self, ilength, ampl=True):
         """
         Get the pe height bins used by `computenpe`.
         
@@ -619,13 +657,16 @@ class AfterPulse(npzload.NPZLoad):
         ----------
         ilength : {int, tuple}
             The index of the filter length in `filtlengths`.
+        ampl : bool
+            If True (default), compute the pe bins using the amplitude
+            computed by `peaksampl`. If False, use the height.
         
         Return
         ------
         boundaries : 1D array
             See `npeboundaries` for a detailed description.
         """
-        return self._computenpe_boundaries[ilength]
+        return self._computenpe_boundaries(ampl)[ilength]
     
     def signal(self, ilength):
         """
@@ -654,8 +695,8 @@ class AfterPulse(npzload.NPZLoad):
         Return
         ------
         signals : array filtlengths.shape + (N,)
-            An array with the filtered signals. The length of the last axis
-            is the maximum signal length. Shorter signals are padded with zeros.
+            An array with the filtered signals. The length of the last axis is
+            the maximum signal length. Shorter signals are padded with zeros.
         """
         maxflen = np.max(self.filtlengths)
         maxlen = len(self.template) + maxflen - 1
@@ -677,8 +718,8 @@ class AfterPulse(npzload.NPZLoad):
         minheight : {array_like, 'auto'}
             Minimum height of a peak to be considered a signal. If 'auto'
             (default), use the boundary between 0 and 1 pe returned by
-            `computenpeboundaries`. If an array it must broadcast against
-            `filtlengths`.
+            `computenpeboundaries(..., ampl=False)`. If an array it must
+            broadcast against `filtlengths`.
         minprom : array_like
             The minimum prominence (does not apply to the laser peak). Default
             0.
@@ -693,7 +734,7 @@ class AfterPulse(npzload.NPZLoad):
         """
         if minheight == 'auto':
             minheight = np.reshape([
-                self.computenpeboundaries(ilength)[0]
+                self.computenpeboundaries(ilength, ampl=False)[0]
                 for ilength, _ in np.ndenumerate(self.filtlengths)
             ], self.filtlengths.shape)
         
@@ -876,13 +917,13 @@ class AfterPulse(npzload.NPZLoad):
             ampl = self._peaksampl[ilength + (ievent, ipeak)]
             if pos < 0:
                 continue
-            if not debug and (ampl < 0 or not xlim[0] <= pos <= xlim[1]):
+            if not debug and (ampl < boundaries[0] or not xlim[0] <= pos <= xlim[1]):
                 continue
             height = peak['height']
             labels = [label]
             if ampl >= 0:
-                npe = np.digitize(ampl, boundaries)
-                pe = '' if npe == len(boundaries) else f' ({npe} pe)'
+                npe = self.npe(ampl, boundaries)
+                pe = '' if npe > 100 else f' ({npe} pe)'
                 labels.append(f'a={ampl:.3g}{pe}')
             if debug or ampl < 0:
                 labels.append(f'h={height:.3g}')
@@ -914,38 +955,74 @@ class AfterPulse(npzload.NPZLoad):
     
     @functools.cached_property
     def _variables(self):
-        return dict(
+        transf = lambda s: f'np.moveaxis({s}, 0, -1)'
+        copy   = lambda s: f'np.copy({s})'
+        variables = dict(
             event       = "np.arange(len(self.output))",
-            trigger     = "self.output['trigger']",
-            baseline    = "self.output['baseline']",
+            trigger     = copy("self.output['trigger']"),
+            baseline    = copy("self.output['baseline']"),
             length      = "self.filtlengths[..., None]",
-            saturated   = "self.output['saturated']",
-            lowbaseline = "self.output['lowbaseline']",
-            mainpos     = "self.output['mainpeak']['pos']",
-            mainheight  = "self.output['mainpeak']['height']",
-            mainampl    = "self._peaksampl[..., 0]",
-            npe         = "self.computenpe(self._peaksampl[..., 0])",
-            minorpos    = "self.output['minorpeak']['pos']",
-            minorheight = "self.output['minorpeak']['height']",
-            minorprom   = "self.output['minorpeak']['prominence']",
-            minorampl   = "self._peaksampl[..., 1]",
-            minorapampl = "self._apheight[..., 0]",
-            thirdpos    = "self.output['minorpeak2']['pos']",
-            thirdheight = "self.output['minorpeak2']['height']",
-            thirdprom   = "self.output['minorpeak2']['prominence']",
-            thirdampl   = "self._peaksampl[..., 2]",
-            thirdapampl = "self._apheight[..., 1]",
-            ptpos       = "self.output['ptpeak']['pos']",
-            ptheight    = "self.output['ptpeak']['height']",
-            ptprom      = "self.output['ptpeak']['prominence']",
-            ptampl      = "self._peaksampl[..., 3]",
-            pt2pos      = "self.output['ptpeak2']['pos']",
-            pt2height   = "self.output['ptpeak2']['height']",
-            pt2prom     = "self.output['ptpeak2']['prominence']",
-            pt2ampl     = "self._peaksampl[..., 4]",
+            saturated   = copy("self.output['saturated']"),
+            lowbaseline = copy("self.output['lowbaseline']"),
             closept     = "self._closept",
-            good        = "~self.output['saturated'] & ~self._closept",
+            good        = "self._good",
         )
+        peaks = [
+            ('mainpeak'  , 'main' , None),
+            ('minorpeak' , 'minor', 0   ),
+            ('minorpeak2', 'third', 1   ),
+            ('ptpeak'    , 'pt'   , None),
+            ('ptpeak2'   , 'pt2'  , None),
+        ]
+        peakvars = {}
+        for iampl, (field, prefix, iaph) in enumerate(peaks):
+            pos    = transf(f"self.output['{field}']['pos']")
+            height = transf(f"self.output['{field}']['height']")
+            ampl   = f"self._peaksampl[..., {iampl}]"
+            amplh  = f"np.where({ampl} >= 0, {ampl}, {height})"
+            pvars = dict(
+                pos    = pos   ,
+                height = height,
+                ampl   = ampl  ,
+                amplh  = amplh ,
+            )
+            if 'prominence' in self.output[field].dtype.names:
+                prom = transf(f"self.output['{field}']['prominence']")
+                pvars.update(
+                    prom = prom,
+                )
+            if iaph is not None:
+                apampl = f"self._apheight[..., {iaph}]"
+                pvars.update(
+                    apampl  = apampl,
+                    apamplh = f"np.where({apampl} >= 0, {apampl}, {amplh})",
+                )
+                hpe = apampl
+            else:
+                hpe = ampl
+            pvars.update(
+                npe = f"np.where({pos} >= 0, self.computenpe({hpe}), self.badvalue)",
+            )
+            peakvars[prefix] = pvars
+        for prefix, pvars in peakvars.items():
+            variables.update({
+                prefix + key: copy(value)
+                if key in ('pos', 'height', 'prom')
+                else value
+                for key, value in pvars.items()
+            })
+        peakpairs = [
+            ('ap', 'minor', 'third'),
+            ('pt', 'pt'   , 'pt2'  ),
+        ]
+        for newprefix, prefix1, prefix2 in peakpairs:
+            v1 = peakvars[prefix1]
+            v2 = peakvars[prefix2]
+            for key in v1:
+                cond = f"({v1['ampl']} >= 0) & ({v2['ampl']} >= 0) & ({v2['pos']} < {v1['pos']})"
+                variables[newprefix + 'A' + key] = f"np.where({cond}, {v2[key]}, {v1[key]})"
+                variables[newprefix + 'B' + key] = f"np.where({cond}, {v1[key]}, {v2[key]})"
+        return variables
     
     def setvar(self, name, value, overwrite=False):
         """
@@ -994,42 +1071,38 @@ class AfterPulse(npzload.NPZLoad):
             lowbaseline : if there is sample too low before the trigger
             closept     : if there are pre-trigger peaks near the trigger
             good        : ~closept & ~saturated
-            mainpos     : the index of the main peak
-            mainheight  : the positive height of the main peak
-            mainampl    : the height corrected for other peaks of the main peak
-            npe         : the number of photoelectrons of the main peak,
-                          determined separately with each filter length
-            minorpos    : the index of the maximum promince peak after the main
-            minorheight : ...its height
-            minorprom   : ...its prominence, capped to the baseline, and
-                          measured without crossing the main peak
-            minorampl   : ...its corrected height
-            minorapampl : the ampl plus the height of a 1 pe signal located
-                          at mainpos, should not depend on delay for
-                          afterpulses
-            thirdpos    : the index of the second highest prominence peak
-            thirdheight : as above
-            thirdprom   : as above
-            thirdampl   : as above
-            thirdapampl : as above
-            ptpos       : the index of the higher prominence peak before the
-                          trigger
-            ptheight    : as above
-            ptprom      : as above
-            ptampl      : as above
-            pt2pos      : like ptpos, but the second highest
-            pt2height   : as above
-            pt2prom     : as above
-            pt2ampl     : as above
+            <P>pos      : peak position (sample index in the filtered event)
+            <P>height   : height relative to the baseline (positive)
+            <P>prom     : prominence, capped to the baseline, measured without
+                          crossing the laser peak
+            <P>ampl     : the height corrected for the tails of other peaks
+            <P>amplh    : <P>height when <P>ampl < 0, otherwise <P>ampl
+            <P>apampl   : <P>ampl summed to the tail of a 1 pe laser pulse
+            <P>apamplh  : <P>amplh when <P>apampl < 0, otherwise <P>apampl
+            <P>npe      : the number of photoelectrons, determined from
+                          <P>apampl if defined, <P>ampl otherwise
+        
+        Where <P> is one of these prefixes indicating the peak:
+        
+            main     : the laser peak
+            minor    : the highest prominence peak after the main
+            third    : the second highest prominence peak after the main
+            pt, pt2  : like `minor` and `third` but before the main peak
+            apA      : when both minorampl >= 0 and thirdampl >= 0, the first
+                       temporally, otherwise `minor`
+            apB      : the one of `minor` and `third` which is not `apA`
+            ptA, ptB : like `apA` and `apB` but for `pt` and `pt2`
+        
+        For the `main` peak the variabile `mainprom` is not defined. <P>apampl
+        is defined only for `minor` and `third`.
         
         Variables which depends on the filter template length have shape
         filtlengths.shape + (nevents,), apart from the variable `length` which
         has shape filtlengths.shape + (1,). Variables which do not depend on
         filter template length have shape (nevents,).
         
-        When there are missing values, the indices are set to -1, while the
-        heights and prominences are set to -1000. `npe` is -1 when missing and
-        1000 for the overflow bin.
+        Missing values are filled with `badvalue` (which is negative). The
+        overflow bin values of the `<P>npe` variables is filled with 1000.
         
         Additional variables can be added with `setvar`.
         
@@ -1060,21 +1133,9 @@ class AfterPulse(npzload.NPZLoad):
                 v = self._variables[key]
                 
                 if isinstance(v, str):
-                    expr = v
-                    v = eval(expr)
-                    if expr.startswith('self.output[') and expr.endswith(']'):
-                        v = np.copy(v) # to make it contiguous
-                        if v.shape == self.output.shape:
-                            pass
-                        elif v.shape == self.output.shape + self.filtlengths.shape:
-                            v = np.moveaxis(v, 0, -1)
-                        else:
-                            raise ValueError(f'unrecognized shape {v.shape} for variable {key}')
-                    else:
-                        v = v.view()
-                    
+                    v = eval(v)
+                    v = v.view()
                     v.flags['WRITEABLE'] = False
-                
                     self._variables[key] = v
                 
                 if forcebroadcast:
