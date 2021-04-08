@@ -29,6 +29,9 @@ def argminrelmin(a, axis=None, out=None):
         Array of indices into the array. It has the same shape as `a.shape`
         with the dimension along `axis` removed.
     """
+    
+    # TODO the axis parameter does not work when `out` is specified.
+    
     a = np.asarray(a)
     if axis is None:
         a = a.reshape(-1)
@@ -52,14 +55,11 @@ def _argminrelmin(a, out):
             if a[i] < val or idx < 0:
                 idx = (wide + i) // 2
                 val = a[i]
-        else:
+        elif a[i] != a[i + 1]:
             wide = -1
     out[0] = idx
 
 def test_argminrelmin():
-    """
-    Test argminrelmin. Should print "29 0.0".
-    """
     a = np.concatenate([
         np.linspace(-1, 1, 20),
         np.linspace(1, 0, 10),
@@ -68,7 +68,18 @@ def test_argminrelmin():
         np.linspace(0.5, 1, 10),
     ])
     i = argminrelmin(a)
-    print(i, a[i])
+    assert i == 29, i
+    assert a[i] == 0, a[i]
+    i = argminrelmin([3,2,1,2,3])
+    assert i == 2, i
+    i = argminrelmin([3,2,1,1,2,3])
+    assert i == 2, i
+    i = argminrelmin([3,2,1,1,1,2,3])
+    assert i == 3, i
+    i = argminrelmin([3,2,1,1,0])
+    assert i == -1, i
+    i = argminrelmin([0,1,1,2,3])
+    assert i == -1, i
 
 if __name__ == '__main__':
     

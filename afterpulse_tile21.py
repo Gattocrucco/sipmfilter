@@ -14,6 +14,7 @@ import afterpulse
 import readwav
 import template as _template
 import textbox
+import breaklines
 
 savedir = 'afterpulse_tile21'
 os.makedirs(savedir, exist_ok=True)
@@ -184,7 +185,7 @@ def fcn(x, p):
             bins = norm * dist / integral,
         )
 
-def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overflow=None, histcond=None, continuous=False, **kw):
+def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overflow=None, continuous=False, **kw):
     """
     Fit an histogram.
     
@@ -195,17 +196,15 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
     condexpr : str
         The sample is sim.getexpr(expr, condexpr).
     prior : array/dictionary of GVar
+        Prior for the fit.
     pmf_or_cdf : function
         The signature must be `pmf_or_cdf(x, params)` where `params` has the
-        same format of `prior`
+        same format of `prior`.
     bins : int, sequence, str
         Passed to np.histogram. Default 'auto'.
     bins_overflow : sequence of two elements
         If None, do not fit the overflow. It is assumed that all the
         probability mass outside of the bins is contained in the overflow bin.
-    histcond : str
-        If specified, condition used instead of `condexpr` to plot the
-        histogram
     continuous : bool
         If False (default), pmf_or_cdf must be the probability distribution of
         an integer variable. If True, pmf_or_cdf must compute the cumulative
@@ -249,8 +248,7 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
             else:
                 break
     
-    center = (bins[1:] + bins[:-1]) / 2
-    wbar = np.diff(bins) / 2
+    # check total count
     norm = np.sum(counts) + overflow
     assert norm == sim.getexpr(f'count_nonzero({condexpr})')
     
@@ -268,27 +266,30 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
     fit = lsqfit.nonlinear_fit((x, y), fcn, prior, **kw)
     print(fit.format(maxline=True))
     
-    # plot histogram
-    if histcond is None:
-        histcond = condexpr
-    fig = sim.hist(expr, histcond)
-    ax, = fig.get_axes()
+    # plot data
+    fig, ax = plt.subplots(num='afterpulse_tile21.fithistogram', clear=True)
+    center = (bins[1:] + bins[:-1]) / 2
+    wbar = np.diff(bins) / 2
     kw = dict(linestyle='', capsize=4, marker='.', color='k')
-    uerrorbar(ax, center, y['bins'], xerr=wbar, **kw)
-    if hasoverflow:
-        uerrorbar(ax, center[-1] + 1, y['overflow'], **kw)
+    uerrorbar(ax, center, y['bins'], xerr=wbar, label='histogram', **kw)
 
-    # plot data and fit
+    # plot fit
     yfit = fcn(x, fit.palt)
+    ys = yfit['bins']
+    ym = np.repeat(gvar.mean(ys), 2)
+    ysdev = np.repeat(gvar.sdev(ys), 2)
+    xs = np.concatenate([bins[:1], np.repeat(bins[1:-1], 2), bins[-1:]])
+    ax.fill_between(xs, ym - ysdev, ym + ysdev, color='#0004', label='fit')
+    
+    # plot overflow
     if hasoverflow:
-        xs = np.pad(center, (0, 1), constant_values=center[-1] + 1)
-        ys = np.concatenate([yfit['bins'], [yfit['overflow']]])
-    else:
-        xs = center
-        ys = yfit['bins']
-    ym = gvar.mean(ys)
-    ysdev = gvar.sdev(ys)
-    ax.fill_between(xs, ym + ysdev, ym - ysdev, color='#0004')
+        oc = center[-1] + 2 * wbar[-1]
+        ys = y['overflow']
+        uerrorbar(ax, oc, ys, label='overflow', **kw)
+        ym = np.full(2, gvar.mean(ys))
+        ysdev = np.full(2, gvar.sdev(ys))
+        xs = oc + 0.8 * (bins[-2:] - center[-1])
+        ax.fill_between(xs, ym - ysdev, ym + ysdev, color='#0004')
     
     # write fit results on the plot
     info = f"""\
@@ -300,6 +301,16 @@ pvalue = {fit.Q:.2g}"""
         v = fit.palt[k]
         info += f'\n{k} = {v}'
     textbox.textbox(ax, info, loc='center right', fontsize='small')
+    
+    # decorations
+    ax.legend(loc='upper right')
+    ax.grid(which='major', linestyle='--')
+    ax.grid(which='minor', linestyle=':')
+    ax.set_xlabel(expr)
+    ax.set_ylabel('Count per bin')
+    cond = breaklines.breaklines(f'Selection: {condexpr}', 40, ')', '&|')
+    textbox.textbox(ax, cond, loc='upper left', fontsize='small')
+    fig.tight_layout()
     
     return fit, fig
 
@@ -317,36 +328,48 @@ def getkind(kind):
     else:
         raise KeyError(kind)
 
+gvar.BufferDict.uniform('U', 0, 1)
+
 def fitpe(sim, expr, condexpr, boundaries, kind='borel', overflow=True, **kw):
     pmf, param = getkind(kind)
     bins, bins_overflow = pebins(boundaries)
-    if not overflow:
+    if overflow:
+        histexpr = f'where({expr}<1000,{expr},1+max({expr}[{expr}<1000]))'
+    else:
         bins_overflow = None
+        condexpr = f'{condexpr}&({expr}<1000)'
+        histexpr = expr
     prior = {
         f'U({param})': gvar.BufferDict.uniform('U', 0, 1),
     }
-    return fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow, **kw)
+    fit, fig1 = fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow, **kw)
+    fig2 = sim.hist(histexpr, condexpr)
+    return fit, fig2, fig1
 
-def fitpepoisson(sim, expr, condexpr, boundaries, prior=None, overflow=True, **kw):
+def fitpepoisson(sim, expr, condexpr, boundaries, overflow=True, **kw):
     bins, bins_overflow = pebins(boundaries, 0)
-    if not overflow:
+    if overflow:
+        histexpr = f'where({expr}<1000,{expr},1+max({expr}[{expr}<1000]))'
+    else:
         bins_overflow = None
-    prior0 = {
+        condexpr = f'{condexpr}&({expr}<1000)'
+        histexpr = expr
+    prior = {
         'U(mu_borel)': gvar.BufferDict.uniform('U', 0, 1),
         'log(mu_poisson)': gvar.gvar(0, 1),
     }
-    if prior is not None:
-        prior0.update(prior)
-    return fithistogram(sim, expr, condexpr, prior0, genpoissonpmf, bins, bins_overflow, **kw)
+    fit, fig1 = fithistogram(sim, expr, condexpr, prior, genpoissonpmf, bins, bins_overflow, **kw)
+    fig2 = sim.hist(histexpr, condexpr)
+    return fit, fig2, fig1
 
 def fitapdecay(sim, expr, condexpr, const, **kw):
     prior = {
         'log(tau)' : gvar.gvar(np.log(1000), 1),
         'const' : const,
     }
-    return fithistogram(sim, expr, condexpr, prior, exponbkgcdf, continuous=True, **kw)
-
-gvar.BufferDict.uniform('U', 0, 1)
+    fit, fig1 = fithistogram(sim, expr, condexpr, prior, exponbkgcdf, continuous=True, **kw)
+    fig2 = sim.hist(expr, condexpr)
+    return fit, fig2, fig1
 
 def scalesdev(x, f):
     return x + (f - 1) * (x - gvar.mean(x))
@@ -386,6 +409,7 @@ def analdcr(d, datalist, sim):
     ax, = fig.get_axes()
     vspan(ax, cut)
     vlines(ax, boundaries, linestyle=':')
+    prefix = d['prefix']
     savef(fig, prefix)
     
     # plot pre-trigger amplitude vs. position
@@ -435,14 +459,18 @@ def analdcr(d, datalist, sim):
     print(f'dcr = {r} cps')
     
     # fit pre-trigger pe histogram
-    fit, fig = fitpe(sim, 'ptAnpe', f'{ptsel}&(ptAnpe>0)', boundaries, 'borel', histcond=f'{ptsel}&(ptAnpe>0)&(ptAnpe<1000)')
-    savef(fig, prefix)
+    fit, fig1, fig2 = fitpe(sim, 'ptAnpe', f'{ptsel}&(ptAnpe>0)', boundaries, 'borel')
+    savef(fig1, prefix)
+    savef(fig2, prefix)
     d.update(dcrfit=fit)
     
     # fit main peak pe histogram
-    mainsel = f'(mainpos>=0)&(length=={ptlength})'
-    fit, fig = fitpepoisson(sim, 'mainnpe', f'{mainsel}&(mainnpe<1000)', boundaries, overflow=False, histcond=f'{mainsel}&(mainnpe<1000)')
-    savef(fig, prefix)
+    expr = 'where(mainpos>=0,mainnpe,take_along_axis(mainnpe,argmax(mainpos>=0,axis=0)[None],0))'
+    sim.setvar('mainnpebackup', sim.getexpr(expr))
+    mainsel = f'any(mainpos>=0,0)&(length=={ptlength})'
+    fit, fig1, fig2 = fitpepoisson(sim, 'mainnpebackup', mainsel, boundaries, overflow=False)
+    savef(fig1, prefix)
+    savef(fig2, prefix)
     d.update(mainfit=fit)
     
     # plot <= 3 events with an high pre-trigger peak
@@ -480,6 +508,7 @@ def analap(d, datalist, sim):
     ax, = fig.get_axes()
     vspan(ax, hcut)
     vlines(ax, boundaries, linestyle=':')
+    prefix = d['prefix']
     savef(fig, prefix)
     
     # plot afterpulses height vs. distance from main pulse
@@ -505,8 +534,9 @@ def analap(d, datalist, sim):
     d.update(apcount=apcount, apnevents=nevents)
     
     # fit afterpulses pe histogram
-    fit, fig = fitpe(sim, 'apAnpe', f'{apcond}&(apAnpe>0)&(apAnpe<1000)', boundaries, 'borel', overflow=False, histcond=f'{apcond}&(apAnpe>0)&(apAnpe<1000)')
-    savef(fig, prefix)
+    fit, fig1, fig2 = fitpe(sim, 'apAnpe', f'{apcond}&(apAnpe>0)', boundaries, 'borel', overflow=False)
+    savef(fig1, prefix)
+    savef(fig2, prefix)
     d.update(apfit=fit)
 
     # expected background from DCR
@@ -520,8 +550,9 @@ def analap(d, datalist, sim):
     nbins = int(15/20 * np.sqrt(gvar.mean(apcount)))
     tau0 = 2000
     bins = -tau0 * np.log1p(-np.linspace(0, 1 - np.exp(-(dcutr - dcut) / tau0), nbins + 1))
-    fit, fig = fitapdecay(sim, f'apApos-mainpos-{dcut}', apcond, const, bins=bins)
-    savef(fig, prefix)
+    fit, fig1, fig2 = fitapdecay(sim, f'apApos-mainpos-{dcut}', apcond, const, bins=bins)
+    savef(fig1, prefix)
+    savef(fig2, prefix)
     d.update(apfittau=fit)
 
     # plot some events with afterpulses
@@ -571,7 +602,9 @@ for vov in vovdict:
     
     # do analysis
     datalist, sim = apload(vov)
+    print('\n******* DCR *******')
     analdcr(d, datalist, sim)
+    print('\n******* Afterpulses *******')
     analap(d, datalist, sim)
     
     # save analysis results to file
@@ -579,9 +612,9 @@ for vov in vovdict:
         print(f'save {analfile}...')
         gvar.dump(d, file)
 
-fig, axs = plt.subplots(2, 2, num='afterpulse_tile21', clear=True, figsize=[9, 7.1])
+fig, axs = plt.subplots(2, 3, num='afterpulse_tile21', clear=True, figsize=[11, 7.1])
 
-axdcr, axap, axpct, axnct = axs.flat
+(axdcr, axap, axtau), (axpct, axnct, axmu) = axs
 
 for ax in axs.flat:
     if ax.is_last_row():
@@ -593,17 +626,24 @@ axdcr.set_ylabel('Pre-trigger rate [cps]')
 axap.set_title('Afterpulse')
 axap.set_ylabel('Prob. of $\\geq$1 ap after 1 pe signal [%]')
 
+axtau.set_title('Afterpulse')
+axtau.set_ylabel('Exponential decay constant [ns]')
+
 axpct.set_title('Cross talk')
 axpct.set_ylabel('Prob. of > 1 pe [%]')
 
 axnct.set_title('Cross talk')
 axnct.set_ylabel('Average excess pe')
 
+axmu.set_title('Efficiency')
+axmu.set_ylabel('Average detected photons')
+
 vov = np.array(list(vovdict))
 def listdict(getter):
     return np.array([getter(d) for d in vovdict.values()])
 dcr = listdict(lambda d: d['dcr'])
 ap = listdict(lambda d: d['ap'])
+tau = listdict(lambda d: d['aptau'])
 def ct(mugetter):
     pct = listdict(lambda d: 1 - np.exp(-mugetter(d)))
     nct = listdict(lambda d: 1 / (1 - mugetter(d)) - 1)
@@ -622,10 +662,13 @@ mus = [
     ('Laser'      , mugetter('mainfit', 'mu_borel')),
     ('Afterpulses', mugetter('apfit'  , 'mu'      )),
 ]
+getter = mugetter('mainfit', 'mu_poisson')
+mup = listdict(lambda d: getter(d))
 
 kw = dict(capsize=4, linestyle='', marker='.')
 uerrorbar(axdcr, vov, dcr, **kw)
 uerrorbar(axap, vov, ap * 100, **kw)
+uerrorbar(axtau, vov, tau, **kw)
 for i, (label, getter) in enumerate(mus):
     pct, nct = ct(getter)
     offset = 0.1 * (i/(len(mus)-1) - 1/2)
@@ -633,6 +676,7 @@ for i, (label, getter) in enumerate(mus):
     x = vov + offset
     uerrorbar(axpct, x, pct * 100, **kw)
     uerrorbar(axnct, x, nct, **kw)
+uerrorbar(axmu, vov, mup, **kw)
 
 axpct.legend()
 axnct.legend()
@@ -675,9 +719,9 @@ dcr_lf = [
 
 dcr_factor = 250 / 0.1 # from cps/mm^2 to cps/PDM
 
-axdcr.plot(vov_fbk, dcr_factor * np.array(dcr_fbk), '.-', label='FBK')
-axdcr.plot(vov_lf, dcr_factor * np.array(dcr_lf), '.-', label='LF')
-axdcr.legend()
+# axdcr.plot(vov_fbk, dcr_factor * np.array(dcr_fbk), '.-', label='FBK')
+# axdcr.plot(vov_lf, dcr_factor * np.array(dcr_lf), '.-', label='LF')
+# axdcr.legend()
 
 for ax in axs.flat:
     l, u = ax.get_ylim()

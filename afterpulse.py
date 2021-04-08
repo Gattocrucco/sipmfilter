@@ -1400,6 +1400,10 @@ class AfterPulse(npzload.NPZLoad):
         """
         xvalues = self.getexpr(xexpr)
         yvalues = self.getexpr(yexpr)
+        if xvalues.dtype == bool:
+            xvalues = xvalues.astype('i1')
+        if yvalues.dtype == bool:
+            yvalues = yvalues.astype('i1')
         if where is not None:
             cond = self.getexpr(where)
             xvalues, yvalues, cond = np.broadcast_arrays(xvalues, yvalues, cond)
