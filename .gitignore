@@ -14,6 +14,7 @@ hist2dall/*
 noises/*
 !noises/nuvhd*tile57*6VoV_1*.npz
 !noises/merged_000886-adc_W201_Ch00.npz
+slides-2021-04-12/*.png
 templates/*
 !templates/nuvhd*tile57*6VoV_1*.npz
 toy*.npz

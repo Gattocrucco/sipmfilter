@@ -106,6 +106,16 @@ class Template(npzload.NPZLoad):
         """
         self = cls.__new__(cls)
         
+        # TODO The noise at the Nyquist frequency does not gets cancelled with
+        # the first average and then is amplified by the filter. Do a 2-sample
+        # moving average on the unaligned template.
+        
+        # TODO The alignment with filter is better than the alignment with
+        # laser. Do both. Put the trigger in templates[2], only if there's the
+        # trigger. Then `aligned=True` means using the filter, and
+        # `aligned='trigger'` raises if the filter is not available. Use an
+        # internal method to get the appropriate template.
+        
         if mask is None:
             mask = np.ones(len(data), bool)
             

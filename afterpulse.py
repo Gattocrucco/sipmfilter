@@ -63,8 +63,8 @@ class AfterPulse(npzload.NPZLoad):
     # 'tpre', 'tpost' indices for sorting by position
     
     # TODO
-    # When concatenating, align the filter and signal templates with the peak
-    # and average them. Use argmax(abs(x)).
+    # When concatenating, save all templates and use the correct template in
+    # plotevent, and maybe peaksampl and apheight.
     
     # TODO
     # Instead of using correlate.correlate, use directly
@@ -893,11 +893,11 @@ class AfterPulse(npzload.NPZLoad):
         
         peaks = [
             # field, label, marker
-            ('mainpeak'  , 'laser'       , 'o'),
-            ('minorpeak' , '1st posttrig', 's'),
-            ('minorpeak2', '2nd posttrig', 'v'),
-            ('ptpeak'    , '1st pretrig' , '<'),
-            ('ptpeak2'   , '2nd pretrig' , '>'),
+            ('mainpeak'  , 'laser'       , 'o', self._peaksampl[..., 0]),
+            ('minorpeak' , '1st posttrig', 's', self._apheight[..., 0]),
+            ('minorpeak2', '2nd posttrig', 'v', self._apheight[..., 1]),
+            ('ptpeak'    , '1st pretrig' , '<', self._peaksampl[..., 3]),
+            ('ptpeak2'   , '2nd pretrig' , '>', self._peaksampl[..., 4]),
         ]
         
         if zoom == 'all':
@@ -911,10 +911,10 @@ class AfterPulse(npzload.NPZLoad):
         
         boundaries = self.computenpeboundaries(ilength)
         
-        for ipeak, (field, label, marker) in enumerate(peaks):
+        for ipeak, (field, label, marker, aampl) in enumerate(peaks):
             peak = entry[field][ilength]
             pos = peak['pos']
-            ampl = self._peaksampl[ilength + (ievent, ipeak)]
+            ampl = aampl[ilength + (ievent,)]
             if pos < 0:
                 continue
             if not debug and (ampl < boundaries[0] or not xlim[0] <= pos <= xlim[1]):
@@ -962,6 +962,7 @@ class AfterPulse(npzload.NPZLoad):
             trigger     = copy("self.output['trigger']"),
             baseline    = copy("self.output['baseline']"),
             length      = "self.filtlengths[..., None]",
+            offset      = "self.templates['offset'][..., None]",
             saturated   = copy("self.output['saturated']"),
             lowbaseline = copy("self.output['lowbaseline']"),
             closept     = "self._closept",
@@ -1067,6 +1068,7 @@ class AfterPulse(npzload.NPZLoad):
             trigger     : the index of the trigger leading edge
             baseline    : the value of the baseline
             length      : the cross correlation filter template length
+            offset      : the temporal offset for each filter
             saturated   : if there is a sample equal to zero in the event
             lowbaseline : if there is sample too low before the trigger
             closept     : if there are pre-trigger peaks near the trigger
@@ -1097,12 +1099,12 @@ class AfterPulse(npzload.NPZLoad):
         is defined only for `minor` and `third`.
         
         Variables which depends on the filter template length have shape
-        filtlengths.shape + (nevents,), apart from the variable `length` which
-        has shape filtlengths.shape + (1,). Variables which do not depend on
-        filter template length have shape (nevents,).
+        filtlengths.shape + (nevents,), apart from the variables `length` and
+        `offset` which have shape filtlengths.shape + (1,). Variables which do
+        not depend on filter template length have shape (nevents,).
         
         Missing values are filled with `badvalue` (which is negative). The
-        overflow bin values of the `<P>npe` variables is filled with 1000.
+        overflow bin values of the `<P>npe` variables are filled with 1000.
         
         Additional variables can be added with `setvar`.
         

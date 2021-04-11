@@ -247,7 +247,10 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   
   * `slides-2021-03-11/`: DCR and afterpulses of LF_TILE15.
   
-  * `slides-2021-04-02/`: DCR, afterpulses and crosstalk of LF_TILE21.
+  * `slides-2021-04-02/`: **(OUTDATED)** DCR, afterpulses and crosstalk of
+    LF_TILE21.
+  
+  * `slides-2021-04-12/`: DCR, afterpulses and crosstalk of LF_TILE21.
   
   * `slides-2021-xx-xx/`: pulse finder fake rate.
   
