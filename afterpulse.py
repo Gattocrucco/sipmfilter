@@ -63,10 +63,6 @@ class AfterPulse(npzload.NPZLoad):
     # 'tpre', 'tpost' indices for sorting by position
     
     # TODO
-    # When concatenating, save all templates and use the correct template in
-    # plotevent, and maybe peaksampl and apheight.
-    
-    # TODO
     # Instead of using correlate.correlate, use directly
     # signal.fftconvolve(waveform - baseline, templ[None, ::-1], mode='full')
     # and then subtract len(templ) - 1 from the indices
@@ -211,7 +207,9 @@ class AfterPulse(npzload.NPZLoad):
                 The number of samples from the trigger to the beginning of
                 the truncated template.
         template : 1D array
-            The full signal template.
+            The full signal template. If the object is a concatenation, the
+            `templates` and `template` arrays have an additional first axis
+            that runs over concatenated objects.
         """
         
         if filtlengths is None:
@@ -307,7 +305,7 @@ class AfterPulse(npzload.NPZLoad):
         ilength_flat = np.argmax(self.filtlengths)
         return np.unravel_index(ilength_flat, self.filtlengths.shape)
     
-    def filtertempl(self, ilength=None):
+    def filtertempl(self, ilength=None, ievent=None):
         """
         Return a cross correlation filter template.
         
@@ -316,6 +314,9 @@ class AfterPulse(npzload.NPZLoad):
         ilength : {int, tuple, None}
             The index of the filter length in `filtlengths`. If not specified,
             use the longest filter.
+        ievent : {int, None}
+            To be specified when the object is a concatenation to get the
+            template used for the specific event.
         
         Return
         ------
@@ -327,10 +328,31 @@ class AfterPulse(npzload.NPZLoad):
         """
         if ilength is None:
             ilength = self._max_ilength()
-        entry = self.templates[ilength]
+        elif not isinstance(ilength, tuple):
+            ilength = (ilength,)
+        
+        if self.templates.shape == self.filtlengths.shape:
+            entry = self.templates[ilength]
+        elif ievent is not None:
+            idx = self.catindex(ievent)
+            entry = self.templates[(idx,) + ilength]
+        else:
+            raise ValueError('the object is a concatenation, specify the event')
+        
         templ = entry['template'][:entry['length']]
         offset = entry['offset']
         return templ, offset
+    
+    @functools.cached_property
+    def _offset(self):
+        if self.templates.shape == self.filtlengths.shape:
+            offset = self.templates['offset'][..., None]
+        else:
+            offset = np.empty(self.filtlengths.shape + self.output.shape, int)
+            cumlen = np.pad(np.cumsum(self._catlengths), (1, 0))
+            for start, end, x in zip(cumlen, cumlen[1:], self.templates['offset']):
+                offset[..., start:end] = x[..., None]
+        return offset
     
     def _run(self, wavdata, output, slic):
         """
@@ -672,6 +694,8 @@ class AfterPulse(npzload.NPZLoad):
         """
         Filter the signal template.
         
+        If the object is a concatenation, use the first template.
+        
         Parameters
         ----------
         ilength : {int, tuple of ints}
@@ -682,8 +706,12 @@ class AfterPulse(npzload.NPZLoad):
         s : 1D array
             The filtered signal waveform. It is positive and the amplitude is 1.
         """
-        templ, _ = self.filtertempl(ilength)
-        s = np.correlate(self.template, templ, 'full')
+        
+        # TODO align and average the templates if the object is a concatenation.
+        
+        templ, _ = self.filtertempl(ilength, 0)
+        signal = self.template if self.template.ndim == 1 else self.template[0]
+        s = np.correlate(signal, templ, 'full')
         return _posampl1(s)
     
     def signals(self):
@@ -699,7 +727,7 @@ class AfterPulse(npzload.NPZLoad):
             the maximum signal length. Shorter signals are padded with zeros.
         """
         maxflen = np.max(self.filtlengths)
-        maxlen = len(self.template) + maxflen - 1
+        maxlen = self.template.shape[-1] + maxflen - 1
         signal = np.zeros(self.filtlengths.shape + (maxlen,))
         for ilength, _ in np.ndenumerate(self.filtlengths):
             s = self.signal(ilength)
@@ -805,7 +833,8 @@ class AfterPulse(npzload.NPZLoad):
             cond = (height >= l) & (height < r)
             peampl[ilength] = np.median(height[cond])
         
-        signal = _posampl1(self.template)
+        signal = self.template if self.template.ndim == 1 else self.template[0]
+        signal = _posampl1(signal)
         signal = np.pad(signal, 1)
         signal = peampl[..., None] * signal
         signal = signal[..., None, :]
@@ -873,7 +902,7 @@ class AfterPulse(npzload.NPZLoad):
         baseline = entry['baseline']
         ax.axhline(baseline, color='#000', linestyle=':', label='baseline')
         
-        templ, _ = self.filtertempl(ilength)
+        templ, _ = self.filtertempl(ilength, ievent)
         lpad = entry['internals']['lpad']
         filtered = correlate.correlate(wf, templ, boundary=baseline, lpad=lpad)
         length = self.filtlengths[ilength]
@@ -962,7 +991,7 @@ class AfterPulse(npzload.NPZLoad):
             trigger     = copy("self.output['trigger']"),
             baseline    = copy("self.output['baseline']"),
             length      = "self.filtlengths[..., None]",
-            offset      = "self.templates['offset'][..., None]",
+            offset      = "self._offset",
             saturated   = copy("self.output['saturated']"),
             lowbaseline = copy("self.output['lowbaseline']"),
             closept     = "self._closept",
@@ -1099,9 +1128,12 @@ class AfterPulse(npzload.NPZLoad):
         is defined only for `minor` and `third`.
         
         Variables which depends on the filter template length have shape
-        filtlengths.shape + (nevents,), apart from the variables `length` and
-        `offset` which have shape filtlengths.shape + (1,). Variables which do
-        not depend on filter template length have shape (nevents,).
+        filtlengths.shape + (nevents,), apart from the variable `length` which
+        has shape filtlengths.shape + (1,). Variables which do not depend on
+        filter template length have shape (nevents,).
+        
+        The variable `offset` has shape filtlengths.shape + (nevents,) if the
+        object is a concatenation, otherwise filtlengths.shape + (1,).
         
         Missing values are filled with `badvalue` (which is negative). The
         overflow bin values of the `<P>npe` variables are filled with 1000.
@@ -1453,8 +1485,13 @@ class AfterPulse(npzload.NPZLoad):
         Concatenate afterpulse objects.
         
         The `output` member is the concatenation of the corresponding members
-        of the concatenated object. Other members are set to the ones of the
-        first object in the concatenation, without copying.
+        of the concatenated object.
+        
+        The `templates` and `template` members are the stacking of the
+        corresponding members.
+        
+        Other members are set to the ones of the first object in the
+        concatenation, without copying.
         
         Parameters
         ----------
@@ -1467,12 +1504,21 @@ class AfterPulse(npzload.NPZLoad):
             The concatenation.
         """
         ap0 = aplist[0]
-        outputs = []
+        output = []
+        templates = []
+        template = []
         lengths = []
         for ap in aplist:
             assert np.array_equal(ap.filtlengths, ap0.filtlengths)
-            outputs.append(ap.output)
-            lengths += list(getattr(ap, '_catlengths', ap.output.shape))
+            output.append(ap.output)
+            if hasattr(ap, '_catlengths'):
+                lengths += list(ap._catlengths)
+                templates.append(ap.templates)
+                template.append(ap.template)
+            else:
+                lengths.append(len(ap.output))
+                templates.append(ap.templates[None])
+                template.append(ap.template[None])
         
         self = cls.__new__(cls)
         
@@ -1481,7 +1527,9 @@ class AfterPulse(npzload.NPZLoad):
             if k not in classattr and not k.startswith('__'):
                 setattr(self, k, v)
         
-        self.output = np.concatenate(outputs)
+        self.output = np.concatenate(output)
+        self.templates = np.concatenate(templates, axis=0)
+        self.template = np.concatenate(template, axis=0)
         self._catlengths = np.array(lengths)
         assert np.sum(lengths) == len(self.output)
         
