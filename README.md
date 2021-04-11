@@ -254,6 +254,9 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   
   * `slides-2021-xx-xx/`: pulse finder fake rate.
   
+  * `slides-2021-yy-yy/`: DCR, afterpulses and crosstalk of LF_TILE21 (long
+    version).
+  
   * `toy1gsa/`: figures made with `toy1gsa-plot.py`.
   
   * `toy1gvs125m/`: figures made with `toy1gvs125m-plot.py`.
