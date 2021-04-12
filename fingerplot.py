@@ -31,9 +31,15 @@ except:
     pass
 
 data = readwav.readwav(filename, mmap=False, maxevents=maxevents)
-mask = ~readwav.spurious_signals(data)
-trigger, baseline, value = integrate.filter(data, bslen=8000, length_ma=length, delta_ma=length)
-corr_value = baseline - value[:, 0]
+mask = ~np.any(data[:, 0, :8000] < 700, axis=-1)
+if data.shape[1] == 2:
+    trigger, baseline, value = integrate.filter(data, bslen=8000, length_ma=length, delta_ma=length)
+    value = value[:, 0]
+else:
+    baseline = np.median(data[:, 0, :8000], axis=-1)
+    start = 8969 - 21
+    value = np.mean(data[:, 0, start:start + length], axis=-1)
+corr_value = baseline - value
 
 fig = plt.figure(num='fingerplot', clear=True)
 snr, _, _ = single_filter_analysis.single_filter_analysis(corr_value[mask], fig, return_full=True)

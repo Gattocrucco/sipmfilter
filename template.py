@@ -131,18 +131,24 @@ class Template(npzload.NPZLoad):
             trigger = np.full(len(data), trigger)
         
         # Find spurious signals.
-        baseline_zone = data[:, 0, :np.min(trigger) - 100]
+        baseline_zone = data[:, 0, :np.min(trigger) - 1000]
         spurious = firstbelowthreshold.firstbelowthreshold(baseline_zone, 700) >= 0
         mask = mask & ~spurious
         
         # Count photoelectrons using the average.
-        baseline = np.mean(baseline_zone, axis=-1)
-        value = meanat(data[:, 0], trigger, 1500)
+        baseline = np.median(baseline_zone, axis=-1)
+        value = meanat(data[:, 0], trigger - 21, 1500)
         corr_value = baseline - value
         snr, center, width = single_filter_analysis(corr_value[mask], return_full=True, fig1=fig)
+        
+        assert len(center) > 2, len(center)
+        
+        if snr == 0:
+            print(f'warning: 0 and 1 pe peaks may have unexpected position')
+        
+        oursnr = center[1] / width[0]
         minsnr = 5
-        assert snr >= minsnr, f'SNR = {snr:.3g} < {minsnr}'
-        assert len(center) > 2
+        assert oursnr >= minsnr, f'SNR = {oursnr:.3g} < {minsnr}'
     
         # Select the data corresponding to 1 photoelectron.
         lower = (center[0] + center[1]) / 2

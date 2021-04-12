@@ -64,7 +64,7 @@ def single_filter_analysis(corr_value, fig1=None, fig2=None, return_full=False):
     counts = np.concatenate([[0], counts])
     
     # Find peaks in the histogram.
-    peaks, pp = signal.find_peaks(counts, prominence=16, height=16, distance=6)
+    peaks, pp = signal.find_peaks(counts, prominence=16, height=16, distance=5)
     ph = pp['peak_heights']
     psel = np.concatenate([[True], (ph[1:] / ph[:-1]) > 1/5])
     peaks = peaks[psel]

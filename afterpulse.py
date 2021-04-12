@@ -353,7 +353,7 @@ class AfterPulse(npzload.NPZLoad):
             for start, end, x in zip(cumlen, cumlen[1:], self.templates['offset']):
                 offset[..., start:end] = x[..., None]
         return offset
-    
+        
     def _run(self, wavdata, output, slic):
         """
         Process a batch of events, filling `output`.
@@ -988,6 +988,7 @@ class AfterPulse(npzload.NPZLoad):
         copy   = lambda s: f'np.copy({s})'
         variables = dict(
             event       = "np.arange(len(self.output))",
+            catindex    = "self.catindex(np.arange(len(self.output)))",
             trigger     = copy("self.output['trigger']"),
             baseline    = copy("self.output['baseline']"),
             length      = "self.filtlengths[..., None]",
@@ -1094,6 +1095,8 @@ class AfterPulse(npzload.NPZLoad):
         numpy arrays:
             
             event       : event index
+            catindex    : index of the concatenated object (0 if not a
+                          concatenation)
             trigger     : the index of the trigger leading edge
             baseline    : the value of the baseline
             length      : the cross correlation filter template length
@@ -1541,12 +1544,12 @@ class AfterPulse(npzload.NPZLoad):
         
         Parameters
         ----------
-        ievent : int
+        ievent : array_like
             The index of the event.
         
         Return
         ------
-        idx : int
+        idx : array_like
             Zero if the object is not the concatenation of multiple objects.
             Otherwise, the index of the position in the list passed to
             `concatenate` of the object where the requested event originates
@@ -1558,7 +1561,8 @@ class AfterPulse(npzload.NPZLoad):
         lengths = getattr(self, '_catlengths', self.output.shape)
         cumlen = np.pad(np.cumsum(lengths), (1, 0))
         idx = np.searchsorted(cumlen, ievent, side='right') - 1
-        assert 0 <= idx < len(lengths), idx
+        if np.isscalar(idx):
+            assert 0 <= idx < len(lengths), idx
         return idx
     
     def subindex(self, ievent):
