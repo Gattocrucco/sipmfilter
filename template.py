@@ -79,7 +79,7 @@ class Template(npzload.NPZLoad):
         return self.templates.shape[1]
     
     @classmethod
-    def from_lngs(cls, data, length, mask=None, trigger=None):
+    def from_lngs(cls, data, length, mask=None, trigger=None, fig=None):
         """
         Compute a template from 1 p.e. signals in an LNGS wav.
         
@@ -98,6 +98,9 @@ class Template(npzload.NPZLoad):
             Position of the trigger start in the events. If not specified,
             the trigger is read from the second channel of `data`. If specified,
             it supersedes `data` even with two channels.
+        fig : matplotlib figure, optional
+            If provided, the fingerplot used to select 1 pe pulses is plotted
+            here.
         
         Return
         ------
@@ -136,7 +139,7 @@ class Template(npzload.NPZLoad):
         baseline = np.mean(baseline_zone, axis=-1)
         value = meanat(data[:, 0], trigger, 1500)
         corr_value = baseline - value
-        snr, center, width = single_filter_analysis(corr_value[mask], return_full=True)
+        snr, center, width = single_filter_analysis(corr_value[mask], return_full=True, fig1=fig)
         minsnr = 5
         assert snr >= minsnr, f'SNR = {snr:.3g} < {minsnr}'
         assert len(center) > 2
@@ -145,6 +148,10 @@ class Template(npzload.NPZLoad):
         lower = (center[0] + center[1]) / 2
         upper = (center[1] + center[2]) / 2
         selection = (lower < corr_value) & (corr_value < upper) & mask
+        if fig is not None:
+            ax, = fig.get_axes()
+            ax.axvspan(lower, upper, color='#f55', zorder=-1, label='selection for template')
+            ax.legend(loc='upper right')
     
         # Compute the waveform as the mean of the signals.
         mtrig = np.full(len(trigger), np.median(trigger))

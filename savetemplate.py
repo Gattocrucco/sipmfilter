@@ -28,18 +28,20 @@ for source in files:
         trigger = 8969
     else:
         trigger = None
-    templ = template.Template.from_lngs(data, 7 * 512, trigger=trigger)
-    print(f'saving template to {dest}...')
+    
+    fig1 = plt.figure(num='savetemplate1', clear=True)    
+    templ = template.Template.from_lngs(data, 7 * 512, trigger=trigger, fig=fig1)
+    print(f'write {dest}...')
     templ.save(dest)
 
-    fig = plt.figure(num='savetemplate', clear=True, figsize=[6.4, 7.1])
-
-    templateplot.templateplot(dest, fig=fig)
-
-    fig.tight_layout()
-    if len(files) == 1:
-        fig.show()
-    else:
-        destplot = destbase + '.png'
-        print(f'save plot to {destplot}...')
-        fig.savefig(destplot)
+    fig2 = plt.figure(num='savetemplate2', clear=True, figsize=[6.4, 7.1])
+    templateplot.templateplot(dest, fig=fig2)
+    
+    for i, fig in enumerate([fig1, fig2]):
+        fig.tight_layout()
+        if len(files) == 1:
+            fig.show()
+        else:
+            destplot = f'{destbase}-{i + 1}.png'
+            print(f'write {destplot}...')
+            fig.savefig(destplot)
