@@ -248,14 +248,18 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   * `slides-2021-03-11/`: DCR and afterpulses of LF_TILE15.
   
   * `slides-2021-04-02/`: **(OUTDATED)** DCR, afterpulses and crosstalk of
-    LF_TILE21.
+    LF_TILE21 (internal meeting).
   
-  * `slides-2021-04-12/`: DCR, afterpulses and crosstalk of LF_TILE21.
+  * `slides-2021-04-12/`: **(OUTDATED)** afterpulses and crosstalk of LF_TILE21
+    (photoelectronics meeting).
+    
+  * `slides-2021-04-20/`: DCR, afterpulses and crosstalk of LF_TILE21
+    (simulation meeting).
   
   * `slides-2021-xx-xx/`: pulse finder fake rate.
   
-  * `slides-2021-yy-yy/`: DCR, afterpulses and crosstalk of LF_TILE21 (long
-    version).
+  * `slides-2021-yy-yy/`: DCR, afterpulses and crosstalk of LF_TILE21
+    (**unrevised** long version).
   
   * `toy1gsa/`: figures made with `toy1gsa-plot.py`.
   

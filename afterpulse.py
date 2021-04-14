@@ -801,20 +801,26 @@ class AfterPulse(npzload.NPZLoad):
     def _peaksampl(self):
         return self.peaksampl()
     
-    def apheight(self, ampl):
+    def apheight(self, ampl, correction='height', offset='peak'):
         """
         Compute the afterpulse height.
         
-        The amplitude of the post-trigger peaks is added to the main peak tail,
-        but the waveform used is unfiltered. The main peak amplitude is fixed
-        to 1 pe.
-        
-        The normalization is still that of the filter output.
-        
+        The afterpulse amplitude is increased by a quantity which decreases
+        with the delay, to put all afterpulses at the same height.
+                
         Parameters
         ----------
         ampl : array filtlengths.shape + (nevents, 5)
             The amplitude as returned by `peaksampl`.
+        correction : {'height', 'area'}
+            The kind of correction. 'height' (default) uses the signal height,
+            'area' uses the survival function of the signal.
+        offset : {int, 'peak', 'edge'}:
+            The offset added to the delay when evaluating the correction.
+            'peak' (default) starts from the peak of signal template, 'edge'
+            from the point at 10 % the maximum amplitude of the rising edge. If
+            an integer it is used directly. Can be negative (the template is
+            extended with zeros if necessary).
         
         Return
         ------
@@ -836,9 +842,25 @@ class AfterPulse(npzload.NPZLoad):
         signal = self.template if self.template.ndim == 1 else self.template[0]
         signal = _posampl1(signal)
         signal = np.pad(signal, 1)
+        
+        if offset == 'peak':
+            offset = np.argmax(signal)
+        elif offset == 'edge':
+            offset = np.flatnonzero(signal >= 0.1)[0]
+        elif int(offset) == offset:
+            offset = offset + 1
+        else:
+            raise ValueError(offset)
+        
+        if correction == 'height':
+            pass
+        elif correction == 'area':
+            signal = np.cumsum(signal[::-1])[::-1] / np.sum(signal)
+        else:
+            raise KeyError(correction)
+        
         signal = peampl[..., None] * signal
         signal = signal[..., None, :]
-        offset = np.argmax(signal, axis=-1)
         
         height = np.empty(self.filtlengths.shape + self.output.shape + (2,))
         for i, pos in enumerate([pos1, pos2]):
