@@ -16,6 +16,8 @@ import template as _template
 import textbox
 import breaklines
 
+gvar.switch_gvar()
+
 savedir = 'afterpulse_tile21'
 os.makedirs(savedir, exist_ok=True)
 
@@ -468,10 +470,14 @@ def analdcr(d, datalist, sim):
     expr = 'where(mainpos>=0,mainnpe,take_along_axis(mainnpe,argmax(mainpos>=0,axis=0)[None],0))'
     sim.setvar('mainnpebackup', sim.getexpr(expr))
     mainsel = f'any(mainpos>=0,0)&(length=={ptlength})'
-    fit, fig1, fig2 = fitpepoisson(sim, 'mainnpebackup', mainsel, boundaries, overflow=False)
-    savef(fig1, prefix)
-    savef(fig2, prefix)
-    d.update(mainfit=fit)
+    for overflow in [False, True]:
+        fit, fig1, fig2 = fitpepoisson(sim, 'mainnpebackup', mainsel, boundaries, overflow=overflow)
+        savef(fig1, prefix)
+        savef(fig2, prefix)
+        label = 'mainfit'
+        if overflow:
+            label += 'of'
+        d[label] = fit
     
     # plot <= 3 events with an high pre-trigger peak
     evts = sim.eventswhere(f'{ptsel}&(ptAamplh>{cut})')
@@ -534,10 +540,14 @@ def analap(d, datalist, sim):
     d.update(apcount=apcount, apnevents=nevents)
     
     # fit afterpulses pe histogram
-    fit, fig1, fig2 = fitpe(sim, 'apAnpe', f'{apcond}&(apAnpe>0)', boundaries, 'borel', overflow=False)
-    savef(fig1, prefix)
-    savef(fig2, prefix)
-    d.update(apfit=fit)
+    for overflow in [False, True]:
+        fit, fig1, fig2 = fitpe(sim, 'apAnpe', f'{apcond}&(apAnpe>0)', boundaries, 'borel', overflow=overflow)
+        savef(fig1, prefix)
+        savef(fig2, prefix)
+        label = 'apfit'
+        if overflow:
+            label += 'of'
+        d[label] = fit
 
     # expected background from DCR
     time = (dcutr - dcut) * 1e-9 * nevents
@@ -581,8 +591,6 @@ def analap(d, datalist, sim):
     print(f'corrected ap count = {ccount}')
     print(f'afterpulse probability = {p}')
     
-gvar.switch_gvar()
-
 for vov in vovdict:
     
     print(f'\n************** {vov} VoV **************')

@@ -106,7 +106,7 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
 
   * `afterpulse_tile15.py`: **(OUTDATED)** measure dcr in tile 15.
   
-  * `afterpulse_tile21.py`: measure dcr and afterpulse in tile 21.
+  * `afterpulse_tile21.py`: measure dcr, afterpulse and cross talk in tile 21.
 
   * `afterpulse_tile57.py`: count afterpulses in tile 57.
 
