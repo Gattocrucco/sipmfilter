@@ -620,13 +620,17 @@ for vov in vovdict:
         print(f'save {analfile}...')
         gvar.dump(d, file)
 
-fig, axs = plt.subplots(2, 3, num='afterpulse_tile21', clear=True, figsize=[11, 7.1])
+fig1, axdcr = plt.subplots(num='afterpulse_tile21-1', clear=True, figsize=[3.7, 3.5])
+fig2, (axap, axtau) = plt.subplots(1, 2, num='afterpulse_tile21-2', clear=True, figsize=[2 * 3.7, 3.5])
+fig3, (axmub, axpct, axnct) = plt.subplots(1, 3, num='afterpulse_tile21-3', clear=True, figsize=[10.5, 3.5])
+fig4, axmu = plt.subplots(num='afterpulse_tile21-4', clear=True, figsize=[3.7, 3.5])
 
-(axdcr, axap, axtau), (axpct, axnct, axmu) = axs
+figs = [fig1, fig2, fig3, fig4]
 
-for ax in axs.flat:
-    if ax.is_last_row():
-        ax.set_xlabel('VoV')
+for fig in figs:
+    for ax in fig.get_axes():
+        if ax.is_last_row():
+            ax.set_xlabel('VoV')
 
 axdcr.set_title('DCR')
 axdcr.set_ylabel('Pre-trigger rate [cps]')
@@ -644,7 +648,10 @@ axnct.set_title('Cross talk')
 axnct.set_ylabel('Average excess pe')
 
 axmu.set_title('Efficiency')
-axmu.set_ylabel('Average detected photons')
+axmu.set_ylabel('Average detected laser photons')
+
+axmub.set_title('Cross talk')
+axmub.set_ylabel('Branching parameter $\\mu_B$')
 
 vov = np.array(list(vovdict))
 def listdict(getter):
@@ -678,14 +685,17 @@ uerrorbar(axdcr, vov, dcr, **kw)
 uerrorbar(axap, vov, ap * 100, **kw)
 uerrorbar(axtau, vov, tau, **kw)
 for i, (label, getter) in enumerate(mus):
+    mub = listdict(lambda d: getter(d))
     pct, nct = ct(getter)
     offset = 0.1 * (i/(len(mus)-1) - 1/2)
     kw.update(label=label)
     x = vov + offset
     uerrorbar(axpct, x, pct * 100, **kw)
     uerrorbar(axnct, x, nct, **kw)
+    uerrorbar(axmub, x, mub, **kw)
 uerrorbar(axmu, vov, mup, **kw)
 
+axmub.legend()
 axpct.legend()
 axnct.legend()
 
@@ -731,12 +741,14 @@ dcr_factor = 250 / 0.1 # from cps/mm^2 to cps/PDM
 # axdcr.plot(vov_lf, dcr_factor * np.array(dcr_lf), '.-', label='LF')
 # axdcr.legend()
 
-for ax in axs.flat:
-    l, u = ax.get_ylim()
-    ax.set_ylim(0, u)
-    ax.minorticks_on()
-    ax.grid(True, 'major', linestyle='--')
-    ax.grid(True, 'minor', linestyle=':')
+for fig in figs:
+    for ax in fig.get_axes():
+        l, u = ax.get_ylim()
+        ax.set_ylim(0, u)
+        ax.minorticks_on()
+        ax.grid(True, 'major', linestyle='--')
+        ax.grid(True, 'minor', linestyle=':')
+    fig.tight_layout()
 
-fig.tight_layout()
-fig.show()
+for fig in figs:
+    fig.show()
