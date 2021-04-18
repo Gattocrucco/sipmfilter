@@ -15,6 +15,11 @@ class NPZLoad:
     Class methods
     -------------
     load : read an instance form a file.
+    
+    Attributes
+    ----------
+    _npzload_unpack_scalars : bool
+        If True, 0d arrays are converted to scalars when loading. Default False.
     """
     
     def save(self, filename, compress=False, downcast=None):
@@ -50,6 +55,8 @@ class NPZLoad:
         
         fun = np.savez_compressed if compress else np.savez
         fun(filename, **variables)
+        
+    _npzload_unpack_scalars = False
     
     @classmethod
     def load(cls, filename):
@@ -60,5 +67,7 @@ class NPZLoad:
         self = cls.__new__(cls)
         with np.load(filename) as arch:
             for n, x in arch.items():
+                if x.shape == () and self._npzload_unpack_scalars:
+                    x = x.item()
                 setattr(self, n, x)
         return self

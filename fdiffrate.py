@@ -224,27 +224,6 @@ veto if any sample < {veto} (vetoed {len(data) - nevents})"""
     fig.tight_layout()
     fig.show()
 
-# def gauss_integral(a, b, **kw):
-#     dist = stats.norm(**kw)
-#     return np.where(
-#         (a > 0) & (b > 0),
-#         dist.sf(a) - dist.sf(b),
-#         dist.cdf(b) - dist.cdf(a),
-#     )
-#
-# def upcrossings_digital(u, var, cov1, digit):
-#     pout = 0
-#     for k in range(100):
-#         y = (np.floor(u / digit) - k) * digit
-#         m = cov1 / var * y
-#         # v = var - cov1 ** 2 / var
-#         v = (var - cov1) * (var + cov1) / var
-#         pcond = stats.norm.sf(y + (k + 1/2) * digit, loc=m, scale=np.sqrt(v))
-#         # p = stats.norm.pdf(y, scale=np.sqrt(var)) * digit
-#         p = gauss_integral(y - digit/2, y + digit/2, scale=np.sqrt(var))
-#         pout += pcond * p
-#     return pout
-#
 # def covariance(x, y, axis=-1):
 #     mx = x - np.mean(x, axis=axis, keepdims=True)
 #     my = y - np.mean(y, axis=axis, keepdims=True)
