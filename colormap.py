@@ -1,16 +1,17 @@
-from matplotlib import colors
+from matplotlib import colors as _colors
 import colorspacious
 import numpy as np
-
-def uniform(rgb0=[1, 0, 0], N=256, lrange=(0, 100)):
+from scipy import interpolate
+    
+def uniform(colors=['black', 'red', 'white'], N=256, lrange=(0, 100)):
     """
-    Make a perceptually uniform colormap with a single color.
+    Make a perceptually uniform colormap.
     
     Parameters
     ----------
-    rgb0 : sequence
-        The three RGB components in range [0, 1] of the color. The chroma and
-        hue are taken from this color. Default red.
+    colors : sequence of matplotlib colors
+        The sequence of evenly spaced colors. The luminosity will be modified
+        to increase linearly from the first color to the last.
     N : int
         The number of steps of the colormap. Default 256.
     lrange : sequence
@@ -22,24 +23,22 @@ def uniform(rgb0=[1, 0, 0], N=256, lrange=(0, 100)):
     cmap : matplotlib.colors.ListedColormap
         A new colormap.
     """
-    jch, lab = np.zeros((2, N, 3))
+    rgb0 = np.array([_colors.to_rgb(color) for color in colors])
+    lab0 = colorspacious.cspace_convert(rgb0, 'sRGB1', 'CAM02-UCS')
     
-    # luminosity
+    lab = np.zeros((N, 3))
     lab[:, 0] = np.linspace(*lrange, N)
-    jch[:, 0] = colorspacious.cspace_convert(lab, 'CAM02-UCS', 'JCh')[:, 0]
     
-    # chroma
-    c0 = colorspacious.cspace_convert([0, 0, 0], 'sRGB1', 'JCh')[1]
-    c1 = colorspacious.cspace_convert(rgb0, 'sRGB1', 'JCh')[1]
-    c2 = colorspacious.cspace_convert([1, 1, 1], 'sRGB1', 'JCh')[1]
-    jch[:, 1] = np.concatenate([
-        np.linspace(c0, c1, N // 2),
-        np.linspace(c1, c2, N - N // 2 + 1)[1:]
-    ])
+    x = np.linspace(0, 1, len(lab0))
+    newx = np.linspace(0, 1, N)
+    kw = dict(axis=0, assume_sorted=True, copy=False)
+    lab[:, 1:] = interpolate.interp1d(x, lab0[:, 1:], **kw)(newx)
     
-    # hue
-    jch[:, 2] = colorspacious.cspace_convert(rgb0, 'sRGB1', 'JCh')[2]
-
-    rgb = colorspacious.cspace_convert(jch, 'JCh', 'sRGB1')
+    rgb = colorspacious.cspace_convert(lab, 'CAM02-UCS', 'sRGB1')
     rgb = np.clip(rgb, 0, 1)
-    return colors.ListedColormap(rgb)
+    return _colors.ListedColormap(rgb)
+
+def plotcmap(ax, cmap, N=512, **kw):
+    img = np.linspace(0, 1, N)[None]
+    d = 1 / N
+    return ax.imshow(img, cmap=cmap, aspect='auto', extent=(0, 1, 1, 0), **kw)

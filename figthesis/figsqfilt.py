@@ -34,8 +34,8 @@ fig, axs = plt.subplots(1, 2, **kw)
 ax, axf = axs
 
 ax.plot(wf, color='#f55', label='x[t]')
-ax.plot(len(wf) - len(m) + np.arange(len(m)), m, color='#000', linestyle=':', label='m = mean(x[t:t + 1μs])')
-ax.plot(len(wf) - len(f) + np.arange(len(f)), f, color='#000', linestyle='-', label='y = m[t] $-$ m[t + 1μs]')
+ax.plot(len(wf) - len(m) + np.arange(len(m)), m, color='#000', linestyle=':', label='m[t] = mean(x[t $-$ 1µs:t])')
+ax.plot(len(wf) - len(f) + np.arange(len(f)), f, color='#000', linestyle='-', label='y[t] = m[t $-$ 1µs] $-$ m[t]')
 
 ax.legend()
 
