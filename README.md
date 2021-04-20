@@ -258,8 +258,8 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   
   * `slides-2021-xx-xx/`: pulse finder fake rate.
   
-  * `slides-2021-yy-yy/`: DCR, afterpulses and crosstalk of LF_TILE21
-    (**unrevised** long version).
+  * `slides-2021-yy-yy/`: **(OUTDATED)** DCR, afterpulses and crosstalk of
+    LF_TILE21 (unrevised long version).
   
   * `toy1gsa/`: figures made with `toy1gsa-plot.py`.
   
@@ -269,3 +269,8 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   
   * `toycomparison-old/`: **(OUTDATED)** like above, but before taking a
     smaller window for filtering and localizing the signal.
+
+## License
+
+The code is covered by the MIT license, while the slides by the CC-BY 4.0. In
+practice you can do almost anything provided you cite the source.
