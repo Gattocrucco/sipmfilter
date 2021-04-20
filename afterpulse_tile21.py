@@ -288,6 +288,7 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
         oc = center[-1] + 2 * wbar[-1]
         ys = y['overflow']
         uerrorbar(ax, oc, ys, label='overflow', **kw)
+        ys = yfit['overflow']
         ym = np.full(2, gvar.mean(ys))
         ysdev = np.full(2, gvar.sdev(ys))
         xs = oc + 0.8 * (bins[-2:] - center[-1])
@@ -461,10 +462,14 @@ def analdcr(d, datalist, sim):
     print(f'dcr = {r} cps')
     
     # fit pre-trigger pe histogram
-    fit, fig1, fig2 = fitpe(sim, 'ptAnpe', f'{ptsel}&(ptAnpe>0)', boundaries, 'borel')
-    savef(fig1, prefix)
-    savef(fig2, prefix)
-    d.update(dcrfit=fit)
+    for kind in ['borel', 'geom']:
+        fit, fig1, fig2 = fitpe(sim, 'ptAnpe', f'{ptsel}&(ptAnpe>0)', boundaries, kind)
+        savef(fig1, prefix)
+        savef(fig2, prefix)
+        label = 'dcrfit'
+        if kind == 'geom':
+            label += kind
+        d[label] = fit
     
     # fit main peak pe histogram
     expr = 'where(mainpos>=0,mainnpe,take_along_axis(mainnpe,argmax(mainpos>=0,axis=0)[None],0))'

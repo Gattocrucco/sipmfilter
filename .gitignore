@@ -9,8 +9,9 @@ afterpulse*/*
 darksidehd
 fdrall/*
 figthesis/*.npz
-!figthesis/figspectra.npz
+!figthesis/figfakerate/*.npz
 !figthesis/fighist2d*.npz
+!figthesis/figspectra.npz
 hist2dall/*
 noises/*
 !noises/nuvhd*tile57*6VoV_1*.npz

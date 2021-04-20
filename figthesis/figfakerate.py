@@ -8,7 +8,6 @@ import fdiffrate
 import readroot
 import read
 import figlatex
-import textbox
 
 length = 1000 # ns
 
@@ -58,7 +57,7 @@ def processspec(spec, savename, bound):
 
     nevents, nsamples = data.shape
 
-    output = fdiffrate.fdiffrate(data, nsamp, thrstep=0.1)
+    output = fdiffrate.fdiffrate(data, nsamp, thrstep=0.1, pbar=True)
     thr, thrcounts, thrcounts_theory, sdev, effnsamples = output
 
     l = np.min(thr)
@@ -84,9 +83,6 @@ def processspec(spec, savename, bound):
 
 table = [
     # title, veto, files
-    ('Proto0 all tiles', 0, [
-        'darksidehd/merged_000886.root',
-    ]),
     ('LNGS tile 15', 860, [
         'darksidehd/LF_TILE15_77K_55V_0VoV_1.wav',
         'darksidehd/LF_TILE15_77K_59V_2VoV_1.wav',
@@ -95,11 +91,14 @@ table = [
         'darksidehd/LF_TILE15_77K_71V_8VoV_1.wav',
         'darksidehd/LF_TILE15_77K_73V_9VoV_1.wav',
     ]),
+    ('Proto0 all tiles', 0, [
+        'darksidehd/merged_000886.root',
+    ]),
     ('LNGS tiles 53, 57, 59', 750, [
-        'darksidehd/nuvhd_lf_3x_tile53_77K_64V_6VoV_1.wav',
-        'darksidehd/nuvhd_lf_3x_tile53_77K_66V_7VoV_1.wav',
         'darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav',
         'darksidehd/nuvhd_lf_3x_tile59_77K_64V_6VoV_1.wav',
+        'darksidehd/nuvhd_lf_3x_tile53_77K_64V_6VoV_1.wav',
+        'darksidehd/nuvhd_lf_3x_tile53_77K_66V_7VoV_1.wav',
     ]), 
 ]
 
@@ -107,7 +106,7 @@ for title, veto, files in table:
     specs = files2specs(files)
     npz = specs2npz(specs)
     for spec, savefile in zip(specs, npz):
-        if not os.path.exists(npz):
+        if not os.path.exists(savefile):
             processspec(spec, savefile, veto)
 
 figkw = dict(
@@ -122,9 +121,15 @@ fig, axs = plt.subplots(len(table), 1, **figkw)
 for ax, (title, veto, files) in zip(axs, table):
     specs = files2specs(files)
     npz = specs2npz(specs)
-    dolegend = False
+    
+    labeldone = False
+    tile53kwstack = [
+        dict(linestyle=':', marker=''),
+        dict(linestyle='-', marker=''),
+    ]
     for ifile, file in enumerate(npz):
         
+        print(f'load {file}...')
         with np.load(file) as arch:
             
             thr = arch['thr']
@@ -146,19 +151,25 @@ for ax, (title, veto, files) in zip(axs, table):
             cond &= thr_theory <= np.max(thr)
             cond &= thrcounts_theory >= np.min(thrcounts[thrcounts > 0])
 
-            kw = dict(color='#f55')
-            ax.plot(thr_theory[cond] / sdev, ratefactor * thrcounts_theory[cond], **kw)
+            kwtheory = dict(color='#f55')
+            kwdata = dict(color='black', linestyle='--', marker='.')
             
-            kw = dict(color='black', linestyle='--', marker='.')
-            label = os.path.split(file)[1].replace('.npz', '')
-            if label.endswith('_53') or 'tile53' in label:
-                kw.update(label=label)
-                dolegend = True
-            ax.plot(thr[s] / sdev, ratefactor * thrcounts[s], **kw)
+            if 'root_53' in file or 'tile53' in file:
+                label = os.path.split(file)[1].replace('.npz', '')
+                kwdata.update(label=label)
+                kwdata.update(tile53kwstack.pop())
+            elif not labeldone:
+                kwtheory.update(label='Theory')
+                kwdata.update(label='Data')
+                labeldone = True
+                
+            ax.plot(thr_theory[cond] / sdev, ratefactor * thrcounts_theory[cond], **kwtheory)
+            ax.plot(thr[s] / sdev, ratefactor * thrcounts[s], **kwdata)
+            
+            if ifile == 0:
+                ax.axhspan(0, ratefactor, color='#ddd')
     
-    if dolegend:
-        ax.legend()
-    textbox.textbox(ax, title, fontsize='medium', loc='upper center')
+    ax.legend(loc='upper center', title=title, title_fontsize='large')
 
 for ax in axs.flat:
     if ax.is_last_row():
