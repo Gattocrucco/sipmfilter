@@ -22,7 +22,7 @@ cmap = colormap.uniform()
 for ifile, cmd in enumerate(commands):
 
     figname = f'fighist2dtile155759-{ifile}'
-    fig = plt.figure(num=figname, clear=True, figsize=[9, 3.55])
+    fig = plt.figure(num=figname, clear=True, figsize=[9, 4])
     
     save = f'figthesis/{figname}.npz'
     if not os.path.exists(save):

@@ -180,6 +180,8 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   
   * `breaklines.py`: function to break lines in a string.
   
+  * `colormap.py`: make an approximately perceptually uniform colormap.
+  
   * `correlate.py`: compute the cross correlation.
   
   * `downcast.py`: downcast a numpy data type recursively.

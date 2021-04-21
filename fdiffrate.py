@@ -29,14 +29,14 @@ def movavg(x, n):
     return m
 
 @numba.njit(cache=True)
-def accum(minthr, maxthr, thrcounts, varcov1k2, data, nsamp, veto, vetocount):
+def accum(minthr, maxthr, thrcounts, varcov1k2, data, nsamp, veto, vetoed):
     nthr = len(thrcounts)
     step = (maxthr - minthr) / (nthr - 1)
     
-    for signal in data:
+    for ievent, signal in enumerate(data):
         
         if np.any(signal < veto):
-            vetocount += 1
+            vetoed[ievent] = True
             continue
         
         m = movavg(signal, nsamp)
@@ -54,11 +54,12 @@ def accum(minthr, maxthr, thrcounts, varcov1k2, data, nsamp, veto, vetocount):
                         thrcounts[j] += 1
         
         x = f - np.mean(f)
-        varcov1k2[0] += np.mean(x * x)
-        # varcov1k2[1] += np.mean(x[1:] * x[:-1])
+        varcov1k2[ievent, 0] = np.mean(x * x)
+        
+        # varcov1k2[ievent, 1] = np.mean(x[1:] * x[:-1])
         
         x2 = x[2:] + x[:-2] - 2 * x[1:-1]
-        varcov1k2[2] += np.mean(x[1:-1] * x2)
+        varcov1k2[ievent, 2] = np.mean(x[1:-1] * x2)
 
 def upcrossings(u, var, k2):
     return 1/(2 * np.pi) * np.sqrt(-k2 / var) * np.exp(-1/2 * u**2 / var)
@@ -66,7 +67,7 @@ def upcrossings(u, var, k2):
 def deadtime(rate, deadtime):
     return rate / (1 + rate * deadtime)
 
-def fdiffrate(data, nsamp, batch=100, pbar=False, thrstep=0.5, veto=None):
+def fdiffrate(data, nsamp, batch=100, pbar=False, thrstep=0.5, veto=None, return_full=False):
     """
     Count threshold crossings of filtered finite difference.
     
@@ -86,6 +87,8 @@ def fdiffrate(data, nsamp, batch=100, pbar=False, thrstep=0.5, veto=None):
         standard deviation of the filter output.
     veto : int, optional
         If an event has a value below `veto`, the event is ignored.
+    return_full : bool
+        If True, return additional results. Default False.
     
     Return
     ------
@@ -103,6 +106,15 @@ def fdiffrate(data, nsamp, batch=100, pbar=False, thrstep=0.5, veto=None):
         computing time rates.
     nevents : int
         Returned only if `veto` is specified. The number of processed events.
+    
+    The following are returned if `return_full` is True:
+    
+    errsdev : scalar
+        The uncertainty (sdev) of `sdev`.
+    k2 : scalar
+        The covariance of the filter output with its discrete second derivative.
+    errk2 : scalar
+        The uncertainty (sdev) of `k2`.
     """
     nevents, nsamples = data.shape
     effnsamples = nsamples - 2 * nsamp + 1
@@ -115,19 +127,23 @@ def fdiffrate(data, nsamp, batch=100, pbar=False, thrstep=0.5, veto=None):
     nthr = 1 + int((maxthr - minthr) / thrbin)
 
     thrcounts = np.zeros(nthr, int)
-    varcov1k2 = np.zeros(3)
-    vetocount = np.array(0)
+    varcov1k2 = np.zeros((nevents, 3))
+    vetoed = np.zeros(nevents, bool)
     xveto = 0 if veto is None else veto
     
-    func = lambda s: accum(minthr, maxthr, thrcounts, varcov1k2, data[s], nsamp, xveto, vetocount)
+    func = lambda s: accum(minthr, maxthr, thrcounts, varcov1k2[s], data[s], nsamp, xveto, vetoed[s])
     runsliced.runsliced(func, nevents, batch, pbar)
+    vetocount = np.count_nonzero(vetoed)
     assert xveto > 0 or vetocount == 0
     nevents -= vetocount
-    varcov1k2 /= nevents
     
     thr = np.linspace(minthr, maxthr, nthr)
-    var, _, k2 = varcov1k2
+    
+    varcov1k2 = varcov1k2[~vetoed]
+    var, _, k2 = np.mean(varcov1k2, axis=0)
+    errvar, _, errk2 = np.std(varcov1k2, axis=0) / np.sqrt(nevents)
     sdev = np.sqrt(var)
+    errsdev = 1/2 * errvar/var * sdev
         
     def thrcounts_theory(thr):
         upc = upcrossings(thr, var, k2)
@@ -137,6 +153,8 @@ def fdiffrate(data, nsamp, batch=100, pbar=False, thrstep=0.5, veto=None):
     out = thr, thrcounts, thrcounts_theory, sdev, effnsamples
     if veto is not None:
         out += (nevents,)
+    if return_full:
+        out += (errsdev, k2, errk2)
     return out
 
 if __name__ == '__main__':

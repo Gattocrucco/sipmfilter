@@ -3,9 +3,9 @@ import colorspacious
 import numpy as np
 from scipy import interpolate
     
-def uniform(colors=['black', 'red', 'white'], N=256, lrange=(0, 100)):
+def uniform(colors=['black', '#f55', 'white'], N=256, lrange=(0, 100)):
     """
-    Make a perceptually uniform colormap.
+    Make a colormap with monotonically increasing luminosity.
     
     Parameters
     ----------
@@ -23,6 +23,14 @@ def uniform(colors=['black', 'red', 'white'], N=256, lrange=(0, 100)):
     cmap : matplotlib.colors.ListedColormap
         A new colormap.
     """
+    
+    # TODO This is not uniformly spaced because say the distance from black to
+    # f55 is different from the difference from f55 to white. I should solve
+    # a system of equations for the partition keeping into account that the
+    # luminosity is bound to the partition and appears in the distance. With
+    # black and white as extrema anyway this correction is small because they
+    # both have a, b ≈ 0.
+    
     rgb0 = np.array([_colors.to_rgb(color) for color in colors])
     lab0 = colorspacious.cspace_convert(rgb0, 'sRGB1', 'CAM02-UCS')
     
