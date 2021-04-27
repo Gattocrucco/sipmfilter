@@ -149,7 +149,9 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   
   * `simplefilter.py`: **(OUTDATED)** signal finding.
   
-  * `spectrum.py`: compute the noise spectra from some files.
+  * `spec.py`: plot the spectrum of a LNGS/Proto0 file.
+  
+  * `spectrum.py`: **(DEPRECATED)** compute the noise spectra from some files.
   
   * `templateplot.py`: plot a template saved by `savetemplate.py`.
   
@@ -182,7 +184,7 @@ The scripts in `figthesis/` save figures in `../thesis/figures`.
   
   * `colormap.py`: make an approximately perceptually uniform colormap.
   
-  * `correlate.py`: compute the cross correlation.
+  * `correlate.py`: **(DEPRECATED)** compute the cross correlation.
   
   * `downcast.py`: downcast a numpy data type recursively.
 

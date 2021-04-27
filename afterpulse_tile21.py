@@ -3,6 +3,7 @@ import glob
 import re
 import pickle
 import collections
+import functools
 
 import numpy as np
 from scipy import stats, special
@@ -15,67 +16,7 @@ import readwav
 import template as _template
 import textbox
 import breaklines
-
-gvar.switch_gvar()
-
-savedir = 'afterpulse_tile21'
-os.makedirs(savedir, exist_ok=True)
-
-wavfiles = list(sorted(glob.glob('darksidehd/LF_TILE21*.wav')))
-
-vovdict = {}
-
-for wavfile in wavfiles:
-    
-    _, name = os.path.split(wavfile)
-    prefix, _ = os.path.splitext(name)
-    templfile = f'templates/{prefix}-template.npz'
-    simfile = f'{savedir}/{prefix}.npz'
-
-    vbreak, vbias = re.search(r'(\d\d)V_(\d\d)VoV', prefix).groups()
-    vov = (int(vbias) - int(vbreak)) / 2
-    
-    vd = vovdict.setdefault(vov, {})
-    filelist = vd.setdefault('files', [])
-    filelist.append(dict(simfile=simfile, wavfile=wavfile, templfile=templfile))
-
-    if not os.path.exists(simfile):
-    
-        data = readwav.readwav(wavfile)
-    
-        template = _template.Template.load(templfile)
-        
-        kw = dict(batch=100, pbar=True, trigger=np.full(len(data), 8969))
-        sim = afterpulse.AfterPulse(data, template, **kw)
-    
-        print(f'save {simfile}...')
-        sim.save(simfile)
-    
-def apload(vov):
-    filelist = vovdict[vov]['files']
-    datalist = [
-        readwav.readwav(files['wavfile'])
-        for files in filelist
-    ]
-    simlist = [
-        afterpulse.AfterPulse.load(files['simfile'])
-        for files in filelist
-    ]
-    simcat = afterpulse.AfterPulse.concatenate(simlist)
-    return datalist, simcat
-
-class SaveFigure:
-    
-    def __init__(self):
-        self._counts = collections.defaultdict(int)
-
-    def __call__(self, fig, prefix=''):
-        self._counts[prefix] += 1
-        path = f'{savedir}/{prefix}fig{self._counts[prefix]:02d}.png'
-        print(f'save {path}...')
-        fig.savefig(path)
-
-savef = SaveFigure()
+import savetemplate
 
 def upoisson(k):
     return gvar.gvar(k, np.sqrt(np.maximum(k, 1)))
@@ -187,7 +128,8 @@ def fcn(x, p):
             bins = norm * dist / integral,
         )
 
-def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overflow=None, continuous=False, **kw):
+@afterpulse.figmethod
+def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overflow=None, continuous=False, fig=None, **kw):
     """
     Fit an histogram.
     
@@ -211,6 +153,8 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
         If False (default), pmf_or_cdf must be the probability distribution of
         an integer variable. If True, pmf_or_cdf must compute the cumulative
         density up to the given point.
+    fig : matplotlib figure, optional
+        If provided, the plot is draw here.
     **kw :
         Additional keyword arguments are passed to lsqfit.nonlinear_fit.
     
@@ -269,7 +213,7 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
     print(fit.format(maxline=True))
     
     # plot data
-    fig, ax = plt.subplots(num='afterpulse_tile21.fithistogram', clear=True)
+    ax = fig.subplots()
     center = (bins[1:] + bins[:-1]) / 2
     wbar = np.diff(bins) / 2
     kw = dict(linestyle='', capsize=4, marker='.', color='k')
@@ -307,6 +251,7 @@ pvalue = {fit.Q:.2g}"""
     
     # decorations
     ax.legend(loc='upper right')
+    ax.minorticks_on()
     ax.grid(which='major', linestyle='--')
     ax.grid(which='minor', linestyle=':')
     ax.set_xlabel(expr)
@@ -320,7 +265,7 @@ pvalue = {fit.Q:.2g}"""
 def intbins(min, max):
     return -0.5 + np.arange(min, max + 2)
 
-def pebins(boundaries, start=1):
+def pebins(boundaries, start):
     return intbins(start, len(boundaries) - 1), intbins(1000, 1000)
 
 def getkind(kind):
@@ -333,427 +278,730 @@ def getkind(kind):
 
 gvar.BufferDict.uniform('U', 0, 1)
 
-def fitpe(sim, expr, condexpr, boundaries, kind='borel', overflow=True, **kw):
-    pmf, param = getkind(kind)
-    bins, bins_overflow = pebins(boundaries)
+def _fitpe(sim, expr, condexpr, boundaries, pmf, prior, binstart, overflow, *, fig1, fig2, **kw):
+    bins, bins_overflow = pebins(boundaries, binstart)
     if overflow:
         histexpr = f'where({expr}<1000,{expr},1+max({expr}[{expr}<1000]))'
     else:
         bins_overflow = None
         condexpr = f'{condexpr}&({expr}<1000)'
         histexpr = expr
+    fit, _ = fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow, fig=fig2, **kw)
+    sim.hist(histexpr, condexpr, fig=fig1)
+    return fit, fig1, fig2
+
+@afterpulse.figmethod(figparams=['fig1', 'fig2'])
+def fitpe(sim, expr, condexpr, boundaries, kind='borel', overflow=True, **kw):
+    pmf, param = getkind(kind)
     prior = {
         f'U({param})': gvar.BufferDict.uniform('U', 0, 1),
     }
-    fit, fig1 = fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow, **kw)
-    fig2 = sim.hist(histexpr, condexpr)
-    return fit, fig2, fig1
-
+    return _fitpe(sim, expr, condexpr, boundaries, pmf, prior, 1, overflow, **kw)
+    
+@afterpulse.figmethod(figparams=['fig1', 'fig2'])
 def fitpepoisson(sim, expr, condexpr, boundaries, overflow=True, **kw):
-    bins, bins_overflow = pebins(boundaries, 0)
-    if overflow:
-        histexpr = f'where({expr}<1000,{expr},1+max({expr}[{expr}<1000]))'
-    else:
-        bins_overflow = None
-        condexpr = f'{condexpr}&({expr}<1000)'
-        histexpr = expr
     prior = {
         'U(mu_borel)': gvar.BufferDict.uniform('U', 0, 1),
         'log(mu_poisson)': gvar.gvar(0, 1),
     }
-    fit, fig1 = fithistogram(sim, expr, condexpr, prior, genpoissonpmf, bins, bins_overflow, **kw)
-    fig2 = sim.hist(histexpr, condexpr)
-    return fit, fig2, fig1
+    return _fitpe(sim, expr, condexpr, boundaries, genpoissonpmf, prior, 0, overflow, **kw)
 
-def fitapdecay(sim, expr, condexpr, const, **kw):
+@afterpulse.figmethod(figparams=['fig1', 'fig2'])
+def fitapdecay(sim, expr, condexpr, const, *, fig1, fig2, **kw):
     prior = {
         'log(tau)' : gvar.gvar(np.log(1000), 1),
         'const' : const,
     }
-    fit, fig1 = fithistogram(sim, expr, condexpr, prior, exponbkgcdf, continuous=True, **kw)
-    fig2 = sim.hist(expr, condexpr)
-    return fit, fig2, fig1
+    fit, _ = fithistogram(sim, expr, condexpr, prior, exponbkgcdf, continuous=True, fig=fig2, **kw)
+    sim.hist(expr, condexpr, fig=fig1)
+    return fit, fig1, fig2
 
 def scalesdev(x, f):
     return x + (f - 1) * (x - gvar.mean(x))
 
-# parameters:
-# ptlength = length used for pre-trigger region
-# aplength = filter length for afterpulse (default same as ptlength)
-# dcut, dcutr = left/right cut on minorpos - mainpos
-# npe = pe of main peak to search afterpulses
-defaults = dict(dcut=500, dcutr=5500, npe=1)
-vovdict[5.5].update(ptlength=128, **defaults)
-vovdict[7.5].update(ptlength= 64, **defaults)
-vovdict[9.5].update(ptlength= 64, **defaults)
+class AfterPulseTile21:
+    
+    savedir = 'afterpulse_tile21'
 
-def analdcr(d, datalist, sim):
-    # get index of the filter length to use for pre-trigger pulses
-    ptlength = d['ptlength']
-    ilength = np.searchsorted(sim.filtlengths, ptlength)
-    assert sim.filtlengths[ilength] == ptlength
-
-    # compute dark count height cut
-    mainsel = f'good&(mainpos>=0)&(length=={ptlength})'
-    p01 = [
-        sim.getexpr('median(mainheight)', f'{mainsel}&(mainnpe=={npe})')
-        for npe in [0, 1]
+    wavfiles = [
+        'darksidehd/LF_TILE21_77K_54V_65VoV_1.wav',
+        'darksidehd/LF_TILE21_77K_54V_65VoV_2.wav',
+        'darksidehd/LF_TILE21_77K_54V_65VoV_3.wav',
+        'darksidehd/LF_TILE21_77K_54V_65VoV_4.wav',
+        'darksidehd/LF_TILE21_77K_54V_65VoV_5.wav',
+        'darksidehd/LF_TILE21_77K_54V_65VoV_6.wav',
+        'darksidehd/LF_TILE21_77K_54V_65VoV_7.wav',
+        'darksidehd/LF_TILE21_77K_54V_65VoV_8.wav',
+        'darksidehd/LF_TILE21_77K_54V_65VoV_9.wav',
+        'darksidehd/LF_TILE21_77K_54V_65VoV_10.wav',
+        'darksidehd/LF_TILE21_77K_54V_69VoV_1.wav',
+        'darksidehd/LF_TILE21_77K_54V_69VoV_2.wav',
+        'darksidehd/LF_TILE21_77K_54V_69VoV_3.wav',
+        'darksidehd/LF_TILE21_77K_54V_69VoV_4.wav',
+        'darksidehd/LF_TILE21_77K_54V_69VoV_5.wav',
+        'darksidehd/LF_TILE21_77K_54V_69VoV_6.wav',
+        'darksidehd/LF_TILE21_77K_54V_69VoV_7.wav',
+        'darksidehd/LF_TILE21_77K_54V_69VoV_8.wav',
+        'darksidehd/LF_TILE21_77K_54V_69VoV_9.wav',
+        'darksidehd/LF_TILE21_77K_54V_69VoV_10.wav',
+        'darksidehd/LF_TILE21_77K_54V_73VoV_1.wav',
+        'darksidehd/LF_TILE21_77K_54V_73VoV_2.wav',
+        'darksidehd/LF_TILE21_77K_54V_73VoV_3.wav',
+        'darksidehd/LF_TILE21_77K_54V_73VoV_4.wav',
+        'darksidehd/LF_TILE21_77K_54V_73VoV_5.wav',
+        'darksidehd/LF_TILE21_77K_54V_73VoV_6.wav',
+        'darksidehd/LF_TILE21_77K_54V_73VoV_7.wav',
+        'darksidehd/LF_TILE21_77K_54V_73VoV_8.wav',
+        'darksidehd/LF_TILE21_77K_54V_73VoV_9.wav',
+        'darksidehd/LF_TILE21_77K_54V_73VoV_10.wav',
     ]
-    lmargin = 100
-    rmargin = 500
-    ptsel = f'(length=={ptlength})&(ptApos>={lmargin})&(ptApos<trigger-{rmargin})'
-    cut, = afterpulse.maxdiff_boundaries(sim.getexpr('ptAamplh', ptsel), p01)
-    d.update(dcrcut=cut, dcrlmargin=lmargin, dcrrmargin=rmargin)
+    
+    # parameters:
+    # ptlength = length used for pre-trigger region
+    # aplength = filter length for afterpulse (default same as ptlength)
+    # dcut, dcutr = left/right cut on minorpos - mainpos
+    # npe = pe of main peak to search afterpulses
+    # lmargin = left cut on ptpos
+    # rmargin = right cut (from right margin) on ptpos
+    _defaults = dict(dcut=500, dcutr=5500, npe=1, lmargin=100, rmargin=500)
+    defaultparams = {
+        5.5: dict(ptlength=128, **_defaults),
+        7.5: dict(ptlength= 64, **_defaults),
+        9.5: dict(ptlength= 64, **_defaults),
+    }
+    
+    def __init__(self, vov, params={}):
+        self.vov = vov
+        self.params = dict(self.defaultparams.get(vov, {}))
+        self.params.update(params)
+        self.params.setdefault('aplength', self.params['ptlength'])
+        self.results = {}
+        self.maketemplates()
+        self.processdata()
+    
+    @functools.cached_property
+    def filelist(self):
+        filelist = []
+        
+        for wavfile in self.wavfiles:
+                
+            _, name = os.path.split(wavfile)
+            prefix, _ = os.path.splitext(name)
 
-    # plot a fingerplot
-    boundaries = sim.computenpeboundaries(ilength)
-    mainsel = f'where(mainampl>=0,~saturated,good)&(mainpos>=0)&(length=={ptlength})'
-    fig = sim.hist('mainamplh', mainsel, 'log', 1000)
-    ax, = fig.get_axes()
-    vspan(ax, cut)
-    vlines(ax, boundaries, linestyle=':')
-    prefix = d['prefix']
-    savef(fig, prefix)
+            vbreak, vbias = re.search(r'(\d+)V_(\d+)VoV', prefix).groups()
+            vov = (int(vbias) - int(vbreak)) / 2
+            
+            if vov == self.vov:
+                filelist.append(dict(
+                    wavfile = wavfile,
+                    simfile = f'{self.savedir}/{prefix}.npz',
+                    templfile = savetemplate.templatepath(wavfile),
+                ))
+        
+        if len(filelist) == 0:
+            raise ValueError(f'no files for vov {vov}')
+        
+        return filelist
+
+    def maketemplates(self):
+        for files in self.filelist:
+            
+            wavfile = files['wavfile']
+            templfile = files['templfile']
+            
+            if not os.path.exists(templfile):
+                savetemplate.savetemplate(wavfile, plot='save')
     
-    # plot pre-trigger amplitude vs. position
-    fig = sim.scatter('ptApos', 'where(ptAamplh<1000,ptAamplh,-10)', f'length=={ptlength}')
-    ax, = fig.get_axes()
-    trigger = sim.getexpr('median(trigger)')
-    vspan(ax, lmargin, trigger - rmargin)
-    hspan(ax, cut)
-    hlines(ax, boundaries, linestyle=':')
-    savef(fig, prefix)
+    def processdata(self):
+        for files in self.filelist:
+            
+            wavfile = files['wavfile']
+            simfile = files['simfile']
+            templfile = files['templfile']
+            
+            if not os.path.exists(simfile):
+                directory, _ = os.path.split(simfile)
+                os.makedirs(directory, exist_ok=True)
+                
+                data = readwav.readwav(wavfile)
+
+                template = _template.Template.load(templfile)
     
-    # plot a histogram of pre-trigger peak height
-    fig = sim.hist('ptAamplh', ptsel, 'log')
-    ax, = fig.get_axes()
-    vspan(ax, cut)
-    vlines(ax, boundaries, linestyle=':')
-    savef(fig, prefix)
+                kw = dict(
+                    batch = 100,
+                    pbar = True,
+                    trigger = np.full(len(data), savetemplate.defaulttrigger())
+                )
+                sim = afterpulse.AfterPulse(data, template, **kw)
+
+                print(f'save {simfile}...')
+                sim.save(simfile)
     
-    # variables to compute the dark count
-    l1pe, r1pe = boundaries[:2]
-    sigcount = sim.getexpr(f'count_nonzero({ptsel}&(ptAamplh>{cut}))')
-    lowercount = sim.getexpr(f'count_nonzero({mainsel}&(mainamplh<={cut})&(mainamplh>{l1pe}))')
-    uppercount = sim.getexpr(f'count_nonzero({mainsel}&(mainamplh>{cut})&(mainamplh<{r1pe}))')
-    d.update(dcrl1pe=l1pe, dcrr1pe=r1pe)
+    @functools.cached_property
+    def sim(self):
+        print('load analysis files...')
+        simlist = [
+            afterpulse.AfterPulse.load(files['simfile'])
+            for files in self.filelist
+        ]
+        return afterpulse.AfterPulse.concatenate(simlist)
     
-    # variables to compute the rate
-    time = sim.getexpr(f'mean(trigger-{lmargin}-{rmargin})', ptsel)
-    nevents = sim.getexpr(f'count_nonzero({ptsel})')
-    totalevt = len(sim.output)
+    @functools.cached_property
+    def datalist(self):
+        return [
+            readwav.readwav(files['wavfile'])
+            for files in self.filelist
+        ]
     
-    # variables with uncertainties
-    s = upoisson(sigcount)
-    l = upoisson(lowercount)
-    u = upoisson(uppercount)
-    t = time * 1e-9 * ubinom(nevents, totalevt)
-    d.update(dcrtime=t, dcrcount=s)
+    @functools.cached_property
+    def ptilength(self):
+        """get index of the filter length to use for pre-trigger pulses"""
+        ptlength = self.params['ptlength']
+        ilength = np.searchsorted(self.sim.filtlengths, ptlength)
+        assert self.sim.filtlengths[ilength] == ptlength
+        return ilength
     
-    # correction factor and DCR
-    f = (l + u) / u
-    r = f * s / t
-    d.update(dcr=r, dcrfactor=f)
+    @functools.cached_property
+    def ptsel(self):
+        lmargin = self.params['lmargin']
+        rmargin = self.params['rmargin']
+        ptlength = self.params['ptlength']
+        return f'(length=={ptlength})&(ptApos>={lmargin})&(ptApos<trigger-{rmargin})'
     
-    # print DCR results
-    print(f'pre-trigger count = {sigcount} / {nevents}')
-    print(f'total time = {t} s')
-    print(f'correction factor = {f}')
-    print(f'dcr = {r} cps')
+    @functools.cached_property
+    def ptcut(self):
+        """compute dark count height cut"""
+        ptlength = self.params['ptlength']
+        mainsel = f'good&(mainpos>=0)&(length=={ptlength})'
+        p01 = [
+            self.sim.getexpr('median(mainheight)', f'{mainsel}&(mainnpe=={npe})')
+            for npe in [0, 1]
+        ]
+        cut, = afterpulse.maxdiff_boundaries(self.sim.getexpr('ptAamplh', self.ptsel), p01)
+        self.results.update(ptcut=cut)
+        return cut
     
-    # fit pre-trigger pe histogram
-    for kind in ['borel', 'geom']:
-        fit, fig1, fig2 = fitpe(sim, 'ptAnpe', f'{ptsel}&(ptAnpe>0)', boundaries, kind)
-        savef(fig1, prefix)
-        savef(fig2, prefix)
-        label = 'dcrfit'
+    @functools.cached_property
+    def ptboundaries(self):
+        return self.sim.computenpeboundaries(self.ptilength)
+    
+    @functools.cached_property
+    def ptmainsel(self):
+        ptlength = self.params['ptlength']
+        return f'where(mainampl>=0,~saturated,good)&(mainpos>=0)&(length=={ptlength})'
+    
+    @afterpulse.figmethod
+    def ptfingerplot(self, fig):
+        """plot a fingerplot"""
+        self.sim.hist('mainamplh', self.ptmainsel, 'log', 1000, fig=fig)
+        ax, = fig.get_axes()
+        vspan(ax, self.ptcut)
+        vlines(ax, self.ptboundaries, linestyle=':')
+    
+    @afterpulse.figmethod
+    def ptscatter(self, fig):
+        """plot pre-trigger amplitude vs. position"""
+        ptlength = self.params['ptlength']
+        self.sim.scatter('ptApos', 'where(ptAamplh<1000,ptAamplh,-10)', f'length=={ptlength}', fig=fig)
+        ax, = fig.get_axes()
+        trigger = self.sim.getexpr('median(trigger)')
+        lmargin = self.params['lmargin']
+        rmargin = self.params['rmargin']
+        vspan(ax, lmargin, trigger - rmargin)
+        hspan(ax, self.ptcut)
+        hlines(ax, self.ptboundaries, linestyle=':')
+    
+    @afterpulse.figmethod
+    def pthist(self, fig):
+        """plot a histogram of pre-trigger peak height"""
+        self.sim.hist('ptAamplh', self.ptsel, 'log', fig=fig)
+        ax, = fig.get_axes()
+        vspan(ax, self.ptcut)
+        vlines(ax, self.ptboundaries, linestyle=':')
+        
+    @functools.cached_property
+    def ptfactor(self):
+        """correction factor for the rate to keep into account truncation of 1
+        pe distribution"""
+        l1pe, r1pe = self.ptboundaries[:2]
+        lowercount = self.sim.getexpr(f'count_nonzero({self.ptmainsel}&(mainamplh<={self.ptcut})&(mainamplh>{l1pe}))')
+        uppercount = self.sim.getexpr(f'count_nonzero({self.ptmainsel}&(mainamplh>{self.ptcut})&(mainamplh<{r1pe}))')
+        l = upoisson(lowercount)
+        u = upoisson(uppercount)
+        f = (l + u) / u
+        self.results.update(ptl1pe=l1pe, ptr1pe=r1pe, ptfactor=f)
+        return f
+    
+    @functools.cached_property
+    def ptnevents(self):
+        nevents = self.sim.getexpr(f'count_nonzero({self.ptsel})')
+        totalevt = len(self.sim.output)
+        n = ubinom(nevents, totalevt)
+        self.results.update(ptnevents=n)
+        return n
+    
+    @functools.cached_property
+    def pttime(self):
+        """total time where pre-trigger pulses are searched"""
+        lmargin = self.params['lmargin']
+        rmargin = self.params['rmargin']
+        time = self.sim.getexpr(f'mean(trigger-{lmargin}-{rmargin})', self.ptsel)
+        t = time * 1e-9 * self.ptnevents
+        self.results.update(pttime=t)
+        return t
+    
+    @functools.cached_property
+    def ptcount(self):
+        sigcount = self.sim.getexpr(f'count_nonzero({self.ptsel}&(ptAamplh>{self.ptcut}))')
+        s = upoisson(sigcount)
+        self.results.update(ptcount=s)
+        return s
+    
+    @functools.cached_property
+    def ptrate(self):
+        """rate of pre-trigger pulses"""
+        r = self.ptfactor * self.ptcount / self.pttime
+        self.results.update(ptrate=r)
+        return r
+    
+    @afterpulse.figmethod(figparams=['fig1', 'fig2'])
+    def ptdict(self, kind='borel', *, fig1, fig2):
+        """fit pre-trigger pe histogram"""
+        fit, _, _ = fitpe(self.sim, 'ptAnpe', f'{self.ptsel}&(ptAnpe>0)', self.ptboundaries, kind, fig1=fig1, fig2=fig2)
+        label = 'ptfit'
         if kind == 'geom':
             label += kind
-        d[label] = fit
+        self.results[label] = fit
+        return fit, fig1, fig2
     
-    # fit main peak pe histogram
-    expr = 'where(mainpos>=0,mainnpe,take_along_axis(mainnpe,argmax(mainpos>=0,axis=0)[None],0))'
-    sim.setvar('mainnpebackup', sim.getexpr(expr))
-    mainsel = f'any(mainpos>=0,0)&(length=={ptlength})'
-    for overflow in [False, True]:
-        fit, fig1, fig2 = fitpepoisson(sim, 'mainnpebackup', mainsel, boundaries, overflow=overflow)
-        savef(fig1, prefix)
-        savef(fig2, prefix)
+    def defmainnpebackup(self):
+        name = 'mainnpebackup'
+        if name not in self.sim._variables:
+            expr = 'where(mainpos>=0,mainnpe,take_along_axis(mainnpe,argmax(mainpos>=0,axis=0)[None],0))'
+            value = self.sim.getexpr(expr)
+            self.sim.setvar(name, value)
+    
+    @afterpulse.figmethod(figparams=['fig1', 'fig2'])
+    def maindict(self, overflow=False, *, fig1, fig2):
+        """fit main peak pe histogram"""
+        self.defmainnpebackup()
+        ptlength = self.params['ptlength']
+        mainsel = f'any(mainpos>=0,0)&(length=={ptlength})'
+        fit, _, _ = fitpepoisson(self.sim, 'mainnpebackup', mainsel, self.ptboundaries, overflow=overflow, fig1=fig1, fig2=fig2)
         label = 'mainfit'
         if overflow:
             label += 'of'
-        d[label] = fit
+        self.results[label] = fit
+        return fit, fig1, fig2
     
-    # plot <= 3 events with an high pre-trigger peak
-    evts = sim.eventswhere(f'{ptsel}&(ptAamplh>{cut})')
-    for ievt in evts[:3]:
-        fig = sim.plotevent(datalist, ievt, ilength, zoom='all')
-        savef(fig, prefix)
+    @afterpulse.figmethod
+    def ptevent(self, index=0, *, fig):
+        """plot an event with an high pre-trigger peak"""
+        evts = self.sim.eventswhere(f'{self.ptsel}&(ptAamplh>{self.ptcut})')
+        ievt = evts[index]
+        self.sim.plotevent(self.datalist, ievt, self.ptilength, zoom='all', fig=fig)
+            
+    @functools.cached_property
+    def apilength(self):    
+        """get index of the filter length to use for afterpulses"""
+        aplength = self.params['aplength']
+        ilength = np.searchsorted(self.sim.filtlengths, aplength)
+        assert self.sim.filtlengths[ilength] == aplength
+        return ilength
+    
+    @functools.cached_property
+    def appresel(self):
+        """afterpulse preselection (laser pe = 1 and other details)"""
+        npe = self.params['npe']
+        aplength = self.params['aplength']
+        return f'(length=={aplength})&(apApos>=0)&(mainnpe=={npe})'
+    
+    @functools.cached_property
+    def apsel(self):
+        """afterpulse event selection (time cut, but random still included)"""
+        dcut = self.params['dcut']
+        dcutr = self.params['dcutr']
+        return f'{self.appresel}&(apApos-mainpos>{dcut})&(apApos-mainpos<{dcutr})'
 
-def analap(d, datalist, sim):
-        
-    # get index of the filter length to use for afterpulses
-    aplength = d['aplength']
-    ilength = np.searchsorted(sim.filtlengths, aplength)
-    assert sim.filtlengths[ilength] == aplength
+    @functools.cached_property
+    def apcut(self):
+        """compute afterpulses height cut"""
+        aplength = self.params['aplength']
+        mainsel = f'good&(mainpos>=0)&(length=={aplength})'
+        p01 = [
+            self.sim.getexpr('median(mainheight)', f'{mainsel}&(mainnpe=={npe})')
+            for npe in [0, 1]
+        ]
+        cut, = afterpulse.maxdiff_boundaries(self.sim.getexpr('apAapamplh', self.apsel), p01)
+        cut = np.round(cut, 1)
+        self.results.update(apcut=cut)
+        return cut
+    
+    @functools.cached_property
+    def apboundaries(self):
+        """pe boundaries for afterpulse analysis"""
+        return self.sim.computenpeboundaries(self.apilength)
 
-    # compute afterpulses height cut
-    mainsel = f'good&(mainpos>=0)&(length=={aplength})'
-    p01 = [
-        sim.getexpr('median(mainheight)', f'{mainsel}&(mainnpe=={npe})')
-        for npe in [0, 1]
-    ]
-    npe = d['npe']
-    minornpe = f'(length=={aplength})&(apApos>=0)&(mainnpe=={npe})'
-    dcut = d['dcut']
-    dcutr = d['dcutr']
-    apsel = f'{minornpe}&(apApos-mainpos>{dcut})&(apApos-mainpos<{dcutr})'
-    hcut, = afterpulse.maxdiff_boundaries(sim.getexpr('apAapamplh', apsel), p01)
-    hcut = np.round(hcut, 1)
-    d.update(apcut=hcut)
-
-    # plot a fingerplot
-    boundaries = sim.computenpeboundaries(ilength)
-    mainsel = f'where(mainampl>=0,~saturated,good)&(mainpos>=0)&(length=={aplength})'
-    fig = sim.hist('mainamplh', mainsel, 'log', 1000)
-    ax, = fig.get_axes()
-    vspan(ax, hcut)
-    vlines(ax, boundaries, linestyle=':')
-    prefix = d['prefix']
-    savef(fig, prefix)
+    @afterpulse.figmethod
+    def apfingerplot(self, *, fig):
+        """plot a fingerplot"""
+        aplength = self.params['aplength']
+        mainsel = f'where(mainampl>=0,~saturated,good)&(mainpos>=0)&(length=={aplength})'
+        self.sim.hist('mainamplh', mainsel, 'log', 1000, fig=fig)
+        ax, = fig.get_axes()
+        vspan(ax, self.apcut)
+        vlines(ax, self.apboundaries, linestyle=':')
     
-    # plot afterpulses height vs. distance from main pulse
-    fig = sim.scatter('apApos-mainpos', 'apAapamplh', minornpe)
-    ax, = fig.get_axes()
-    hspan(ax, hcut)
-    vspan(ax, dcut, dcutr)
-    hlines(ax, boundaries, linestyle=':')
-    savef(fig, prefix)
+    @afterpulse.figmethod
+    def apscatter(self, *, fig):
+        """plot afterpulses height vs. distance from main pulse"""
+        self.sim.scatter('apApos-mainpos', 'apAapamplh', self.appresel, fig=fig)
+        ax, = fig.get_axes()
+        hspan(ax, self.apcut)
+        dcut = self.params['dcut']
+        dcutr = self.params['dcutr']
+        vspan(ax, dcut, dcutr)
+        hlines(ax, self.apboundaries, linestyle=':')
     
-    # plot selected afterpulses height histogram
-    fig = sim.hist('apAapamplh', apsel, 'log')
-    ax, = fig.get_axes()
-    vspan(ax, hcut)
-    vlines(ax, boundaries, linestyle=':')
-    savef(fig, prefix)
+    @afterpulse.figmethod
+    def aphist(self, *, fig):
+        """plot selected afterpulses height histogram"""
+        self.sim.hist('apAapamplh', self.apsel, 'log', fig=fig)
+        ax, = fig.get_axes()
+        vspan(ax, self.apcut)
+        vlines(ax, self.apboundaries, linestyle=':')
     
-    # counts for computing the afterpulse probability
-    nevents = sim.getexpr(f'count_nonzero({minornpe})')
-    apcond = f'{apsel}&(apAapamplh>{hcut})'
-    apcount = sim.getexpr(f'count_nonzero({apcond})')
-    apcount = ubinom(apcount, nevents)
-    d.update(apcount=apcount, apnevents=nevents)
+    @functools.cached_property
+    def apcond(self):
+        """afterpulse selection"""
+        return f'{self.apsel}&(apAapamplh>{self.apcut})'
     
-    # fit afterpulses pe histogram
-    for overflow in [False, True]:
-        fit, fig1, fig2 = fitpe(sim, 'apAnpe', f'{apcond}&(apAnpe>0)', boundaries, 'borel', overflow=overflow)
-        savef(fig1, prefix)
-        savef(fig2, prefix)
+    @afterpulse.figmethod(figparams=['fig1', 'fig2'])
+    def apdict(self, overflow=False, kind='borel', *, fig1, fig2):
+        """fit afterpulses pe histogram"""
+        fit, _, _ = fitpe(self.sim, 'apAnpe', f'{self.apcond}&(apAnpe>0)', self.apboundaries, kind=kind, overflow=overflow, fig1=fig1, fig2=fig2)
         label = 'apfit'
         if overflow:
             label += 'of'
-        d[label] = fit
-
-    # expected background from DCR
-    time = (dcutr - dcut) * 1e-9 * nevents
-    bkg = d['dcr'] * time
-    d.update(apbkg=bkg, aptime=time)
+        self.results[label] = fit
+        return fit, fig1, fig2
     
-    # fit decay constant of afterpulses
-    f = bkg / apcount
-    const = 1 / (dcutr - dcut) * f / (1 - f)
-    nbins = int(15/20 * np.sqrt(gvar.mean(apcount)))
-    tau0 = 2000
-    bins = -tau0 * np.log1p(-np.linspace(0, 1 - np.exp(-(dcutr - dcut) / tau0), nbins + 1))
-    fit, fig1, fig2 = fitapdecay(sim, f'apApos-mainpos-{dcut}', apcond, const, bins=bins)
-    savef(fig1, prefix)
-    savef(fig2, prefix)
-    d.update(apfittau=fit)
-
-    # plot some events with afterpulses
-    apevts = sim.eventswhere(apcond)
-    for ievt in apevts[:3]:
-        fig = sim.plotevent(datalist, ievt, ilength)
-        savef(fig, prefix)
-        
-    # correction factor for temporal selection
-    tau = fit.palt['tau']
-    if fit.Q < 0.01:
-        tau = scalesdev(tau, np.sqrt(fit.chi2 / fit.dof))
-    factor = 1 / exponinteg(dcut, dcutr, tau)
-    d.update(aptau=tau, apfactor=factor)
+    @functools.cached_property
+    def apnevents(self):
+        nevents = self.sim.getexpr(f'count_nonzero({self.appresel})')
+        self.results.update(apnevents=nevents)
+        return nevents
     
-    # afterpulse probability
-    ccount = (apcount - bkg) * factor
-    p = ccount / nevents
-    d.update(ap=p, apccount=ccount)
+    @functools.cached_property
+    def apcount(self):
+        """count for computing the afterpulse probability"""
+        apcount = self.sim.getexpr(f'count_nonzero({self.apcond})')
+        apcount = ubinom(apcount, self.apnevents)
+        self.results.update(apcount=apcount)
+        return apcount
     
-    # print afterpulse results
-    print(f'tau = {tau}')
-    print(f'correction factor = {factor}')
-    print(f'expected background = {bkg} counts in {time:.3g} s')
-    print(f'ap count = {apcount} / {nevents}')
-    print(f'corrected ap count = {ccount}')
-    print(f'afterpulse probability = {p}')
+    @functools.cached_property
+    def aptime(self):
+        """total time in afterpulse selection"""
+        dcut = self.params['dcut']
+        dcutr = self.params['dcutr']
+        time = (dcutr - dcut) * 1e-9 * self.apnevents
+        self.results.update(aptime=time)
+        return time
     
-for vov in vovdict:
+    @functools.cached_property
+    def apbkg(self):
+        """expected background from random pulses"""
+        bkg = self.ptrate * self.aptime
+        self.results.update(apbkg=bkg)
+        return bkg
     
-    print(f'\n************** {vov} VoV **************')
+    @afterpulse.figmethod(figparams=['fig1', 'fig2'])
+    def apfittau(self, *, fig1, fig2):
+        """fit decay constant of afterpulses"""
+        dcut = self.params['dcut']
+        dcutr = self.params['dcutr']
+        f = self.apbkg / self.apcount
+        const = 1 / (dcutr - dcut) * f / (1 - f)
+        nbins = int(15/20 * np.sqrt(gvar.mean(self.apcount)))
+        tau0 = 2000
+        bins = -tau0 * np.log1p(-np.linspace(0, 1 - np.exp(-(dcutr - dcut) / tau0), nbins + 1))
+        fit, _, _ = fitapdecay(self.sim, f'apApos-mainpos-{dcut}', self.apcond, const, bins=bins, fig1=fig1, fig2=fig2)
+        self.results.update(apfittau=fit)
+        return fit, fig1, fig2
     
-    # load analysis file and skip if already saved
-    prefix = f'{vov}VoV-'
-    analfile = f'{savedir}/{prefix}archive.gvar'
-    d = vovdict[vov]
-    d['prefix'] = prefix
-    d['analfile'] = analfile
-    d['aplength'] = d.get('aplength', d['ptlength'])
-    if os.path.exists(analfile):
-        with open(analfile, 'rb') as file:
-            print(f'load {analfile}...')
-            vovdict[vov] = gvar.load(file)
-        continue
-    
-    # do analysis
-    datalist, sim = apload(vov)
-    print('\n******* DCR *******')
-    analdcr(d, datalist, sim)
-    print('\n******* Afterpulses *******')
-    analap(d, datalist, sim)
-    
-    # save analysis results to file
-    with open(analfile, 'wb') as file:
-        print(f'save {analfile}...')
-        gvar.dump(d, file)
-
-fig1, axdcr = plt.subplots(num='afterpulse_tile21-1', clear=True, figsize=[3.7, 3.5])
-fig2, (axap, axtau) = plt.subplots(1, 2, num='afterpulse_tile21-2', clear=True, figsize=[2 * 3.7, 3.5])
-fig3, (axmub, axpct, axnct) = plt.subplots(1, 3, num='afterpulse_tile21-3', clear=True, figsize=[10.5, 3.5])
-fig4, axmu = plt.subplots(num='afterpulse_tile21-4', clear=True, figsize=[3.7, 3.5])
-
-figs = [fig1, fig2, fig3, fig4]
-
-for fig in figs:
-    for ax in fig.get_axes():
-        if ax.is_last_row():
-            ax.set_xlabel('VoV')
-
-axdcr.set_title('DCR')
-axdcr.set_ylabel('Pre-trigger rate [cps]')
-
-axap.set_title('Afterpulse')
-axap.set_ylabel('Prob. of $\\geq$1 ap after 1 pe signal [%]')
-
-axtau.set_title('Afterpulse')
-axtau.set_ylabel('Exponential decay constant [ns]')
-
-axpct.set_title('Cross talk')
-axpct.set_ylabel('Prob. of > 1 pe [%]')
-
-axnct.set_title('Cross talk')
-axnct.set_ylabel('Average excess pe')
-
-axmu.set_title('Efficiency')
-axmu.set_ylabel('Average detected laser photons')
-
-axmub.set_title('Cross talk')
-axmub.set_ylabel('Branching parameter $\\mu_B$')
-
-vov = np.array(list(vovdict))
-def listdict(getter):
-    return np.array([getter(d) for d in vovdict.values()])
-dcr = listdict(lambda d: d['dcr'])
-ap = listdict(lambda d: d['ap'])
-tau = listdict(lambda d: d['aptau'])
-def ct(mugetter):
-    pct = listdict(lambda d: 1 - np.exp(-mugetter(d)))
-    nct = listdict(lambda d: 1 / (1 - mugetter(d)) - 1)
-    return pct, nct
-def mugetter(fitkey, param):
-    def getter(d):
-        fit = d[fitkey]
-        mu = fit.palt[param]
+    @functools.cached_property
+    def aptau(self):
+        """decay parameter of afterpulses"""
+        fit = self.results['apfittau']
+        tau = fit.palt['tau']
         if fit.Q < 0.01:
-            factor = np.sqrt(fit.chi2 / fit.dof)
-            mu = scalesdev(mu, factor)
-        return mu
-    return getter
-mus = [
-    ('Dark count' , mugetter('dcrfit' , 'mu'      )),
-    ('Laser'      , mugetter('mainfit', 'mu_borel')),
-    ('Afterpulses', mugetter('apfit'  , 'mu'      )),
-]
-getter = mugetter('mainfit', 'mu_poisson')
-mup = listdict(lambda d: getter(d))
+            tau = scalesdev(tau, np.sqrt(fit.chi2 / fit.dof))
+        self.results.update(aptau=tau)
+        return tau
+    
+    @functools.cached_property
+    def apfactor(self):
+        """factor to keep into account temporal cuts"""
+        dcut = self.params['dcut']
+        dcutr = self.params['dcutr']
+        factor = 1 / exponinteg(dcut, dcutr, self.aptau)
+        self.results.update(apfactor=factor)
+        return factor
+    
+    @functools.cached_property
+    def apccount(self):
+        """afterpulse count corrected for temporal cuts and background"""
+        ccount = (self.apcount - self.apbkg) * self.apfactor
+        self.results.update(apccount=ccount)
+        return ccount
+    
+    @functools.cached_property
+    def approb(self):
+        """afterpulse probability"""
+        p = self.apccount / self.apnevents
+        self.results.update(approb=p)
+        return p
+    
+    @afterpulse.figmethod
+    def apevent(self, index, *, fig):
+        """plot an event with a selected afterpulse"""
+        evts = self.sim.eventswhere(self.apcond)
+        ievt = evts[index]
+        self.sim.plotevent(self.datalist, ievt, self.apilength, fig=fig)
+    
+    def saveresults(self, path):
+        with open(path, 'wb') as file:
+            self.results.update(params=self.params)
+            gvar.dump(self.results, file)
+    
+    @staticmethod
+    def loadresults(path):
+        with open(path, 'rb') as file:
+            return gvar.load(file)
+                    
+class FigureSaver:
+    
+    def __init__(self, prefix):
+        self.count = 0
+        self.prefix = prefix
 
-kw = dict(capsize=4, linestyle='', marker='.')
-uerrorbar(axdcr, vov, dcr, **kw)
-uerrorbar(axap, vov, ap * 100, **kw)
-uerrorbar(axtau, vov, tau, **kw)
-for i, (label, getter) in enumerate(mus):
-    mub = listdict(lambda d: getter(d))
-    pct, nct = ct(getter)
-    offset = 0.1 * (i/(len(mus)-1) - 1/2)
-    kw.update(label=label)
-    x = vov + offset
-    uerrorbar(axpct, x, pct * 100, **kw)
-    uerrorbar(axnct, x, nct, **kw)
-    uerrorbar(axmub, x, mub, **kw)
-uerrorbar(axmu, vov, mup, **kw)
+    def __call__(self, fig):
+        self.count += 1
+        path = f'{self.prefix}fig{self.count:02d}.png'
+        print(f'save {path}...')
+        fig.savefig(path)
 
-axmub.legend()
-axpct.legend()
-axnct.legend()
+if __name__ == '__main__':
+    
+    gvar.switch_gvar()
+    
+    vovdict = {}
+    
+    for vov in AfterPulseTile21.defaultparams:
+    
+        print(f'\n************** {vov} VoV **************')
+    
+        # load analysis file and skip if already saved
+        prefix = f'{vov}VoV-'
+        analfile = f'{AfterPulseTile21.savedir}/{prefix}archive.gvar'
+        if os.path.exists(analfile):
+            print(f'load {analfile}...')
+            vovdict[vov] = AfterPulseTile21.loadresults(analfile)
+            continue
+        
+        savef = FigureSaver(f'{AfterPulseTile21.savedir}/{prefix}')
+        anal = AfterPulseTile21(vov)
+        
+        print('\n******* Pre-trigger *******')
+        
+        savef(anal.ptfingerplot())
+        savef(anal.ptscatter())
+        savef(anal.pthist())
+    
+        for kind in ['borel', 'geom']:
+            _, fig1, fig2 = anal.ptdict(kind=kind)
+            savef(fig1)
+            savef(fig2)
+        
+        for overflow in [False, True]:
+            _, fig1, fig2 = anal.maindict(overflow=overflow)
+            savef(fig1)
+            savef(fig2)
+        
+        for i in range(3):
+            savef(anal.ptevent(i))
+        
+        print(f'pre-trigger count = {anal.ptcount} / {anal.ptnevents}')
+        print(f'total time = {anal.pttime} s')
+        print(f'correction factor = {anal.ptfactor}')
+        print(f'pre-trigger rate = {anal.ptrate} cps')
+        
+        print('\n******* Afterpulses *******')
+        
+        savef(anal.apfingerplot())
+        savef(anal.apscatter())
+        savef(anal.aphist())
+        
+        for overflow in [False, True]:
+            _, fig1, fig2 = anal.apdict(overflow=overflow)
+            savef(fig1)
+            savef(fig2)
+        
+        _, fig1, fig2 = anal.apfittau()
+        savef(fig1)
+        savef(fig2)
+        
+        for i in range(3):
+            savef(anal.apevent(i))
+    
+        print(f'tau = {anal.aptau}')
+        print(f'correction factor = {anal.apfactor}')
+        print(f'expected background = {anal.apbkg} counts in {anal.aptime:.3g} s')
+        print(f'ap count = {anal.apcount} / {anal.apnevents}')
+        print(f'corrected ap count = {anal.apccount}')
+        print(f'afterpulse probability = {anal.approb}')
+        
+        # save analysis results to file
+        print(f'save {analfile}...')
+        anal.saveresults(analfile)
+        vovdict[vov] = anal.results
 
-vov_fbk = [
-    3.993730407523511 ,  
-    6.00626959247649  ,  
-    7.003134796238245 ,  
-    8.018808777429467 ,  
-    9.015673981191222 ,  
-    10.012539184952978,
-]
+    fig1,  axdcr                = plt.subplots(      num='afterpulse_tile21-1', clear=True, figsize=[    3.7, 3.5])
+    fig2, (axap, axtau)         = plt.subplots(1, 2, num='afterpulse_tile21-2', clear=True, figsize=[2 * 3.7, 3.5])
+    fig3, (axmub, axpct, axnct) = plt.subplots(1, 3, num='afterpulse_tile21-3', clear=True, figsize=[   10.5, 3.5])
+    fig4,  axmu                 = plt.subplots(      num='afterpulse_tile21-4', clear=True, figsize=[    3.7, 3.5])
 
-vov_lf = [
-    7.6050156739811925, 
-    8.58307210031348  , 
-    9.617554858934168 , 
-    10.595611285266457, 
-    11.630094043887148, 
-    12.570532915360502,
-] 
+    figs = [fig1, fig2, fig3, fig4]
 
-dcr_fbk = [
-    0.0023342071127444575,
-    0.011135620473462282 ,
-    0.030621689547075892 ,
-    0.11045427521349038  ,
-    0.20321620635606957  ,
-    0.3304608961193384   ,
-]
+    for fig in figs:
+        for ax in fig.get_axes():
+            if ax.is_last_row():
+                ax.set_xlabel('VoV')
 
-dcr_lf = [
-    0.043606772240838754,
-    0.0652463247216516  ,
-    0.09766680629121166 ,
-    0.15917704842719693 ,
-    0.2206923575829639  ,
-    0.47616473894714073 ,
-]
+    axdcr.set_title('DCR')
+    axdcr.set_ylabel('Pre-trigger rate [cps]')
 
-dcr_factor = 250 / 0.1 # from cps/mm^2 to cps/PDM
+    axap.set_title('Afterpulse')
+    axap.set_ylabel('Prob. of $\\geq$1 ap after 1 pe signal [%]')
 
-# axdcr.plot(vov_fbk, dcr_factor * np.array(dcr_fbk), '.-', label='FBK')
-# axdcr.plot(vov_lf, dcr_factor * np.array(dcr_lf), '.-', label='LF')
-# axdcr.legend()
+    axtau.set_title('Afterpulse')
+    axtau.set_ylabel('Exponential decay constant [ns]')
 
-for fig in figs:
-    for ax in fig.get_axes():
-        l, u = ax.get_ylim()
-        ax.set_ylim(0, u)
-        ax.minorticks_on()
-        ax.grid(True, 'major', linestyle='--')
-        ax.grid(True, 'minor', linestyle=':')
-    fig.tight_layout()
+    axpct.set_title('Cross talk')
+    axpct.set_ylabel('Prob. of > 1 pe [%]')
 
-for fig in figs:
-    fig.show()
+    axnct.set_title('Cross talk')
+    axnct.set_ylabel('Average excess pe')
+
+    axmu.set_title('Efficiency')
+    axmu.set_ylabel('Average detected laser photons')
+
+    axmub.set_title('Cross talk')
+    axmub.set_ylabel('Branching parameter $\\mu_B$')
+
+    vov = np.array(list(vovdict))
+    
+    def listdict(getter):
+        return np.array([getter(d) for d in vovdict.values()])
+    
+    ptrate = listdict(lambda d: d['ptrate'])
+    approb = listdict(lambda d: d['approb'])
+    aptau = listdict(lambda d: d['aptau'])
+    
+    def ct(mugetter):
+        pct = listdict(lambda d: 1 - np.exp(-mugetter(d)))
+        nct = listdict(lambda d: 1 / (1 - mugetter(d)) - 1)
+        return pct, nct
+    
+    def paramgetter(fitkey, param):
+        def getter(d):
+            fit = d[fitkey]
+            mu = fit.palt[param]
+            if fit.Q < 0.01:
+                factor = np.sqrt(fit.chi2 / fit.dof)
+                mu = scalesdev(mu, factor)
+            return mu
+        return getter
+    
+    mus = [
+        ('Dark count' , paramgetter('ptfit'  , 'mu'      )),
+        ('Laser'      , paramgetter('mainfit', 'mu_borel')),
+        ('Afterpulses', paramgetter('apfit'  , 'mu'      )),
+    ]
+    
+    mup = listdict(paramgetter('mainfit', 'mu_poisson'))
+
+    kw = dict(capsize=4, linestyle='', marker='.')
+    uerrorbar(axdcr, vov, ptrate, **kw)
+    uerrorbar(axap,  vov, approb * 100, **kw)
+    uerrorbar(axtau, vov, aptau, **kw)
+    uerrorbar(axmu,  vov, mup, **kw)
+    
+    for i, (label, getter) in enumerate(mus):
+        mub = listdict(getter)
+        pct, nct = ct(getter)
+        offset = 0.1 * (i/(len(mus)-1) - 1/2)
+        kw.update(label=label)
+        x = vov + offset
+        uerrorbar(axpct, x, pct * 100, **kw)
+        uerrorbar(axnct, x, nct, **kw)
+        uerrorbar(axmub, x, mub, **kw)
+
+    axmub.legend()
+    axpct.legend()
+    axnct.legend()
+
+    vov_fbk = [
+        3.993730407523511 ,  
+        6.00626959247649  ,  
+        7.003134796238245 ,  
+        8.018808777429467 ,  
+        9.015673981191222 ,  
+        10.012539184952978,
+    ]
+
+    vov_lf = [
+        7.6050156739811925, 
+        8.58307210031348  , 
+        9.617554858934168 , 
+        10.595611285266457, 
+        11.630094043887148, 
+        12.570532915360502,
+    ] 
+
+    dcr_fbk = [
+        0.0023342071127444575,
+        0.011135620473462282 ,
+        0.030621689547075892 ,
+        0.11045427521349038  ,
+        0.20321620635606957  ,
+        0.3304608961193384   ,
+    ]
+
+    dcr_lf = [
+        0.043606772240838754,
+        0.0652463247216516  ,
+        0.09766680629121166 ,
+        0.15917704842719693 ,
+        0.2206923575829639  ,
+        0.47616473894714073 ,
+    ]
+
+    dcr_factor = 250 / 0.1 # from cps/mm^2 to cps/PDM
+
+    # axdcr.plot(vov_fbk, dcr_factor * np.array(dcr_fbk), '.-', label='FBK')
+    # axdcr.plot(vov_lf, dcr_factor * np.array(dcr_lf), '.-', label='LF')
+    # axdcr.legend()
+
+    for fig in figs:
+        for ax in fig.get_axes():
+            l, u = ax.get_ylim()
+            ax.set_ylim(0, u)
+            ax.minorticks_on()
+            ax.grid(True, 'major', linestyle='--')
+            ax.grid(True, 'minor', linestyle=':')
+        fig.tight_layout()
+
+    for fig in figs:
+        fig.show()

@@ -4,7 +4,6 @@ Make a signal template from an LNGS wav and save it. Usage:
     savetemplate.py [filenames...]
 """
 
-import sys
 import os
 
 from matplotlib import pyplot as plt
@@ -15,20 +14,27 @@ import readwav
 import templateplot
 import firstbelowthreshold
 
-files = sys.argv[1:]
+def templatebasepath(source):
+    assert source.endswith('.wav'), source
+    return 'templates/' + os.path.split(source)[1][:-4] + '-template'
 
-for source in files:
-    assert source.endswith('.wav')
-    destbase = 'templates/' + os.path.split(source)[1][:-4] + '-template'
-    dest = destbase + '.npz'
+def templatepath(source):
+    return templatebasepath(source) + '.npz'
 
+def defaulttrigger(source):
+    return 8969
+
+def savetemplate(source, plot='show'):
+    dest = templatepath(source)
+    destbase = templatebasepath(source)
+    
     data = readwav.readwav(source)
     print(f'computing template...')
     if data.shape[1] == 1:
-        trigger = 8969
+        trigger = defaulttrigger(source)
     else:
         trigger = None
-    
+
     fig1 = plt.figure(num='savetemplate1', clear=True)    
     templ = template.Template.from_lngs(data, 7 * 512, trigger=trigger, fig=fig1)
     print(f'write {dest}...')
@@ -36,12 +42,20 @@ for source in files:
 
     fig2 = plt.figure(num='savetemplate2', clear=True, figsize=[6.4, 7.1])
     templateplot.templateplot(dest, fig=fig2)
-    
+
     for i, fig in enumerate([fig1, fig2]):
         fig.tight_layout()
-        if len(files) == 1:
+        if plot == 'show':
             fig.show()
-        else:
+        elif plot == 'save':
             destplot = f'{destbase}-{i + 1}.png'
             print(f'write {destplot}...')
             fig.savefig(destplot)
+        else:
+            raise KeyError(plot)
+
+if __name__ == '__main__':
+    import sys
+    files = sys.argv[1:]
+    for file in files:
+        savetemplate(file, plot='show' if len(files) == 1 else 'save')

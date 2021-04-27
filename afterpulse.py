@@ -46,6 +46,41 @@ def maxdiff_boundaries(x, pe):
 def _posampl1(x):
     return x / x[np.argmax(np.abs(x))]
 
+def figmethod(*args, figparams=['fig']):
+    """
+    Decorator for plotting methods/functions.
+    
+    Assumes that the method requires a keyword argument `fig` which is a
+    matplotlib figure. When `fig` is not provided or None, generate a figure
+    with the method name as window title.
+    
+    If the original method returns None (or does not return), the decorated
+    method returns the figure.
+    """
+    def decorator(meth):
+        @functools.wraps(meth)
+        def newmeth(*args, **kw):
+            figs = []
+            for i, param in enumerate(figparams):
+                fig = kw.get(param, None)
+                if fig is None:
+                    title = meth.__qualname__
+                    if len(figparams) > 1:
+                        title += str(i + 1)
+                    fig = plt.figure(num=title, clear=True)
+                figs.append(fig)
+                kw[param] = fig
+            rt = meth(*args, **kw)
+            return (fig if len(figparams) == 1 else tuple(figs)) if rt is None else rt
+        return newmeth
+    
+    if len(args) == 0:
+        return decorator
+    elif len(args) == 1:
+        return decorator(args[0])
+    else:
+        raise ValueError(len(args))
+
 class AfterPulse(npzload.NPZLoad):
     
     # TODO (long)
@@ -571,7 +606,7 @@ class AfterPulse(npzload.NPZLoad):
             npe = np.array(npe)
         npe[npe >= len(boundaries)] = overflow
         return npe
-        
+    
     def fingerplot(self, ilength=None):
         """
         Plot the fingerplot of the main peak height used to count the pe.
@@ -879,7 +914,8 @@ class AfterPulse(npzload.NPZLoad):
     def _apheight(self):
         return self.apheight(self._peaksampl)
     
-    def plotevent(self, wavdata, ievent, ilength=None, zoom='posttrigger', debug=False):
+    @figmethod
+    def plotevent(self, wavdata, ievent, ilength=None, zoom='posttrigger', debug=False, fig=None):
         """
         Plot a single event.
         
@@ -900,6 +936,8 @@ class AfterPulse(npzload.NPZLoad):
             The x-axis extension.
         debug : bool
             If False (default), reduce the amount of information showed.
+        fig : matplotlib figure, optional
+            A matplotlib figure where the plot is drawn.
         
         Return
         ------
@@ -911,7 +949,7 @@ class AfterPulse(npzload.NPZLoad):
         elif not isinstance(ilength, tuple):
             ilength = (ilength,)
         
-        fig, ax = plt.subplots(num='afterpulse.AfterPulse.plotevent', clear=True)
+        ax = fig.subplots()
         
         if not hasattr(wavdata, 'astype'):
             wavdata = wavdata[self.catindex(ievent)]
@@ -1002,7 +1040,6 @@ class AfterPulse(npzload.NPZLoad):
         ax.set_xlabel('Sample number @ 1 GSa/s')
         
         fig.tight_layout()
-        return fig
     
     @functools.cached_property
     def _variables(self):
@@ -1021,6 +1058,7 @@ class AfterPulse(npzload.NPZLoad):
             good        = "self._good",
         )
         peaks = [
+            # field, prefix, index in _apheight
             ('mainpeak'  , 'main' , None),
             ('minorpeak' , 'minor', 0   ),
             ('minorpeak2', 'third', 1   ),
@@ -1237,7 +1275,8 @@ class AfterPulse(npzload.NPZLoad):
         mask = np.any(mask, axis=tuple(range(self.filtlengths.ndim)))
         return np.flatnonzero(mask)
     
-    def hist(self, expr, where=None, yscale='linear', nbins='auto'):
+    @figmethod
+    def hist(self, expr, where=None, yscale='linear', nbins='auto', fig=None):
         """
         Plot the histogram of an expression.
         
@@ -1259,6 +1298,8 @@ class AfterPulse(npzload.NPZLoad):
             The y scale of the plot, default 'linear'.
         nbins : int, optional
             The number of bins. Computed automatically by default.
+        fig : matplotlib figure, optional
+            A matplotlib figure where the plot is drawn.
         
         Return
         ------
@@ -1272,7 +1313,7 @@ class AfterPulse(npzload.NPZLoad):
             cond = self.getexpr(where)
             values, cond = np.broadcast_arrays(values, cond)
         
-        fig, ax = plt.subplots(num='afterpulse.AfterPulse.hist', clear=True)
+        ax = fig.subplots()
         
         histkw = dict(
             histtype = 'step',
@@ -1320,9 +1361,9 @@ class AfterPulse(npzload.NPZLoad):
         ax.grid(which='minor', linestyle=':')
         
         fig.tight_layout()
-        return fig
-
-    def scatter(self, xexpr, yexpr, where=None):
+    
+    @figmethod
+    def scatter(self, xexpr, yexpr, where=None, fig=None):
         """
         Plot the scatterplot of two expressions.
         
@@ -1343,6 +1384,8 @@ class AfterPulse(npzload.NPZLoad):
             An expression for a boolean condition to select the values of
             `xexpr` and `yexpr`. The condition is broadcasted with `xexpr` and
             `yexpr` prior to applying it.
+        fig : matplotlib figure, optional
+            A matplotlib figure where the plot is drawn.
         
         Return
         ------
@@ -1357,7 +1400,7 @@ class AfterPulse(npzload.NPZLoad):
         else:
             xvalues, yvalues = np.broadcast_arrays(xvalues, yvalues)
         
-        fig, ax = plt.subplots(num='afterpulse.AfterPulse.scatter', clear=True)
+        ax = fig.subplots()
         
         plotkw = dict(
             linestyle = '',
@@ -1402,7 +1445,6 @@ class AfterPulse(npzload.NPZLoad):
         ax.grid(which='minor', linestyle=':')
         
         fig.tight_layout()
-        return fig
     
     def _binedges(self, x, maxnbins='auto', nbins='auto'):
         """
@@ -1428,8 +1470,9 @@ class AfterPulse(npzload.NPZLoad):
                 bins = np.pad(bins, (0, 1), constant_values=bins[-1] + bins[1] - bins[0])
         
         return bins
-
-    def hist2d(self, xexpr, yexpr, where=None, log=True):
+    
+    @figmethod
+    def hist2d(self, xexpr, yexpr, where=None, log=True, fig=None):
         """
         Plot the 2D histogram of two expressions.
         
@@ -1451,6 +1494,8 @@ class AfterPulse(npzload.NPZLoad):
         log : bool
             If True (default), the colormap is for the logarithm of the bin
             height.
+        fig : matplotlib figure, optional
+            A matplotlib figure where the plot is drawn.
         
         Return
         ------
@@ -1469,7 +1514,7 @@ class AfterPulse(npzload.NPZLoad):
         else:
             xvalues, yvalues = np.broadcast_arrays(xvalues, yvalues)
         
-        fig, ax = plt.subplots(num='afterpulse.AfterPulse.hist2d', clear=True)
+        ax = fig.subplots()
         
         if where is not None:
             x = xvalues[cond]
@@ -1502,7 +1547,6 @@ class AfterPulse(npzload.NPZLoad):
         ax.set_ylabel(yexpr)
         
         fig.tight_layout()
-        return fig
 
     @classmethod
     def concatenate(cls, aplist):
