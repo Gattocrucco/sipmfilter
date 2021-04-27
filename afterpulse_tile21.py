@@ -92,6 +92,33 @@ def genpoissonpmf(k, params):
     effmu = mu + k * lamda
     return np.exp(-effmu) * mu * effmu ** (k - 1) / special.factorial(k)
 
+def geompoissonpmf_nv(k, params):
+    # Nuel 2008, "Cumulative distribution function of a geometric Poisson distribution", proposition 7 (pag 5) 
+    lamda = params['mu_poisson']
+    theta = 1 - params['p_geom']
+    z = lamda * theta / (1 - theta)
+    P = [
+        np.exp(-lamda),
+        np.exp(-lamda) * (1 - theta) * z,
+    ]
+    assert int(k) == k, k
+    k = int(k)
+    for n in range(2, k + 1):
+        t1 = (2 * n - 2 + z) / n * (1 - theta) * P[n - 1]
+        t2 = (2 - n) / n * (1 - theta) ** 2 * P[n - 2]
+        P.append(t1 + t2)
+    assert len(P) == max(k, 1) + 1, (len(P), k)
+    return P[k]
+
+def geompoissonpmf(ks, params):
+    out = None
+    for i, k in np.ndenumerate(ks):
+        r = geompoissonpmf_nv(k, params)
+        if out is None:
+            out = np.empty_like(ks, dtype=np.array(r).dtype)
+        out[i] = r
+    return out
+
 def exponbkgcdf(x, params):
     scale = params['tau']
     const = params['const']
@@ -210,7 +237,6 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
     if hasoverflow:
         y.update(overflow=upoisson(overflow))
     fit = lsqfit.nonlinear_fit((x, y), fcn, prior, **kw)
-    print(fit.format(maxline=True))
     
     # plot data
     ax = fig.subplots()
@@ -268,14 +294,6 @@ def intbins(min, max):
 def pebins(boundaries, start):
     return intbins(start, len(boundaries) - 1), intbins(1000, 1000)
 
-def getkind(kind):
-    if kind == 'borel':
-        return borelpmf, 'mu'
-    elif kind == 'geom':
-        return geompmf, 'p'
-    else:
-        raise KeyError(kind)
-
 gvar.BufferDict.uniform('U', 0, 1)
 
 def _fitpe(sim, expr, condexpr, boundaries, pmf, prior, binstart, overflow, *, fig1, fig2, **kw):
@@ -290,6 +308,14 @@ def _fitpe(sim, expr, condexpr, boundaries, pmf, prior, binstart, overflow, *, f
     sim.hist(histexpr, condexpr, fig=fig1)
     return fit, fig1, fig2
 
+def getkind(kind):
+    if kind == 'borel':
+        return borelpmf, 'mu'
+    elif kind == 'geom':
+        return geompmf, 'p'
+    else:
+        raise KeyError(kind)
+
 @afterpulse.figmethod(figparams=['fig1', 'fig2'])
 def fitpe(sim, expr, condexpr, boundaries, kind='borel', overflow=True, **kw):
     pmf, param = getkind(kind)
@@ -298,19 +324,28 @@ def fitpe(sim, expr, condexpr, boundaries, kind='borel', overflow=True, **kw):
     }
     return _fitpe(sim, expr, condexpr, boundaries, pmf, prior, 1, overflow, **kw)
     
+def getkindpoisson(kind):
+    if kind == 'borel':
+        return genpoissonpmf, 'mu_borel'
+    elif kind == 'geom':
+        return geompoissonpmf, 'p_geom'
+    else:
+        raise KeyError(kind)
+
 @afterpulse.figmethod(figparams=['fig1', 'fig2'])
-def fitpepoisson(sim, expr, condexpr, boundaries, overflow=True, **kw):
+def fitpepoisson(sim, expr, condexpr, boundaries, kind='borel', overflow=True, **kw):
+    pmf, param = getkindpoisson(kind)
     prior = {
-        'U(mu_borel)': gvar.BufferDict.uniform('U', 0, 1),
+        f'U({param})': gvar.BufferDict.uniform('U', 0, 1),
         'log(mu_poisson)': gvar.gvar(0, 1),
     }
-    return _fitpe(sim, expr, condexpr, boundaries, genpoissonpmf, prior, 0, overflow, **kw)
+    return _fitpe(sim, expr, condexpr, boundaries, pmf, prior, 0, overflow, **kw)
 
 @afterpulse.figmethod(figparams=['fig1', 'fig2'])
 def fitapdecay(sim, expr, condexpr, const, *, fig1, fig2, **kw):
     prior = {
-        'log(tau)' : gvar.gvar(np.log(1000), 1),
-        'const' : const,
+        'log(tau)': gvar.gvar(np.log(1000), 1),
+        'const': const,
     }
     fit, _ = fithistogram(sim, expr, condexpr, prior, exponbkgcdf, continuous=True, fig=fig2, **kw)
     sim.hist(expr, condexpr, fig=fig1)
@@ -582,15 +617,17 @@ class AfterPulseTile21:
             self.sim.setvar(name, value)
     
     @afterpulse.figmethod(figparams=['fig1', 'fig2'])
-    def maindict(self, overflow=False, *, fig1, fig2):
+    def maindict(self, kind='borel', overflow=False, *, fig1, fig2):
         """fit main peak pe histogram"""
         self.defmainnpebackup()
         ptlength = self.params['ptlength']
         mainsel = f'any(mainpos>=0,0)&(length=={ptlength})'
-        fit, _, _ = fitpepoisson(self.sim, 'mainnpebackup', mainsel, self.ptboundaries, overflow=overflow, fig1=fig1, fig2=fig2)
+        fit, _, _ = fitpepoisson(self.sim, 'mainnpebackup', mainsel, self.ptboundaries, kind=kind, overflow=overflow, fig1=fig1, fig2=fig2)
         label = 'mainfit'
         if overflow:
             label += 'of'
+        if kind == 'geom':
+            label += kind
         self.results[label] = fit
         return fit, fig1, fig2
     
@@ -683,6 +720,8 @@ class AfterPulseTile21:
         label = 'apfit'
         if overflow:
             label += 'of'
+        if kind == 'geom':
+            label += kind
         self.results[label] = fit
         return fit, fig1, fig2
     
@@ -785,88 +824,106 @@ class FigureSaver:
     def __init__(self, prefix):
         self.count = 0
         self.prefix = prefix
+    
+    @property
+    def lastnamenoext(self):
+        assert self.count > 0
+        return f'{self.prefix}fig{self.count:02d}'
+    
+    def savefit(self, fit):
+        path = f'{self.lastnamenoext}.txt'
+        with open(path, 'w') as file:
+            print(f'write {path}...')
+            file.write(fit.format(maxline=True))
 
     def __call__(self, fig):
         self.count += 1
-        path = f'{self.prefix}fig{self.count:02d}.png'
+        path = f'{self.lastnamenoext}.png'
         print(f'save {path}...')
         fig.savefig(path)
 
-if __name__ == '__main__':
+def singlevovanalysis(vov):
+    print(f'\n************** {vov} VoV **************')
+
+    # load analysis file and skip if already saved
+    prefix = f'{vov}VoV-'
+    analfile = f'{AfterPulseTile21.savedir}/{prefix}archive.gvar'
+    if os.path.exists(analfile):
+        print(f'load {analfile}...')
+        return AfterPulseTile21.loadresults(analfile)
     
-    gvar.switch_gvar()
+    savef = FigureSaver(f'{AfterPulseTile21.savedir}/{prefix}')
+    anal = AfterPulseTile21(vov)
     
-    vovdict = {}
+    print('\n******* Pre-trigger *******')
     
-    for vov in AfterPulseTile21.defaultparams:
-    
-        print(f'\n************** {vov} VoV **************')
-    
-        # load analysis file and skip if already saved
-        prefix = f'{vov}VoV-'
-        analfile = f'{AfterPulseTile21.savedir}/{prefix}archive.gvar'
-        if os.path.exists(analfile):
-            print(f'load {analfile}...')
-            vovdict[vov] = AfterPulseTile21.loadresults(analfile)
-            continue
-        
-        savef = FigureSaver(f'{AfterPulseTile21.savedir}/{prefix}')
-        anal = AfterPulseTile21(vov)
-        
-        print('\n******* Pre-trigger *******')
-        
-        savef(anal.ptfingerplot())
-        savef(anal.ptscatter())
-        savef(anal.pthist())
-    
-        for kind in ['borel', 'geom']:
-            _, fig1, fig2 = anal.ptdict(kind=kind)
-            savef(fig1)
-            savef(fig2)
-        
-        for overflow in [False, True]:
-            _, fig1, fig2 = anal.maindict(overflow=overflow)
-            savef(fig1)
-            savef(fig2)
-        
-        for i in range(3):
-            savef(anal.ptevent(i))
-        
-        print(f'pre-trigger count = {anal.ptcount} / {anal.ptnevents}')
-        print(f'total time = {anal.pttime} s')
-        print(f'correction factor = {anal.ptfactor}')
-        print(f'pre-trigger rate = {anal.ptrate} cps')
-        
-        print('\n******* Afterpulses *******')
-        
-        savef(anal.apfingerplot())
-        savef(anal.apscatter())
-        savef(anal.aphist())
-        
-        for overflow in [False, True]:
-            _, fig1, fig2 = anal.apdict(overflow=overflow)
-            savef(fig1)
-            savef(fig2)
-        
-        _, fig1, fig2 = anal.apfittau()
+    savef(anal.ptfingerplot())
+    savef(anal.ptscatter())
+    savef(anal.pthist())
+
+    for kind in ['borel', 'geom']:
+        fit, fig1, fig2 = anal.ptdict(kind=kind)
         savef(fig1)
         savef(fig2)
-        
-        for i in range(3):
-            savef(anal.apevent(i))
+        savef.savefit(fit)
     
-        print(f'tau = {anal.aptau}')
-        print(f'correction factor = {anal.apfactor}')
-        print(f'expected background = {anal.apbkg} counts in {anal.aptime:.3g} s')
-        print(f'ap count = {anal.apcount} / {anal.apnevents}')
-        print(f'corrected ap count = {anal.apccount}')
-        print(f'afterpulse probability = {anal.approb}')
-        
-        # save analysis results to file
-        print(f'save {analfile}...')
-        anal.saveresults(analfile)
-        vovdict[vov] = anal.results
+    for kind in ['borel', 'geom']:
+        for overflow in [False, True]:
+            fit, fig1, fig2 = anal.maindict(kind=kind, overflow=overflow)
+            savef(fig1)
+            savef(fig2)
+            savef.savefit(fit)
+    
+    for i in range(3):
+        savef(anal.ptevent(i))
+    
+    print(f'pre-trigger count = {anal.ptcount} / {anal.ptnevents}')
+    print(f'total time = {anal.pttime} s')
+    print(f'correction factor = {anal.ptfactor}')
+    print(f'pre-trigger rate = {anal.ptrate} cps')
+    
+    print('\n******* Afterpulses *******')
+    
+    savef(anal.apfingerplot())
+    savef(anal.apscatter())
+    savef(anal.aphist())
+    
+    for kind in ['borel', 'geom']:
+        for overflow in [False, True]:
+            fit, fig1, fig2 = anal.apdict(kind=kind, overflow=overflow)
+            savef(fig1)
+            savef(fig2)
+            savef.savefit(fit)
+    
+    fit, fig1, fig2 = anal.apfittau()
+    savef(fig1)
+    savef(fig2)
+    savef.savefit(fit)
+    
+    for i in range(3):
+        savef(anal.apevent(i))
 
+    print(f'tau = {anal.aptau}')
+    print(f'correction factor = {anal.apfactor}')
+    print(f'expected background = {anal.apbkg} counts in {anal.aptime:.3g} s')
+    print(f'ap count = {anal.apcount} / {anal.apnevents}')
+    print(f'corrected ap count = {anal.apccount}')
+    print(f'afterpulse probability = {anal.approb}')
+    
+    # save analysis results to file
+    print(f'save {analfile}...')
+    anal.saveresults(analfile)
+    return anal.results
+
+def allvovanalysis():
+    vovdict = {}
+    for vov in AfterPulseTile21.defaultparams:
+        vovdict[vov] = singlevovanalysis(vov)
+    return vovdict
+
+def main():
+    vovdict = allvovanalysis()
+    
     fig1,  axdcr                = plt.subplots(      num='afterpulse_tile21-1', clear=True, figsize=[    3.7, 3.5])
     fig2, (axap, axtau)         = plt.subplots(1, 2, num='afterpulse_tile21-2', clear=True, figsize=[2 * 3.7, 3.5])
     fig3, (axmub, axpct, axnct) = plt.subplots(1, 3, num='afterpulse_tile21-3', clear=True, figsize=[   10.5, 3.5])
@@ -1005,3 +1062,9 @@ if __name__ == '__main__':
 
     for fig in figs:
         fig.show()
+
+if __name__ == '__main__':
+    
+    gvar.switch_gvar()
+    
+    main()
