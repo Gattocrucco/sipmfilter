@@ -31,10 +31,11 @@ def usamples(x):
 
 def hspan(ax, y0=None, y1=None):
     ylim = ax.get_ylim()
+    margin = 1000 * (ylim[1] - ylim[0])
     if y0 is None:
-        y0 = ylim[0]
+        y0 = ylim[0] - margin
     if y1 is None:
-        y1 = ylim[1]
+        y1 = ylim[1] + margin
     ax.axhspan(y0, y1, color='#0002')
     ax.set_ylim(ylim)
     
@@ -49,10 +50,11 @@ def vspan(ax, x0=None, x1=None):
 
 def vlines(ax, x, y0=None, y1=None, **kw):
     ylim = ax.get_ylim()
+    margin = 1000 * (ylim[1] - ylim[0])
     if y0 is None:
-        y0 = ylim[0]
+        y0 = ylim[0] - margin
     if y1 is None:
-        y1 = ylim[1]
+        y1 = ylim[1] + margin
     ax.vlines(x, y0, y1, **kw)
     ax.set_ylim(ylim)
 
@@ -308,11 +310,15 @@ gvar.BufferDict.uniform('U', 0, 1)
 
 def _fitpe(sim, expr, condexpr, boundaries, pmf, prior, binstart, overflow, *, fig1, fig2, **kw):
     bins, bins_overflow = pebins(boundaries, binstart)
+    value = sim.getexpr(expr)
+    of = value >= 1000
+    sim.setvar('overflow', of, overwrite=True)
     if overflow:
-        histexpr = f'where({expr}<1000,{expr},1+max({expr}[{expr}<1000]))'
+        top = 1 + np.max(value[~of])
+        histexpr = f'where(overflow,{top},{expr})'
     else:
         bins_overflow = None
-        condexpr = f'{condexpr}&({expr}<1000)'
+        condexpr = f'{condexpr}&~overflow'
         histexpr = expr
     fit, _ = fithistogram(sim, expr, condexpr, prior, pmf, bins, bins_overflow, fig=fig2, **kw)
     sim.hist(histexpr, condexpr, fig=fig1)
@@ -363,6 +369,60 @@ def fitapdecay(sim, expr, condexpr, const, *, fig1, fig2, **kw):
 
 def scalesdev(x, f):
     return x + (f - 1) * (x - gvar.mean(x))
+
+def figmethod(*args, figparams=['fig']):
+    """
+    Decorator for plotting methods of AfterPulseTile21.
+    
+    Assumes that the method requires a keyword argument `fig` which is a
+    matplotlib figure. When `fig` is not provided or None, generate a figure
+    with the method name as window title.
+    
+    If the original method returns None (or does not return), the decorated
+    method returns the figure.
+    """
+    def decorator(meth):
+        
+        @functools.wraps(meth)
+        def newmeth(self, *args, **kw):
+            figs = []
+            for i, param in enumerate(figparams):
+                fig = kw.get(param, None)
+                if fig is None:
+                    title = meth.__qualname__
+                    if len(figparams) > 1:
+                        title += str(i + 1)
+                    fig = plt.figure(num=title, clear=True)
+                figs.append(fig)
+                kw[param] = fig
+            
+            rt = meth(self, *args, **kw)
+            
+            for fig in figs:
+                ax, = fig.get_axes()
+                b, t = ax.get_ylim()
+                yscale = ax.get_yscale()
+                if yscale == 'log':
+                    b = np.log(b)
+                    t = np.log(t)
+                t += (t - b) / 9
+                if yscale == 'log':
+                    b = np.exp(b)
+                    t = np.exp(t)
+                ax.set_ylim(b, t)
+                textbox.textbox(ax, f'{self.vov} VoV', fontsize='medium', loc='lower center')
+                fig.tight_layout()
+            
+            return (fig if len(figparams) == 1 else tuple(figs)) if rt is None else rt
+        
+        return newmeth
+    
+    if len(args) == 0:
+        return decorator
+    elif len(args) == 1:
+        return decorator(args[0])
+    else:
+        raise ValueError(len(args))
 
 class AfterPulseTile21:
     
@@ -535,7 +595,7 @@ class AfterPulseTile21:
         ptlength = self.params['ptlength']
         return f'where(mainampl>=0,~saturated,good)&(mainpos>=0)&(length=={ptlength})'
     
-    @afterpulse.figmethod
+    @figmethod
     def ptfingerplot(self, fig):
         """plot a fingerplot"""
         self.sim.hist('mainamplh', self.ptmainsel, 'log', 1000, fig=fig)
@@ -543,7 +603,7 @@ class AfterPulseTile21:
         vspan(ax, self.ptcut)
         vlines(ax, self.ptboundaries, linestyle=':')
     
-    @afterpulse.figmethod
+    @figmethod
     def ptscatter(self, fig):
         """plot pre-trigger amplitude vs. position"""
         ptlength = self.params['ptlength']
@@ -556,7 +616,7 @@ class AfterPulseTile21:
         hspan(ax, self.ptcut)
         hlines(ax, self.ptboundaries, linestyle=':')
     
-    @afterpulse.figmethod
+    @figmethod
     def pthist(self, fig):
         """plot a histogram of pre-trigger peak height"""
         self.sim.hist('ptAamplh', self.ptsel, 'log', fig=fig)
@@ -609,7 +669,7 @@ class AfterPulseTile21:
         self.results.update(ptrate=r)
         return r
     
-    @afterpulse.figmethod(figparams=['fig1', 'fig2'])
+    @figmethod(figparams=['fig1', 'fig2'])
     def ptdict(self, kind='borel', *, fig1, fig2):
         """fit pre-trigger pe histogram"""
         fit, _, _ = fitpe(self.sim, 'ptAnpe', f'{self.ptsel}&(ptAnpe>0)', self.ptboundaries, kind, fig1=fig1, fig2=fig2)
@@ -626,7 +686,7 @@ class AfterPulseTile21:
             value = self.sim.getexpr(expr)
             self.sim.setvar(name, value)
     
-    @afterpulse.figmethod(figparams=['fig1', 'fig2'])
+    @figmethod(figparams=['fig1', 'fig2'])
     def maindict(self, kind='borel', overflow=False, fixzero=False, *, fig1, fig2):
         """fit main peak pe histogram"""
         self.defmainnpebackup()
@@ -646,7 +706,7 @@ class AfterPulseTile21:
         self.results[label] = fit
         return fit, fig1, fig2
     
-    @afterpulse.figmethod
+    @figmethod
     def ptevent(self, index=0, *, fig):
         """plot an event with an high pre-trigger peak"""
         evts = self.sim.eventswhere(f'{self.ptsel}&(ptAamplh>{self.ptcut})')
@@ -694,7 +754,7 @@ class AfterPulseTile21:
         """pe boundaries for afterpulse analysis"""
         return self.sim.computenpeboundaries(self.apilength)
 
-    @afterpulse.figmethod
+    @figmethod
     def apfingerplot(self, *, fig):
         """plot a fingerplot"""
         aplength = self.params['aplength']
@@ -704,7 +764,7 @@ class AfterPulseTile21:
         vspan(ax, self.apcut)
         vlines(ax, self.apboundaries, linestyle=':')
     
-    @afterpulse.figmethod
+    @figmethod
     def apscatter(self, *, fig):
         """plot afterpulses height vs. distance from main pulse"""
         self.sim.scatter('apApos-mainpos', 'apAapamplh', self.appresel, fig=fig)
@@ -715,7 +775,7 @@ class AfterPulseTile21:
         vspan(ax, dcut, dcutr)
         hlines(ax, self.apboundaries, linestyle=':')
     
-    @afterpulse.figmethod
+    @figmethod
     def aphist(self, *, fig):
         """plot selected afterpulses height histogram"""
         self.sim.hist('apAapamplh', self.apsel, 'log', fig=fig)
@@ -728,7 +788,7 @@ class AfterPulseTile21:
         """afterpulse selection"""
         return f'{self.apsel}&(apAapamplh>{self.apcut})'
     
-    @afterpulse.figmethod(figparams=['fig1', 'fig2'])
+    @figmethod(figparams=['fig1', 'fig2'])
     def apdict(self, overflow=False, kind='borel', *, fig1, fig2):
         """fit afterpulses pe histogram"""
         fit, _, _ = fitpe(self.sim, 'apAnpe', f'{self.apcond}&(apAnpe>0)', self.apboundaries, kind=kind, overflow=overflow, fig1=fig1, fig2=fig2)
@@ -770,7 +830,7 @@ class AfterPulseTile21:
         self.results.update(apbkg=bkg)
         return bkg
     
-    @afterpulse.figmethod(figparams=['fig1', 'fig2'])
+    @figmethod(figparams=['fig1', 'fig2'])
     def apfittau(self, *, fig1, fig2):
         """fit decay constant of afterpulses"""
         dcut = self.params['dcut']
@@ -817,7 +877,7 @@ class AfterPulseTile21:
         self.results.update(approb=p)
         return p
     
-    @afterpulse.figmethod
+    @figmethod
     def apevent(self, index, *, fig):
         """plot an event with a selected afterpulse"""
         evts = self.sim.eventswhere(self.apcond)
