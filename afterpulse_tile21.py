@@ -156,7 +156,7 @@ def fcn(x, p):
         )
 
 @afterpulse.figmethod
-def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overflow=None, continuous=False, fig=None, **kw):
+def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overflow=None, continuous=False, fig=None, errorfactor=None, **kw):
     """
     Fit an histogram.
     
@@ -181,7 +181,11 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
         an integer variable. If True, pmf_or_cdf must compute the cumulative
         density up to the given point.
     fig : matplotlib figure, optional
-        If provided, the plot is draw here.
+        If provided, the plot is drawn here.
+    errorfactor : 1D array, optional
+        If provided, the errors on the bin counts are multiplied by these
+        factors. If the array has different length than the number of bins,
+        the factors are applied starting from the first element.
     **kw :
         Additional keyword arguments are passed to lsqfit.nonlinear_fit.
     
@@ -233,7 +237,13 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
         norm = norm,
         hasoverflow = hasoverflow,
     )
-    y = dict(bins=upoisson(counts))
+    ucounts = upoisson(counts)
+    if errorfactor is not None:
+        errorfactor = np.asarray(errorfactor)
+        assert errorfactor.ndim == 1, errorfactor.ndim
+        end = min(len(errorfactor), len(ucounts))
+        ucounts[:end] = scalesdev(ucounts[:end], errorfactor[:end])
+    y = dict(bins=ucounts)
     if hasoverflow:
         y.update(overflow=upoisson(overflow))
     fit = lsqfit.nonlinear_fit((x, y), fcn, prior, **kw)
@@ -617,17 +627,22 @@ class AfterPulseTile21:
             self.sim.setvar(name, value)
     
     @afterpulse.figmethod(figparams=['fig1', 'fig2'])
-    def maindict(self, kind='borel', overflow=False, *, fig1, fig2):
+    def maindict(self, kind='borel', overflow=False, fixzero=False, *, fig1, fig2):
         """fit main peak pe histogram"""
         self.defmainnpebackup()
         ptlength = self.params['ptlength']
         mainsel = f'any(mainpos>=0,0)&(length=={ptlength})'
-        fit, _, _ = fitpepoisson(self.sim, 'mainnpebackup', mainsel, self.ptboundaries, kind=kind, overflow=overflow, fig1=fig1, fig2=fig2)
+        kwargs = dict(kind=kind, overflow=overflow, fig1=fig1, fig2=fig2)
+        if fixzero:
+            kwargs.update(errorfactor=[0.01])
+        fit, _, _ = fitpepoisson(self.sim, 'mainnpebackup', mainsel, self.ptboundaries, **kwargs)
         label = 'mainfit'
         if overflow:
             label += 'of'
         if kind == 'geom':
             label += kind
+        if fixzero:
+            label += 'fz'
         self.results[label] = fit
         return fit, fig1, fig2
     
@@ -869,10 +884,11 @@ def singlevovanalysis(vov):
     
     for kind in ['borel', 'geom']:
         for overflow in [False, True]:
-            fit, fig1, fig2 = anal.maindict(kind=kind, overflow=overflow)
-            savef(fig1)
-            savef(fig2)
-            savef.savefit(fit)
+            for fixzero in [False, True]:
+                fit, fig1, fig2 = anal.maindict(kind=kind, overflow=overflow, fixzero=fixzero)
+                savef(fig1)
+                savef(fig2)
+                savef.savefit(fit)
     
     for i in range(3):
         savef(anal.ptevent(i))
