@@ -8,6 +8,7 @@ import functools
 import numpy as np
 from scipy import stats, special
 from matplotlib import pyplot as plt
+import matplotlib
 import lsqfit
 import gvar
 
@@ -997,8 +998,102 @@ def allvovanalysis():
         vovdict[vov] = singlevovanalysis(vov)
     return vovdict
 
+def plottermethod(meth):
+    
+    @functools.wraps(meth)
+    def newmeth(self, *args, **kw):
+        
+        if len(args) > 0 and isinstance(args[0], matplotlib.axes.Axes):
+            ax = args[0]
+        elif 'ax' in kw:
+            ax = kw['ax']
+        else:
+            fig, ax = plt.subplots(num=meth.__qualname__, clear=True)
+            args = (ax,) + args
+        
+        meth(self, *args, **kw)
+         
+        l, u = ax.get_ylim()
+        ax.set_ylim(0, u)
+        ax.minorticks_on()
+        ax.grid(True, 'major', linestyle='--')
+        ax.grid(True, 'minor', linestyle=':')
+        
+        fig = ax.get_figure()
+        return fig
+    
+    return newmeth
+
+class Plotter:
+    
+    def __init__(self, vovdict):
+        self.vovdict = vovdict
+        self.errorbarkw = dict(capsize=4, linestyle='', marker='.')
+        self.vov = np.array(list(vovdict))
+    
+    def errorbar(self, ax, uy, offset=0, **kw):
+        kwargs = dict(self.errorbarkw)
+        kwargs.update(kw)
+        uerrorbar(ax, self.vov + offset, uy, **kwargs)
+        
+    def listdict(self, getter):
+        return np.array([getter(d) for d in self.vovdict.values()])
+    
+    def paramgetter(self, fitkey, param):
+        def getter(d):
+            fit = d[fitkey]
+            mu = fit.palt[param]
+            if fit.Q < 0.01:
+                factor = np.sqrt(fit.chi2 / fit.dof)
+                mu = scalesdev(mu, factor)
+            return mu
+        return getter
+    
+    @plottermethod
+    def plotptrate(self, ax):
+        ptrate = self.listdict(lambda d: d['ptrate'])
+        self.errorbar(ax, ptrate)
+    
+    @plottermethod
+    def plotapprob(self, ax):
+        approb = self.listdict(lambda d: d['approb'])
+        self.errorbar(ax, approb * 100)
+    
+    @plottermethod
+    def plotaptau(self, ax):
+        aptau = self.listdict(lambda d: d['aptau'])
+        self.errorbar(ax, aptau)
+    
+    @plottermethod
+    def plotmupoisson(self, ax):
+        mup = self.listdict(self.paramgetter('mainfit', 'mu_poisson'))
+        self.errorbar(ax, mup)
+    
+    @plottermethod
+    def plotdictparam(self, ax, transf=(lambda x: x)):
+        mus = [
+            ('Dark count' , self.paramgetter('ptfit'  , 'mu'      )),
+            ('Laser'      , self.paramgetter('mainfit', 'mu_borel')),
+            ('Afterpulses', self.paramgetter('apfit'  , 'mu'      )),
+        ]
+    
+        for i, (label, getter) in enumerate(mus):
+            param = self.listdict(getter)
+            param = transf(param)
+            offset = 0.1 * (i/(len(mus)-1) - 1/2)
+            self.errorbar(ax, param, offset, label=label)
+
+        ax.legend()
+    
+    def plotdictprob(self, ax):
+        self.plotdictparam(ax, lambda mu: 1 - np.exp(-mu))
+    
+    def plotdictpe(self, ax):
+        self.plotdictparam(ax, lambda mu: 1 / (1 - mu) - 1)
+    
 def main():
     vovdict = allvovanalysis()
+    plotter = Plotter(vovdict)
     
     fig1,  axdcr                = plt.subplots(      num='afterpulse_tile21-1', clear=True, figsize=[    3.7, 3.5])
     fig2, (axap, axtau)         = plt.subplots(1, 2, num='afterpulse_tile21-2', clear=True, figsize=[2 * 3.7, 3.5])
@@ -1014,76 +1109,31 @@ def main():
 
     axdcr.set_title('DCR')
     axdcr.set_ylabel('Pre-trigger rate [cps]')
+    plotter.plotptrate(axdcr)
 
     axap.set_title('Afterpulse')
     axap.set_ylabel('Prob. of $\\geq$1 ap after 1 pe signal [%]')
+    plotter.plotapprob(axap)
 
     axtau.set_title('Afterpulse')
     axtau.set_ylabel('Exponential decay constant [ns]')
-
-    axpct.set_title('Cross talk')
-    axpct.set_ylabel('Prob. of > 1 pe [%]')
-
-    axnct.set_title('Cross talk')
-    axnct.set_ylabel('Average excess pe')
-
-    axmu.set_title('Efficiency')
-    axmu.set_ylabel('Average detected laser photons')
+    plotter.plotaptau(axtau)
 
     axmub.set_title('Cross talk')
     axmub.set_ylabel('Branching parameter $\\mu_B$')
+    plotter.plotdictparam(axmub)
+    
+    axpct.set_title('Cross talk')
+    axpct.set_ylabel('Prob. of > 1 pe [%]')
+    plotter.plotdictprob(axpct)
 
-    vov = np.array(list(vovdict))
-    
-    def listdict(getter):
-        return np.array([getter(d) for d in vovdict.values()])
-    
-    ptrate = listdict(lambda d: d['ptrate'])
-    approb = listdict(lambda d: d['approb'])
-    aptau = listdict(lambda d: d['aptau'])
-    
-    def ct(mugetter):
-        pct = listdict(lambda d: 1 - np.exp(-mugetter(d)))
-        nct = listdict(lambda d: 1 / (1 - mugetter(d)) - 1)
-        return pct, nct
-    
-    def paramgetter(fitkey, param):
-        def getter(d):
-            fit = d[fitkey]
-            mu = fit.palt[param]
-            if fit.Q < 0.01:
-                factor = np.sqrt(fit.chi2 / fit.dof)
-                mu = scalesdev(mu, factor)
-            return mu
-        return getter
-    
-    mus = [
-        ('Dark count' , paramgetter('ptfit'  , 'mu'      )),
-        ('Laser'      , paramgetter('mainfit', 'mu_borel')),
-        ('Afterpulses', paramgetter('apfit'  , 'mu'      )),
-    ]
-    
-    mup = listdict(paramgetter('mainfit', 'mu_poisson'))
+    axnct.set_title('Cross talk')
+    axnct.set_ylabel('Average excess pe')
+    plotter.plotdictpe(axnct)
 
-    kw = dict(capsize=4, linestyle='', marker='.')
-    uerrorbar(axdcr, vov, ptrate, **kw)
-    uerrorbar(axap,  vov, approb * 100, **kw)
-    uerrorbar(axtau, vov, aptau, **kw)
-    uerrorbar(axmu,  vov, mup, **kw)
-    
-    for i, (label, getter) in enumerate(mus):
-        mub = listdict(getter)
-        pct, nct = ct(getter)
-        offset = 0.1 * (i/(len(mus)-1) - 1/2)
-        kw.update(label=label)
-        x = vov + offset
-        uerrorbar(axpct, x, pct * 100, **kw)
-        uerrorbar(axnct, x, nct, **kw)
-        uerrorbar(axmub, x, mub, **kw)
-
-    axmub.legend()
-    axpct.legend()
-    axnct.legend()
+    axmu.set_title('Efficiency')
+    axmu.set_ylabel('Average detected laser photons')
+    plotter.plotmupoisson(axmu)
 
     vov_fbk = [
         3.993730407523511 ,  
@@ -1128,15 +1178,7 @@ def main():
     # axdcr.legend()
 
     for fig in figs:
-        for ax in fig.get_axes():
-            l, u = ax.get_ylim()
-            ax.set_ylim(0, u)
-            ax.minorticks_on()
-            ax.grid(True, 'major', linestyle='--')
-            ax.grid(True, 'minor', linestyle=':')
         fig.tight_layout()
-
-    for fig in figs:
         fig.show()
 
 if __name__ == '__main__':
