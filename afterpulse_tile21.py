@@ -159,7 +159,16 @@ def fcn(x, p):
         )
 
 @afterpulse.figmethod
-def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overflow=None, continuous=False, fig=None, errorfactor=None, **kw):
+def fithistogram(
+    sim, expr, condexpr, prior, pmf_or_cdf,
+    bins='auto',
+    bins_overflow=None,
+    continuous=False,
+    fig=None,
+    errorfactor=None,
+    mincount=3,
+    **kw,
+):
     """
     Fit an histogram.
     
@@ -179,6 +188,7 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
     bins_overflow : sequence of two elements
         If None, do not fit the overflow. It is assumed that all the
         probability mass outside of the bins is contained in the overflow bin.
+        The overflow bin must be to the right of the other bins.
     continuous : bool
         If False (default), pmf_or_cdf must be the probability distribution of
         an integer variable. If True, pmf_or_cdf must compute the cumulative
@@ -189,6 +199,10 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
         If provided, the errors on the bin counts are multiplied by these
         factors. If the array has different length than the number of bins,
         the factors are applied starting from the first element.
+    mincount : int
+        Bins are grouped starting from the last bin until there at least
+        `mincount` elements in the last bin. (Applies to the overflow if
+        present.)
     **kw :
         Additional keyword arguments are passed to lsqfit.nonlinear_fit.
     
@@ -207,10 +221,10 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
         overflow = 0
     
     if hasoverflow:
-        # add bins to the overflow bin until it has at least 3 counts
+        # add bins to the overflow bin until it has at least `mincount` counts
         lencounts = len(counts)
         for i in range(len(counts) - 1, -1, -1):
-            if overflow < 3:
+            if overflow < mincount:
                 overflow += counts[i]
                 lencounts -= 1
             else:
@@ -218,9 +232,9 @@ def fithistogram(sim, expr, condexpr, prior, pmf_or_cdf, bins='auto', bins_overf
         counts = counts[:lencounts]
         bins = bins[:lencounts + 1]
     else:
-        # group last bins until there are at least 3 counts
+        # group last bins until there are at least `mincount` counts
         while len(counts) > 1:
-            if counts[-1] < 3:
+            if counts[-1] < mincount:
                 counts[-2] += counts[-1]
                 counts = counts[:-1]
                 bins[-2] = bins[-1]
@@ -401,18 +415,21 @@ def figmethod(*args, figparams=['fig']):
             
             for fig in figs:
                 ax, = fig.get_axes()
-                b, t = ax.get_ylim()
-                yscale = ax.get_yscale()
-                if yscale == 'log':
-                    b = np.log(b)
-                    t = np.log(t)
-                t += (t - b) / 9
-                if yscale == 'log':
-                    b = np.exp(b)
-                    t = np.exp(t)
-                ax.set_ylim(b, t)
+                
+                if 'event' not in fig.canvas.get_window_title():
+                    b, t = ax.get_ylim()
+                    yscale = ax.get_yscale()
+                    if yscale == 'log':
+                        b = np.log(b)
+                        t = np.log(t)
+                    t += (t - b) / 9
+                    if yscale == 'log':
+                        b = np.exp(b)
+                        t = np.exp(t)
+                    ax.set_ylim(b, t)
+                    fig.tight_layout()
+                
                 textbox.textbox(ax, f'{self.vov} VoV', fontsize='medium', loc='lower center')
-                fig.tight_layout()
             
             return (fig if len(figparams) == 1 else tuple(figs)) if rt is None else rt
         
@@ -790,9 +807,10 @@ class AfterPulseTile21:
         return f'{self.apsel}&(apAapamplh>{self.apcut})'
     
     @figmethod(figparams=['fig1', 'fig2'])
-    def apdict(self, overflow=False, kind='borel', *, fig1, fig2):
+    def apdict(self, overflow=False, kind='borel', *, fig1, fig2, **kw):
         """fit afterpulses pe histogram"""
-        fit, _, _ = fitpe(self.sim, 'apAnpe', f'{self.apcond}&(apAnpe>0)', self.apboundaries, kind=kind, overflow=overflow, fig1=fig1, fig2=fig2)
+        kwargs = dict(kind=kind, overflow=overflow, fig1=fig1, fig2=fig2, **kw)
+        fit, _, _ = fitpe(self.sim, 'apAnpe', f'{self.apcond}&(apAnpe>0)', self.apboundaries, **kwargs)
         label = 'apfit'
         if overflow:
             label += 'of'
@@ -967,7 +985,7 @@ def singlevovanalysis(vov):
     
     for kind in ['borel', 'geom']:
         for overflow in [False, True]:
-            fit, fig1, fig2 = anal.apdict(kind=kind, overflow=overflow)
+            fit, fig1, fig2 = anal.apdict(kind=kind, overflow=overflow, mincount=5)
             savef(fig1)
             savef(fig2)
             savef.savefit(fit)
