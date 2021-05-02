@@ -60,5 +60,4 @@ fig = plt.figure(num='figsnrmaxplot', clear=True)
 
 fingersnr.snrmaxplot(*snrmax_output, fig=fig, plotoffset=False)
 
-fig.savefig('../thesis/figures/' + fig.canvas.get_window_title() + '.pdf')
-print(figlatex.figlatex(fig))
+figlatex.save(fig)

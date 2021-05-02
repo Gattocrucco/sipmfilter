@@ -230,8 +230,7 @@ for ax in axs.flat:
 fig.tight_layout()
 fig.show()
 
-fig.savefig('../thesis/figures/' + fig.canvas.get_window_title() + '.pdf')
-print(figlatex.figlatex(fig))
+figlatex.save(fig)
 
 matrix = np.array(tabular)
 matrix = recfunctions.unstructured_to_structured(matrix)

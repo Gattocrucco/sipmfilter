@@ -26,5 +26,4 @@ sim.plot_loc(0, 0, axs=axs, center=True)
 fig.tight_layout()
 fig.show()
 
-fig.savefig('../thesis/figures/' + fig.canvas.get_window_title() + '.pdf')
-print(figlatex.figlatex(fig))
+figlatex.save(fig)

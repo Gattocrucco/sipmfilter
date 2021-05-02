@@ -486,7 +486,7 @@ class AfterPulseTile21:
     # npe = pe of main peak to search afterpulses
     # lmargin = left cut on ptpos
     # rmargin = right cut (from right margin) on ptpos
-    _defaults = dict(dcut=500, dcutr=5500, npe=1, lmargin=100, rmargin=500)
+    _defaults = dict(dcut=300, dcutr=5500, npe=1, lmargin=100, rmargin=500)
     defaultparams = {
         5.5: dict(ptlength=128, **_defaults),
         7.5: dict(ptlength= 64, **_defaults),

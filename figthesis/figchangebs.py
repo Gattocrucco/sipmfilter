@@ -165,5 +165,4 @@ for nbs, ax in zip([8000, 1000, 200], axs[0]):
 fig.tight_layout()
 fig.show()
 
-fig.savefig('../thesis/figures/' + fig.canvas.get_window_title() + '.pdf')
-print(figlatex.figlatex(fig))
+figlatex.save(fig)

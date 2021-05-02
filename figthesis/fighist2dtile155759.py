@@ -37,8 +37,7 @@ for ifile, cmd in enumerate(commands):
     figs.append(fig)
 
 for fig in figs:
-    fig.savefig('../thesis/figures/' + fig.canvas.get_window_title() + '.pdf')
-    print(figlatex.figlatex(fig))
+    figlatex.save(fig)
 
 for fig in figs:
     fig.show()

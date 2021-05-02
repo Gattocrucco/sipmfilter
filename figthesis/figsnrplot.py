@@ -160,5 +160,4 @@ fig = plt.figure(num='figsnrplot', clear=True, figsize=[9.68, 5.52])
 
 fingersnr.snrplot(*snrseries_output, fig, plottemplate=False)
 
-fig.savefig('../thesis/figures/' + fig.canvas.get_window_title() + '.pdf')
-print(figlatex.figlatex(fig))
+figlatex.save(fig)

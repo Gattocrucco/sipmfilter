@@ -3,7 +3,23 @@ Module with a function to generate the LaTeX command to include a matplotlib
 figure.
 """
 
+import os
+
 from matplotlib import pyplot as plt
+
+def save(fig=None, path='../thesis/figures'):
+    """
+    Print the LaTeX command to include a figure, and save it in a directory.
+    """
+    if fig is None:
+        fig = plt.gcf()
+    print(figlatex(fig))
+    if path != '' and not os.path.isdir(path):
+        print(f'figlatex: warning: {path} is not a directory, skip saving')
+        return
+    file = os.path.join(path, fig.canvas.get_window_title() + '.pdf')
+    print(f'save {file}...')
+    fig.savefig(file)
 
 def figlatex(fig=None, indent=' '*4):
     """
