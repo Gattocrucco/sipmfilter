@@ -49,13 +49,4 @@ def figlatex(fig=None, indent=' '*4):
     text_width = 6.4
     width, _ = fig.get_size_inches()
     relwidth = width / text_width
-    lines = [
-        f'\\includegraphics[width={relwidth:.2f}\\textwidth]{{{title}}}'
-    ]
-    if relwidth < 1:
-        lines.insert(0, '\\centering')
-    else:
-        lines.insert(0, f'\\hspace{{{(1 - relwidth) / 2:.2f}\\textwidth}}')
-        lines.insert(0, '\\mbox{')
-        lines.append('}')
-    return indent + f'\n{indent}'.join(lines)
+    return f'{indent}\\widecenter{{\\includempl{{{title}}}}}'

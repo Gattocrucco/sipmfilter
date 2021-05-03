@@ -74,7 +74,7 @@ class Hist2D(npzload.NPZLoad):
 
     def __init__(self, argv=None):
         """
-        argv = command line arguments *without* program name
+        argv = command line arguments list *without* program name
         """
         self._parseargv(argv)
 
@@ -84,9 +84,9 @@ class Hist2D(npzload.NPZLoad):
     
         if self.trigger and trigger is None:
             raise ValueError('can not use trigger because there\'s no trigger information')
+        self.hastrigger = trigger is not None
         if trigger is None:
             trigger = np.zeros(len(data), int)
-        self.hastrigger = trigger is not None
         self.triggermedian = np.median(trigger)
     
         if self.length == 0:
@@ -130,7 +130,7 @@ class Hist2D(npzload.NPZLoad):
         )
         kw.update(imshowkw)
         im = ax.imshow(self.h.T, **kw)
-        fig.colorbar(im, label=f'Counts per bin ({self.q} sample x {self.p} digit)', fraction=0.1)
+        fig.colorbar(im, label=f'Count per bin ({self.q} sample x {self.p} digit)', fraction=0.1)
     
         _, name = os.path.split(self.filename)
         ax.set_title(name)
@@ -198,7 +198,7 @@ class Hist2D(npzload.NPZLoad):
         _, name = os.path.split(self.filename)
         ax.set_title(name)
         ax.set_xlabel(f'Digit')
-        ax.set_ylabel(f'Counts per bin ({self.p} digit)')
+        ax.set_ylabel(f'Count per bin ({self.p} digit)')
     
         ax.set_yscale('log')
         ax.minorticks_on()
