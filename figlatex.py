@@ -7,21 +7,34 @@ import os
 
 from matplotlib import pyplot as plt
 
-def save(fig=None, path='../thesis/figures'):
+def _parsefigs(figs=None):
+    if figs is None:
+        figs = plt.gcf()
+    if not hasattr(figs, '__len__'):
+        figs = [figs]
+    for i, fig in enumerate(figs):
+        if not hasattr(fig, '__len__'):
+            figs[i] = [fig]
+    return figs
+
+def save(figs=None, path='../thesis/figures'):
     """
     Print the LaTeX command to include a figure, and save it in a directory.
     """
-    if fig is None:
-        fig = plt.gcf()
-    print(figlatex(fig))
+    figs = _parsefigs(figs)
+    print(figlatex(figs))
+    
     if path != '' and not os.path.isdir(path):
         print(f'figlatex: warning: {path} is not a directory, skip saving')
         return
-    file = os.path.join(path, fig.canvas.get_window_title() + '.pdf')
-    print(f'save {file}...')
-    fig.savefig(file)
+    
+    for row in figs:
+        for fig in row:
+            file = os.path.join(path, fig.canvas.get_window_title() + '.pdf')
+            print(f'save {file}...')
+            fig.savefig(file)
 
-def figlatex(fig=None, indent=' '*4):
+def figlatex(figs=None, indent=' '*4):
     """
     Generate the LaTeX command to include a matplotlib figure.
     
@@ -31,8 +44,10 @@ def figlatex(fig=None, indent=' '*4):
     
     Parameters
     ----------
-    fig : matplotlib figure, optional
-        If not specified, the current figure is used.
+    figs : (list of) matplotlib figure, optional
+        If not specified, the current figure is used. If an list of figures,
+        the layout is a single column. If a list of lists, each sublist is a
+        row.
     indent : str
         A string prepended to each line of the output, default 4 spaces.
     
@@ -43,10 +58,14 @@ def figlatex(fig=None, indent=' '*4):
         window title of the figure. Paste it between \\begin{figure} ...
         \\end{figure}.
     """
-    if fig is None:
-        fig = plt.gcf()
-    title = fig.canvas.get_window_title()
-    text_width = 6.4
-    width, _ = fig.get_size_inches()
-    relwidth = width / text_width
-    return f'{indent}\\widecenter{{\\includempl{{{title}}}}}'
+    figs = _parsefigs(figs)
+    
+    lines = []
+    for row in figs:
+        line = indent + '\\widecenter{'
+        for fig in row:
+            title = fig.canvas.get_window_title()
+            line += '\\includempl{' + title + '}'
+        line += '}'
+        lines.append(line)
+    return '\n\n'.join(lines)

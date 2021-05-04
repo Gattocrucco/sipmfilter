@@ -568,6 +568,9 @@ class AfterPulseTile21:
     
     @functools.cached_property
     def sim(self):
+        """
+        The AfterPulse object.
+        """
         print('load analysis files...')
         simlist = [
             afterpulse.AfterPulse.load(files['simfile'])
@@ -577,6 +580,9 @@ class AfterPulseTile21:
     
     @functools.cached_property
     def datalist(self):
+        """
+        List of memory mapped source files.
+        """
         return [
             readwav.readwav(files['wavfile'])
             for files in self.filelist
