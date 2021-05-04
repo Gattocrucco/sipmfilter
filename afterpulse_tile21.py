@@ -504,6 +504,12 @@ class AfterPulseTile21:
     
     @functools.cached_property
     def filelist(self):
+        """
+        A list of dictionaries with these keys:
+        'wavfile' the source wav
+        'simfile' the saved AfterPulse object file
+        'templfile' the saved template file
+        """
         filelist = []
         
         for wavfile in self.wavfiles:
