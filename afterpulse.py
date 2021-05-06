@@ -932,7 +932,7 @@ class AfterPulse(npzload.NPZLoad):
         ilength : int, optional
             The index of the filter length in `filtlengths`. If not specified,
             use the longest filter.
-        zoom : {'all', 'posttrigger', 'main'}
+        zoom : {'all', 'posttrigger', 'main', 'pretrigger'}
             The x-axis extension.
         debug : bool
             If False (default), reduce the amount of information showed.
@@ -981,7 +981,7 @@ class AfterPulse(npzload.NPZLoad):
         )
         
         peaks = [
-            # field, label, marker
+            # field, label, marker, amplitude
             ('mainpeak'  , 'laser'       , 'o', self._peaksampl[..., 0]),
             ('minorpeak' , '1st posttrig', 's', self._apheight[..., 0]),
             ('minorpeak2', '2nd posttrig', 'v', self._apheight[..., 1]),
@@ -995,6 +995,8 @@ class AfterPulse(npzload.NPZLoad):
             xlim = (left - 500, len(wf) - 1)
         elif zoom == 'main':
             xlim = (left - 200, right + 500)
+        elif zoom == 'pretrigger':
+            xlim = (-lpad, right + 500)
         else:
             raise KeyError(zoom)
         
