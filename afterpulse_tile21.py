@@ -559,7 +559,7 @@ class AfterPulseTile21:
                 kw = dict(
                     batch = 100,
                     pbar = True,
-                    trigger = np.full(len(data), savetemplate.defaulttrigger())
+                    trigger = np.full(len(data), savetemplate.defaulttrigger()),
                 )
                 sim = afterpulse.AfterPulse(data, template, **kw)
 
