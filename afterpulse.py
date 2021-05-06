@@ -1276,7 +1276,7 @@ class AfterPulse(npzload.NPZLoad):
         return np.flatnonzero(mask)
     
     @figmethod
-    def hist(self, expr, where=None, yscale='linear', nbins='auto', fig=None):
+    def hist(self, expr, where=None, yscale='linear', nbins='auto', fig=None, selection=True):
         """
         Plot the histogram of an expression.
         
@@ -1300,6 +1300,8 @@ class AfterPulse(npzload.NPZLoad):
             The number of bins. Computed automatically by default.
         fig : matplotlib figure, optional
             A matplotlib figure where the plot is drawn.
+        selection : bool
+            If True (default), write the `where` expression on the plot.
         
         Return
         ------
@@ -1348,7 +1350,7 @@ class AfterPulse(npzload.NPZLoad):
                 ax.hist(x, **histkw)
             ax.legend(title='Filter length (entries)', fontsize='small', ncol=2, loc='upper right')
         
-        if where is not None:
+        if where is not None and selection:
             s = breaklines.breaklines(f'Selection: {where}', 40, ')', '&|')
             textbox.textbox(ax, s, fontsize='small', loc='upper left')
         
@@ -1472,7 +1474,7 @@ class AfterPulse(npzload.NPZLoad):
         return bins
     
     @figmethod
-    def hist2d(self, xexpr, yexpr, where=None, log=True, fig=None):
+    def hist2d(self, xexpr, yexpr, where=None, log=True, fig=None, selection=True, **kw):
         """
         Plot the 2D histogram of two expressions.
         
@@ -1496,6 +1498,10 @@ class AfterPulse(npzload.NPZLoad):
             height.
         fig : matplotlib figure, optional
             A matplotlib figure where the plot is drawn.
+        selection : bool
+            If True (default), write the `where` expression on the plot.
+        **kw :
+            Additional keyword arguments are passed to pyplot.hist2d.
         
         Return
         ------
@@ -1532,6 +1538,7 @@ class AfterPulse(npzload.NPZLoad):
                 norm = colors.LogNorm() if log else colors.Normalize(),
                 cmin = 1,
             )
+            histkw.update(kw)
             _, _, _, im = ax.hist2d(x, y, (xbins, ybins), **histkw)
             
             xstep = xbins[1] - xbins[0]
@@ -1539,7 +1546,7 @@ class AfterPulse(npzload.NPZLoad):
             fig.colorbar(im, label=f'Count per bin ({xstep:.3g} x {ystep:.3g})')
         
         textbox.textbox(ax, f'{len(x)} entries', fontsize='small', loc='upper right')
-        if where is not None:
+        if where is not None and selection:
             s = breaklines.breaklines(f'Selection: {where}', 40, ')', '&|')
             textbox.textbox(ax, s, fontsize='small', loc='upper left')
         
@@ -1591,6 +1598,8 @@ class AfterPulse(npzload.NPZLoad):
         
         self = cls.__new__(cls)
         
+        # TODO I think that vars(ap0) already does not contain class
+        # attributes and dunders.
         classattr = vars(cls)
         for k, v in vars(ap0).items():
             if k not in classattr and not k.startswith('__'):

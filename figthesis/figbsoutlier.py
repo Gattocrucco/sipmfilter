@@ -16,10 +16,11 @@ i1 = ap21.sim.getexpr('argmax(baseline)')
 
 figs = []
 for i, ievt in enumerate([i0, i1]):
-    fig = plt.figure(num=f'figbsoutlier-{i}', clear=True, figsize=[4.5, 3.5])
+    fig = plt.figure(num=f'figbsoutlier-{i}', clear=True, figsize=[4.5, 3])
 
     ap21.sim.plotevent(datalist, ievt, 2, zoom='all', fig=fig)
     ax, = fig.get_axes()
+    ax.legend(loc='lower right', fontsize='x-small')
     textbox.textbox(ax, f'{vov} VoV', fontsize='medium', loc='lower left')
 
     fig.tight_layout()
