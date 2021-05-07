@@ -30,9 +30,18 @@ def save(figs=None, path='../thesis/figures'):
     
     for row in figs:
         for fig in row:
-            file = os.path.join(path, fig.canvas.get_window_title() + '.pdf')
+            options = dict(
+                saveaspng = False,
+            )
+            options.update(getattr(fig, 'figlatex_options', {}))
+            kw = {}
+            ext = '.pdf'
+            if options['saveaspng']:
+                ext = '.png'
+                kw.update(dpi=3 * fig.dpi)
+            file = os.path.join(path, fig.canvas.get_window_title() + ext)
             print(f'save {file}...')
-            fig.savefig(file)
+            fig.savefig(file, **kw)
 
 def figlatex(figs=None, indent=' '*4):
     """

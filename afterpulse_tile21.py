@@ -634,10 +634,10 @@ class AfterPulseTile21:
         vlines(ax, self.ptboundaries, linestyle=':')
     
     @figmethod
-    def ptscatter(self, fig):
+    def ptscatter(self, fig, **kw):
         """plot pre-trigger amplitude vs. position"""
         ptlength = self.params['ptlength']
-        self.sim.scatter('ptApos', 'where(ptAamplh<1000,ptAamplh,-10)', f'length=={ptlength}', fig=fig)
+        self.sim.scatter('ptApos', 'where(ptAamplh<1000,ptAamplh,-10)', f'length=={ptlength}', fig=fig, **kw)
         ax, = fig.get_axes()
         trigger = self.sim.getexpr('median(trigger)')
         lmargin = self.params['lmargin']
@@ -647,9 +647,9 @@ class AfterPulseTile21:
         hlines(ax, self.ptboundaries, linestyle=':')
     
     @figmethod
-    def pthist(self, fig):
+    def pthist(self, fig, **kw):
         """plot a histogram of pre-trigger peak height"""
-        self.sim.hist('ptAamplh', self.ptsel, 'log', fig=fig)
+        self.sim.hist('ptAamplh', self.ptsel, 'log', fig=fig, **kw)
         ax, = fig.get_axes()
         vspan(ax, self.ptcut)
         vlines(ax, self.ptboundaries, linestyle=':')
@@ -669,9 +669,7 @@ class AfterPulseTile21:
     
     @functools.cached_property
     def ptnevents(self):
-        nevents = self.sim.getexpr(f'count_nonzero({self.ptsel})')
-        totalevt = len(self.sim.output)
-        n = ubinom(nevents, totalevt)
+        n = len(self.sim.output)
         self.results.update(ptnevents=n)
         return n
     
@@ -680,7 +678,7 @@ class AfterPulseTile21:
         """total time where pre-trigger pulses are searched"""
         lmargin = self.params['lmargin']
         rmargin = self.params['rmargin']
-        time = self.sim.getexpr(f'mean(trigger-{lmargin}-{rmargin})', self.ptsel)
+        time = self.sim.getexpr(f'mean(trigger-{lmargin}-{rmargin})')
         t = time * 1e-9 * self.ptnevents
         self.results.update(pttime=t)
         return t

@@ -1367,7 +1367,7 @@ class AfterPulse(npzload.NPZLoad):
         fig.tight_layout()
     
     @figmethod
-    def scatter(self, xexpr, yexpr, where=None, fig=None):
+    def scatter(self, xexpr, yexpr, where=None, fig=None, selection=True):
         """
         Plot the scatterplot of two expressions.
         
@@ -1390,6 +1390,8 @@ class AfterPulse(npzload.NPZLoad):
             `yexpr` prior to applying it.
         fig : matplotlib figure, optional
             A matplotlib figure where the plot is drawn.
+        selection : bool
+            If True (default), write the `where` expression on the plot.
         
         Return
         ------
@@ -1437,7 +1439,7 @@ class AfterPulse(npzload.NPZLoad):
                 ax.plot(x, y, **plotkw)
             ax.legend(title='Filter length (entries)', fontsize='small', ncol=2, loc='upper right')
         
-        if where is not None:
+        if where is not None and selection:
             s = breaklines.breaklines(f'Selection: {where}', 40, ')', '&|')
             textbox.textbox(ax, s, fontsize='small', loc='upper left')
         
@@ -1472,6 +1474,9 @@ class AfterPulse(npzload.NPZLoad):
                 p = int(np.ceil((len(bins) - 1) / maxnbins))
                 bins = bins[:-1:p]
                 bins = np.pad(bins, (0, 1), constant_values=bins[-1] + bins[1] - bins[0])
+        
+        elif maxnbins != 'auto' and len(bins) - 1 > maxnbins:
+            bins = np.histogram_bin_edges(x, bins=maxnbins)
         
         return bins
     
