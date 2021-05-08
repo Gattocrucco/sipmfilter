@@ -4,6 +4,7 @@ import re
 import pickle
 import collections
 import functools
+import itertools
 
 import numpy as np
 from scipy import stats, special
@@ -125,7 +126,12 @@ def geompoissonpmf(ks, params):
 def exponbkgcdf(x, params):
     scale = params['tau']
     const = params['const']
-    return 1 - np.exp(-x / scale) + const * x
+    if hasattr(scale, '__len__'):
+        assert len(scale) == 2, len(scale)
+        w = params['w0']
+        return w * (1 - np.exp(-x / scale[0])) + (1 - w) * (1 - np.exp(-x / scale[1])) + const * x
+    else:
+        return 1 - np.exp(-x / scale) + const * x
 
 def fcn(x, p):
     continuous = x['continuous']
@@ -178,9 +184,10 @@ def fithistogram(
     expr : str
     condexpr : str
         The sample is sim.getexpr(expr, condexpr).
-    prior : array/dictionary of GVar
-        Prior for the fit.
-    pmf_or_cdf : function
+    prior : (list of) array/dictionary of GVar
+        Prior for the fit. If `prior` and `pmf_or_cdf` are lists, a fit is
+        done for each pair in order.
+    pmf_or_cdf : (list of) function
         The signature must be `pmf_or_cdf(x, params)` where `params` has the
         same format of `prior`.
     bins : int, sequence, str
@@ -208,9 +215,15 @@ def fithistogram(
     
     Return
     ------
-    fit : lsqfit.nonlinear_fit
+    fit : (list of) lsqfit.nonlinear_fit
     fig : matplotlib figure
     """
+    
+    onefit = not hasattr(pmf_or_cdf, '__len__')
+    if onefit:
+        prior = [prior]
+        pmf_or_cdf = [pmf_or_cdf]
+    
     # histogram
     sample = sim.getexpr(expr, condexpr)
     counts, bins = np.histogram(sample, bins)
@@ -246,14 +259,7 @@ def fithistogram(
     norm = np.sum(counts) + overflow
     assert norm == sim.getexpr(f'count_nonzero({condexpr})')
     
-    # fit
-    x = dict(
-        pmf_or_cdf = pmf_or_cdf,
-        continuous = continuous,
-        bins = bins,
-        norm = norm,
-        hasoverflow = hasoverflow,
-    )
+    # prepare data for fit
     ucounts = upoisson(counts)
     if errorfactor is not None:
         errorfactor = np.asarray(errorfactor)
@@ -263,7 +269,19 @@ def fithistogram(
     y = dict(bins=ucounts)
     if hasoverflow:
         y.update(overflow=upoisson(overflow))
-    fit = lsqfit.nonlinear_fit((x, y), fcn, prior, **kw)
+
+    # fit
+    x = []
+    fit = []
+    for ifit in range(len(prior)):
+        x.append(dict(
+            pmf_or_cdf = pmf_or_cdf[ifit],
+            continuous = continuous,
+            bins = bins,
+            norm = norm,
+            hasoverflow = hasoverflow,
+        ))
+        fit.append(lsqfit.nonlinear_fit((x[ifit], y), fcn, prior[ifit], **kw))
     
     # plot data
     ax = fig.subplots()
@@ -271,36 +289,48 @@ def fithistogram(
     wbar = np.diff(bins) / 2
     kw = dict(linestyle='', capsize=4, marker='.', color='k')
     uerrorbar(ax, center, y['bins'], xerr=wbar, label='histogram', **kw)
-
-    # plot fit
-    yfit = fcn(x, fit.palt)
-    ys = yfit['bins']
-    ym = np.repeat(gvar.mean(ys), 2)
-    ysdev = np.repeat(gvar.sdev(ys), 2)
-    xs = np.concatenate([bins[:1], np.repeat(bins[1:-1], 2), bins[-1:]])
-    ax.fill_between(xs, ym - ysdev, ym + ysdev, color='#0004', label='fit')
-    
-    # plot overflow
     if hasoverflow:
         oc = center[-1] + 2 * wbar[-1]
         ys = y['overflow']
         uerrorbar(ax, oc, ys, label='overflow', **kw)
-        ys = yfit['overflow']
-        ym = np.full(2, gvar.mean(ys))
-        ysdev = np.full(2, gvar.sdev(ys))
-        xs = oc + 0.8 * (bins[-2:] - center[-1])
-        ax.fill_between(xs, ym - ysdev, ym + ysdev, color='#0004')
+
+    # plot fit
+    info = []
+    styles = [
+        dict(color='#0004'),
+        dict(color='#f004'),
+    ]
+    for ifit, style in zip(range(len(prior)), itertools.cycle(styles)):
+        thisfit = fit[ifit]
+        yfit = fcn(x[ifit], thisfit.palt)
+        ys = yfit['bins']
+        ym = np.repeat(gvar.mean(ys), 2)
+        ysdev = np.repeat(gvar.sdev(ys), 2)
+        xs = np.concatenate([bins[:1], np.repeat(bins[1:-1], 2), bins[-1:]])
+        label = 'fit' if ifit == 0 else f'fit {ifit + 1}'
+        ax.fill_between(xs, ym - ysdev, ym + ysdev, label=label, **style)
+        if hasoverflow:
+            ys = yfit['overflow']
+            ym = np.full(2, gvar.mean(ys))
+            ysdev = np.full(2, gvar.sdev(ys))
+            xs = oc + 0.8 * (bins[-2:] - center[-1])
+            ax.fill_between(xs, ym - ysdev, ym + ysdev, **style)
     
-    # write fit results on the plot
-    info = f"""\
-chi2/dof = {fit.chi2/fit.dof:.3g}
-pvalue = {fit.Q:.2g}"""
-    for k, v in fit.palt.items():
-        info += f'\n{k} = {v}'
-    for k in fit.palt.extension_keys():
-        v = fit.palt[k]
-        info += f'\n{k} = {v}'
-    textbox.textbox(ax, info, loc='center right', fontsize='small')
+        # write fit results on the plot
+        if ifit > 0:
+            info.append(f'Fit {ifit + 1}:            ')
+        info.append(f'chi2/dof (pv) = {thisfit.chi2/thisfit.dof:.2g} ({thisfit.Q:.2g})')
+        p = thisfit.palt
+        for k, v in p.items():
+            m = p.extension_pattern.match(k)
+            if m:
+                f = p.extension_fcn.get(m.group(1), None)
+                if f:
+                    k = m.group(2)
+                    v = f(v)
+            info.append(f'{k} = {v}')
+    
+    textbox.textbox(ax, '\n'.join(info), loc='center right', fontsize='small')
     
     # decorations
     ax.legend(loc='upper right')
@@ -312,7 +342,11 @@ pvalue = {fit.Q:.2g}"""
     cond = breaklines.breaklines(f'Selection: {condexpr}', 40, ')', '&|')
     textbox.textbox(ax, cond, loc='upper left', fontsize='small')
     fig.tight_layout()
+    _, upper = ax.get_ylim()
+    ax.set_ylim(0, upper)
     
+    if onefit:
+        fit, = fit
     return fit, fig
 
 def intbins(min, max):
@@ -339,46 +373,49 @@ def _fitpe(sim, expr, condexpr, boundaries, pmf, prior, binstart, overflow, *, f
     sim.hist(histexpr, condexpr, fig=fig1)
     return fit, fig1, fig2
 
-def getkind(kind):
-    if kind == 'borel':
-        return borelpmf, 'mu'
-    elif kind == 'geom':
-        return geompmf, 'p'
-    else:
-        raise KeyError(kind)
-
 @afterpulse.figmethod(figparams=['fig1', 'fig2'])
-def fitpe(sim, expr, condexpr, boundaries, kind='borel', overflow=True, **kw):
-    pmf, param = getkind(kind)
-    prior = {
-        f'U({param})': gvar.BufferDict.uniform('U', 0, 1),
-    }
+def fitpe(sim, expr, condexpr, boundaries, overflow=True, **kw):
+    pmf = [
+        borelpmf,
+        geompmf,
+    ]
+    prior = [{
+        'U(mu)': gvar.BufferDict.uniform('U', 0, 1),
+    }, {
+        'U(p)': gvar.BufferDict.uniform('U', 0, 1),
+    }]
     return _fitpe(sim, expr, condexpr, boundaries, pmf, prior, 1, overflow, **kw)
     
-def getkindpoisson(kind):
-    if kind == 'borel':
-        return genpoissonpmf, 'mu_borel'
-    elif kind == 'geom':
-        return geompoissonpmf, 'p_geom'
-    else:
-        raise KeyError(kind)
-
 @afterpulse.figmethod(figparams=['fig1', 'fig2'])
-def fitpepoisson(sim, expr, condexpr, boundaries, kind='borel', overflow=True, **kw):
-    pmf, param = getkindpoisson(kind)
-    prior = {
-        f'U({param})': gvar.BufferDict.uniform('U', 0, 1),
+def fitpepoisson(sim, expr, condexpr, boundaries, overflow=True, **kw):
+    pmf = [
+        genpoissonpmf,
+        geompoissonpmf,
+    ]
+    prior = [{
+        'U(mu_borel)': gvar.BufferDict.uniform('U', 0, 1),
         'log(mu_poisson)': gvar.gvar(0, 1),
-    }
+    }, {
+        'U(p_geom)': gvar.BufferDict.uniform('U', 0, 1),
+        'log(mu_poisson)': gvar.gvar(0, 1),
+    }]
     return _fitpe(sim, expr, condexpr, boundaries, pmf, prior, 0, overflow, **kw)
 
 @afterpulse.figmethod(figparams=['fig1', 'fig2'])
 def fitapdecay(sim, expr, condexpr, const, *, fig1, fig2, **kw):
-    prior = {
+    pmf = [
+        exponbkgcdf,
+        exponbkgcdf,
+    ]
+    prior = [{
         'log(tau)': gvar.gvar(np.log(1000), 1),
         'const': const,
-    }
-    fit, _ = fithistogram(sim, expr, condexpr, prior, exponbkgcdf, continuous=True, fig=fig2, **kw)
+    }, {
+        'log(tau)': gvar.gvar(np.log([400, 800]), np.ones(2)),
+        'const': const,
+        'w0': gvar.BufferDict.uniform('U', 0, 1)
+    }]
+    fit, _ = fithistogram(sim, expr, condexpr, prior, pmf, continuous=True, fig=fig2, **kw)
     sim.hist(expr, condexpr, fig=fig1)
     return fit, fig1, fig2
 
@@ -411,6 +448,7 @@ def figmethod(*args, figparams=['fig']):
                 figs.append(fig)
                 kw[param] = fig
             
+            vovloc = kw.pop('vovloc', 'lower center')
             rt = meth(self, *args, **kw)
             
             for fig in figs:
@@ -429,7 +467,7 @@ def figmethod(*args, figparams=['fig']):
                     ax.set_ylim(b, t)
                     fig.tight_layout()
                 
-                textbox.textbox(ax, f'{self.vov} VoV', fontsize='medium', loc='lower center')
+                textbox.textbox(ax, f'{self.vov} VoV', fontsize='medium', loc=vovloc)
             
             return (fig if len(figparams) == 1 else tuple(figs)) if rt is None else rt
         
@@ -560,6 +598,7 @@ class AfterPulseTile21:
                     batch = 100,
                     pbar = True,
                     trigger = np.full(len(data), savetemplate.defaulttrigger()),
+                    filtlengths = [32, 64, 128, 256, 512, 1024, 2048],
                 )
                 sim = afterpulse.AfterPulse(data, template, **kw)
 
@@ -698,40 +737,30 @@ class AfterPulseTile21:
         return r
     
     @figmethod(figparams=['fig1', 'fig2'])
-    def ptdict(self, kind='borel', *, fig1, fig2):
+    def ptdict(self, *, fig1, fig2):
         """fit pre-trigger pe histogram"""
-        fit, _, _ = fitpe(self.sim, 'ptAnpe', f'{self.ptsel}&(ptAnpe>0)', self.ptboundaries, kind, fig1=fig1, fig2=fig2)
+        fit, _, _ = fitpe(self.sim, 'ptAnpe', f'{self.ptsel}&(ptAnpe>0)', self.ptboundaries, fig1=fig1, fig2=fig2)
         label = 'ptfit'
-        if kind == 'geom':
-            label += kind
-        self.results[label] = fit
+        self.results.update(ptfit=fit[0], ptfitgeom=fit[1])
         return fit, fig1, fig2
     
-    def defmainnpebackup(self):
-        name = 'mainnpebackup'
-        if name not in self.sim._variables:
-            expr = 'where(mainpos>=0,mainnpe,take_along_axis(mainnpe,argmax(mainpos>=0,axis=0)[None],0))'
-            value = self.sim.getexpr(expr)
-            self.sim.setvar(name, value)
-    
     @figmethod(figparams=['fig1', 'fig2'])
-    def maindict(self, kind='borel', overflow=False, fixzero=False, *, fig1, fig2):
+    def maindict(self, overflow=False, fixzero=False, *, fig1, fig2):
         """fit main peak pe histogram"""
-        self.defmainnpebackup()
         ptlength = self.params['ptlength']
-        mainsel = f'any(mainpos>=0,0)&(length=={ptlength})'
-        kwargs = dict(kind=kind, overflow=overflow, fig1=fig1, fig2=fig2)
+        mainsel = f'(mainposbackup>=0)&(length=={ptlength})'
+        kwargs = dict(overflow=overflow, fig1=fig1, fig2=fig2)
         if fixzero:
             kwargs.update(errorfactor=[0.01])
         fit, _, _ = fitpepoisson(self.sim, 'mainnpebackup', mainsel, self.ptboundaries, **kwargs)
-        label = 'mainfit'
-        if overflow:
-            label += 'of'
-        if kind == 'geom':
+        for i, kind in enumerate(['', 'geom']):
+            label = 'mainfit'
+            if overflow:
+                label += 'of'
             label += kind
-        if fixzero:
-            label += 'fz'
-        self.results[label] = fit
+            if fixzero:
+                label += 'fz'
+            self.results[label] = fit[i]
         return fit, fig1, fig2
     
     @figmethod
@@ -754,14 +783,14 @@ class AfterPulseTile21:
         """afterpulse preselection (laser pe = 1 and other details)"""
         npe = self.params['npe']
         aplength = self.params['aplength']
-        return f'(length=={aplength})&(apApos>=0)&(mainnpe=={npe})'
+        return f'(length=={aplength})&(apApos>=0)&(mainnpebackup=={npe})'
     
     @functools.cached_property
     def apsel(self):
         """afterpulse event selection (time cut, but random still included)"""
         dcut = self.params['dcut']
         dcutr = self.params['dcutr']
-        return f'{self.appresel}&(apApos-mainpos>{dcut})&(apApos-mainpos<{dcutr})'
+        return f'{self.appresel}&(apApos-mainposbackup>{dcut})&(apApos-mainposbackup<{dcutr})'
 
     @functools.cached_property
     def apcut(self):
@@ -793,9 +822,9 @@ class AfterPulseTile21:
         vlines(ax, self.apboundaries, linestyle=':')
     
     @figmethod
-    def apscatter(self, *, fig):
+    def apscatter(self, *, fig, **kw):
         """plot afterpulses height vs. distance from main pulse"""
-        self.sim.scatter('apApos-mainpos', 'apAapamplh', self.appresel, fig=fig)
+        self.sim.scatter('apApos-mainposbackup', 'apAapamplh', self.appresel, fig=fig, **kw)
         ax, = fig.get_axes()
         hspan(ax, self.apcut)
         dcut = self.params['dcut']
@@ -804,9 +833,9 @@ class AfterPulseTile21:
         hlines(ax, self.apboundaries, linestyle=':')
     
     @figmethod
-    def aphist(self, *, fig):
+    def aphist(self, *, fig, **kw):
         """plot selected afterpulses height histogram"""
-        self.sim.hist('apAapamplh', self.apsel, 'log', fig=fig)
+        self.sim.hist('apAapamplh', self.apsel, 'log', fig=fig, **kw)
         ax, = fig.get_axes()
         vspan(ax, self.apcut)
         vlines(ax, self.apboundaries, linestyle=':')
@@ -817,16 +846,16 @@ class AfterPulseTile21:
         return f'{self.apsel}&(apAapamplh>{self.apcut})'
     
     @figmethod(figparams=['fig1', 'fig2'])
-    def apdict(self, overflow=False, kind='borel', *, fig1, fig2, **kw):
+    def apdict(self, overflow=False, *, fig1, fig2, **kw):
         """fit afterpulses pe histogram"""
-        kwargs = dict(kind=kind, overflow=overflow, fig1=fig1, fig2=fig2, **kw)
+        kwargs = dict(overflow=overflow, fig1=fig1, fig2=fig2, **kw)
         fit, _, _ = fitpe(self.sim, 'apAnpe', f'{self.apcond}&(apAnpe>0)', self.apboundaries, **kwargs)
-        label = 'apfit'
-        if overflow:
-            label += 'of'
-        if kind == 'geom':
+        for i, kind in enumerate(['', 'geom']):
+            label = 'apfit'
+            if overflow:
+                label += 'of'
             label += kind
-        self.results[label] = fit
+            self.results[label] = fit[i]
         return fit, fig1, fig2
     
     @functools.cached_property
@@ -867,10 +896,10 @@ class AfterPulseTile21:
         f = self.apbkg / self.apcount
         const = 1 / (dcutr - dcut) * f / (1 - f)
         nbins = int(15/20 * np.sqrt(gvar.mean(self.apcount)))
-        tau0 = 2000
+        tau0 = 1500
         bins = -tau0 * np.log1p(-np.linspace(0, 1 - np.exp(-(dcutr - dcut) / tau0), nbins + 1))
-        fit, _, _ = fitapdecay(self.sim, f'apApos-mainpos-{dcut}', self.apcond, const, bins=bins, fig1=fig1, fig2=fig2)
-        self.results.update(apfittau=fit)
+        fit, _, _ = fitapdecay(self.sim, f'apApos-mainposbackup-{dcut}', self.apcond, const, bins=bins, fig1=fig1, fig2=fig2)
+        self.results.update(apfittau=fit[0], apfittau2=fit[1])
         return fit, fig1, fig2
     
     @functools.cached_property
@@ -906,6 +935,44 @@ class AfterPulseTile21:
         self.results.update(approb=p)
         return p
     
+    @functools.cached_property
+    def aptau2(self):
+        """decay parameters of afterpulses with two components"""
+        fit = self.results['apfittau2']
+        tau = fit.palt['tau']
+        if fit.Q < 0.01:
+            tau = scalesdev(tau, np.sqrt(fit.chi2 / fit.dof))
+        self.results.update(aptau2=tau)
+        return tau
+    
+    @functools.cached_property
+    def apfactor2(self):
+        """factor to keep into account temporal cuts"""
+        dcut = self.params['dcut']
+        dcutr = self.params['dcutr']
+        tau1, tau2 = self.aptau2
+        fit = self.results['apfittau2']
+        w = fit.palt['w0']
+        denom = w * exponinteg(dcut, dcutr, tau1)
+        denom += (1 - w) * exponinteg(dcut, dcutr, tau2)
+        factor = 1 / denom
+        self.results.update(apfactor2=factor)
+        return factor
+    
+    @functools.cached_property
+    def apccount2(self):
+        """afterpulse count corrected for temporal cuts and background"""
+        ccount = (self.apcount - self.apbkg) * self.apfactor2
+        self.results.update(apccount2=ccount)
+        return ccount
+    
+    @functools.cached_property
+    def approb2(self):
+        """afterpulse probability"""
+        p = self.apccount2 / self.apnevents
+        self.results.update(approb2=p)
+        return p
+    
     @figmethod
     def apevent(self, index, *, fig):
         """plot an event with a selected afterpulse"""
@@ -935,10 +1002,18 @@ class FigureSaver:
         return f'{self.prefix}fig{self.count:02d}'
     
     def savefit(self, fit):
+        onefit = not hasattr(fit, '__len__')
+        if onefit:
+            fit = [fit]
         path = f'{self.lastnamenoext}.txt'
         with open(path, 'w') as file:
             print(f'write {path}...')
-            file.write(fit.format(maxline=True))
+            for i, f in enumerate(fit):
+                if not onefit:
+                    file.write(f'*********** Fit {i + 1} ***********\n\n')
+                file.write(f.format(maxline=True))
+                if i + 1 < len(fit):
+                    file.write('\n')
 
     def __call__(self, fig):
         self.count += 1
@@ -965,19 +1040,17 @@ def singlevovanalysis(vov):
     savef(anal.ptscatter())
     savef(anal.pthist())
 
-    for kind in ['borel', 'geom']:
-        fit, fig1, fig2 = anal.ptdict(kind=kind)
-        savef(fig1)
-        savef(fig2)
-        savef.savefit(fit)
+    fit, fig1, fig2 = anal.ptdict()
+    savef(fig1)
+    savef(fig2)
+    savef.savefit(fit)
     
-    for kind in ['borel', 'geom']:
-        for overflow in [False, True]:
-            for fixzero in [False, True]:
-                fit, fig1, fig2 = anal.maindict(kind=kind, overflow=overflow, fixzero=fixzero)
-                savef(fig1)
-                savef(fig2)
-                savef.savefit(fit)
+    for overflow in [False, True]:
+        for fixzero in [False, True]:
+            fit, fig1, fig2 = anal.maindict(overflow=overflow, fixzero=fixzero)
+            savef(fig1)
+            savef(fig2)
+            savef.savefit(fit)
     
     for i in range(3):
         savef(anal.ptevent(i))
@@ -993,12 +1066,11 @@ def singlevovanalysis(vov):
     savef(anal.apscatter())
     savef(anal.aphist())
     
-    for kind in ['borel', 'geom']:
-        for overflow in [False, True]:
-            fit, fig1, fig2 = anal.apdict(kind=kind, overflow=overflow, mincount=5)
-            savef(fig1)
-            savef(fig2)
-            savef.savefit(fit)
+    for overflow in [False, True]:
+        fit, fig1, fig2 = anal.apdict(overflow=overflow, mincount=5)
+        savef(fig1)
+        savef(fig2)
+        savef.savefit(fit)
     
     fit, fig1, fig2 = anal.apfittau()
     savef(fig1)
@@ -1014,6 +1086,7 @@ def singlevovanalysis(vov):
     print(f'ap count = {anal.apcount} / {anal.apnevents}')
     print(f'corrected ap count = {anal.apccount}')
     print(f'afterpulse probability = {anal.approb}')
+    print(f'afterpulse probability (two taus) = {anal.approb2}')
     
     # save analysis results to file
     print(f'save {analfile}...')
@@ -1041,7 +1114,7 @@ def plottermethod(meth):
         
         meth(self, *args, **kw)
          
-        l, u = ax.get_ylim()
+        _, u = ax.get_ylim()
         ax.set_ylim(0, u)
         ax.minorticks_on()
         ax.grid(True, 'major', linestyle='--')
@@ -1085,24 +1158,40 @@ class Plotter:
     @plottermethod
     def plotapprob(self, ax):
         approb = self.listdict(lambda d: d['approb'])
-        self.errorbar(ax, approb * 100)
+        self.errorbar(ax, approb * 100, -0.05, label='Single exponential')
+        approb = self.listdict(lambda d: d['approb2'])
+        self.errorbar(ax, approb * 100,  0.05, label='Double exponential')
     
     @plottermethod
     def plotaptau(self, ax):
         aptau = self.listdict(lambda d: d['aptau'])
-        self.errorbar(ax, aptau)
+        self.errorbar(ax, aptau, label='Single exponential')
+        tau1, tau2 = self.listdict(lambda d: d['aptau2']).T
+        self.errorbar(ax, tau1, label='Double expon., short comp.')
+        self.errorbar(ax, tau2, label='Double expon., long comp.')
+    
+    @plottermethod
+    def plotapweight(self, ax):
+        w = self.listdict(self.paramgetter('apfittau2', 'w0'))
+        self.errorbar(ax, w)
     
     @plottermethod
     def plotmupoisson(self, ax):
         mup = self.listdict(self.paramgetter('mainfit', 'mu_poisson'))
-        self.errorbar(ax, mup)
+        self.errorbar(ax, mup, -0.05, label='Borel')
+        mup = self.listdict(self.paramgetter('mainfitgeom', 'mu_poisson'))
+        self.errorbar(ax, mup,  0.05, label='Geometric')
     
     @plottermethod
-    def plotdictparam(self, ax, transf=(lambda x: x)):
+    def plotdictparam(self, ax, transf=(lambda x: x), kind='borel'):
         mus = [
             ('Dark count' , self.paramgetter('ptfit'  , 'mu'      )),
             ('Laser'      , self.paramgetter('mainfit', 'mu_borel')),
             ('Afterpulses', self.paramgetter('apfit'  , 'mu'      )),
+        ] if kind == 'borel' else [
+            ('Dark count' , self.paramgetter('ptfitgeom'  , 'p'     )),
+            ('Laser'      , self.paramgetter('mainfitgeom', 'p_geom')),
+            ('Afterpulses', self.paramgetter('apfitgeom'  , 'p'     )),
         ]
     
         for i, (label, getter) in enumerate(mus):
@@ -1113,20 +1202,20 @@ class Plotter:
 
         ax.legend()
     
-    def plotdictprob(self, ax):
-        self.plotdictparam(ax, lambda mu: 1 - np.exp(-mu))
+    def plotdictprob(self, ax, **kw):
+        self.plotdictparam(ax, lambda mu: 1 - np.exp(-mu), **kw)
     
-    def plotdictpe(self, ax):
-        self.plotdictparam(ax, lambda mu: 1 / (1 - mu) - 1)
+    def plotdictpe(self, ax, **kw):
+        self.plotdictparam(ax, lambda mu: 1 / (1 - mu) - 1, **kw)
     
 def main():
     vovdict = allvovanalysis()
     plotter = Plotter(vovdict)
     
-    fig1,  axdcr                = plt.subplots(      num='afterpulse_tile21-1', clear=True, figsize=[    3.7, 3.5])
-    fig2, (axap, axtau)         = plt.subplots(1, 2, num='afterpulse_tile21-2', clear=True, figsize=[2 * 3.7, 3.5])
-    fig3, (axmub, axpct, axnct) = plt.subplots(1, 3, num='afterpulse_tile21-3', clear=True, figsize=[   10.5, 3.5])
-    fig4,  axmu                 = plt.subplots(      num='afterpulse_tile21-4', clear=True, figsize=[    3.7, 3.5])
+    fig1,  axdcr             = plt.subplots(      num='afterpulse_tile21-1', clear=True, figsize=[ 3.7,     3.5])
+    fig2, (axap, axtau, axw) = plt.subplots(1, 3, num='afterpulse_tile21-2', clear=True, figsize=[10.5,     3.5])
+    fig3,  axdict            = plt.subplots(2, 3, num='afterpulse_tile21-3', clear=True, figsize=[10.5, 2 * 3.5])
+    fig4,  axmu              = plt.subplots(      num='afterpulse_tile21-4', clear=True, figsize=[ 3.7,     3.5])
 
     figs = [fig1, fig2, fig3, fig4]
 
@@ -1135,33 +1224,44 @@ def main():
             if ax.is_last_row():
                 ax.set_xlabel('VoV')
 
-    axdcr.set_title('DCR')
+    axdcr.set_title('Random pulses rate')
     axdcr.set_ylabel('Pre-trigger rate [cps]')
     plotter.plotptrate(axdcr)
 
-    axap.set_title('Afterpulse')
+    axap.set_title('AP probability')
     axap.set_ylabel('Prob. of $\\geq$1 ap after 1 pe signal [%]')
     plotter.plotapprob(axap)
+    axap.legend()
 
-    axtau.set_title('Afterpulse')
+    axtau.set_title('AP tau')
     axtau.set_ylabel('Exponential decay constant [ns]')
     plotter.plotaptau(axtau)
-
-    axmub.set_title('Cross talk')
-    axmub.set_ylabel('Branching parameter $\\mu_B$')
-    plotter.plotdictparam(axmub)
+    axtau.legend()
     
-    axpct.set_title('Cross talk')
-    axpct.set_ylabel('Prob. of > 1 pe [%]')
-    plotter.plotdictprob(axpct)
+    axw.set_title('AP mixture')
+    axw.set_ylabel('Weight of short component')
+    plotter.plotapweight(axw)
+    axw.set_ylim(0, 1)
+    
+    for kind, (axpar, axpct, axnct) in zip(['borel', 'geom'], axdict):
+        
+        axpar.set_title(f'DiCT param ({kind})')
+        pname = '\\mu_B' if kind == 'borel' else 'p'
+        axpar.set_ylabel(f'Branching parameter ${pname}$')
+        plotter.plotdictparam(axpar, kind=kind)
 
-    axnct.set_title('Cross talk')
-    axnct.set_ylabel('Average excess pe')
-    plotter.plotdictpe(axnct)
+        axpct.set_title(f'DiCT prob ({kind})')
+        axpct.set_ylabel('Prob. of > 1 pe [%]')
+        plotter.plotdictprob(axpct, kind=kind)
+
+        axnct.set_title(f'DiCT pe ({kind})')
+        axnct.set_ylabel('Average excess pe')
+        plotter.plotdictpe(axnct, kind=kind)
 
     axmu.set_title('Efficiency')
     axmu.set_ylabel('Average detected laser photons')
     plotter.plotmupoisson(axmu)
+    axmu.legend()
 
     vov_fbk = [
         3.993730407523511 ,  

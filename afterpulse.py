@@ -836,6 +836,13 @@ class AfterPulse(npzload.NPZLoad):
     def _peaksampl(self):
         return self.peaksampl()
     
+    def posbackup(self, pos):
+        # TODO does not work if filtlengths is not 1D
+        cond = pos >= 0
+        idx = np.argmax(cond, axis=0)[None]
+        offset = self._offset
+        return np.where(cond, pos, offset + np.take_along_axis(pos - offset, idx, 0))
+    
     def apheight(self, ampl, correction='height', offset='peak'):
         """
         Compute the afterpulse height.
@@ -866,6 +873,7 @@ class AfterPulse(npzload.NPZLoad):
             np.moveaxis(self.output[peak]['pos'], 0, -1)
             for peak in ['mainpeak', 'minorpeak', 'minorpeak2']
         ]
+        mainpos = self.posbackup(mainpos)
         
         peampl = np.empty(self.filtlengths.shape)
         for ilength, _ in np.ndenumerate(self.filtlengths):
@@ -1096,6 +1104,9 @@ class AfterPulse(npzload.NPZLoad):
             pvars.update(
                 npe = f"np.where({pos} >= 0, self.computenpe({hpe}), self.badvalue)",
             )
+            # TODO does not work if filtlengths is not 1D
+            pvars['npebackup'] = f"next(np.where(pos >= 0, x, np.take_along_axis(x, np.argmax(pos >= 0, axis=0)[None], 0)) for x, pos in [({pvars['npe']}, {pos})])"
+            pvars['posbackup'] = f'self.posbackup({pos})'
             peakvars[prefix] = pvars
         for prefix, pvars in peakvars.items():
             variables.update({
@@ -1156,27 +1167,32 @@ class AfterPulse(npzload.NPZLoad):
         The expression can be any python expression involving the following
         numpy arrays:
             
-            event       : event index
-            catindex    : index of the concatenated object (0 if not a
-                          concatenation)
-            trigger     : the index of the trigger leading edge
-            baseline    : the value of the baseline
-            length      : the cross correlation filter template length
-            offset      : the temporal offset for each filter
-            saturated   : if there is a sample equal to zero in the event
-            lowbaseline : if there is sample too low before the trigger
-            closept     : if there are pre-trigger peaks near the trigger
-            good        : ~closept & ~saturated
-            <P>pos      : peak position (sample index in the filtered event)
-            <P>height   : height relative to the baseline (positive)
-            <P>prom     : prominence, capped to the baseline, measured without
-                          crossing the laser peak
-            <P>ampl     : the height corrected for the tails of other peaks
-            <P>amplh    : <P>height when <P>ampl < 0, otherwise <P>ampl
-            <P>apampl   : <P>ampl summed to the tail of a 1 pe laser pulse
-            <P>apamplh  : <P>amplh when <P>apampl < 0, otherwise <P>apampl
-            <P>npe      : the number of photoelectrons, determined from
-                          <P>apampl if defined, <P>ampl otherwise
+            event        : event index
+            catindex     : index of the concatenated object (0 if not a
+                           concatenation)
+            trigger      : the index of the trigger leading edge
+            baseline     : the value of the baseline
+            length       : the cross correlation filter template length
+            offset       : the temporal offset for each filter
+            saturated    : if there is a sample equal to zero in the event
+            lowbaseline  : if there is sample too low before the trigger
+            closept      : if there are pre-trigger peaks near the trigger
+            good         : ~closept & ~saturated
+            <P>pos       : peak position (sample index in the filtered event)
+            <P>height    : height relative to the baseline (positive)
+            <P>prom      : prominence, capped to the baseline, measured without
+                           crossing the laser peak
+            <P>ampl      : the height corrected for the tails of other peaks
+            <P>amplh     : <P>height when <P>ampl < 0, otherwise <P>ampl
+            <P>apampl    : <P>ampl summed to the tail of a 1 pe laser pulse
+            <P>apamplh   : <P>amplh when <P>apampl < 0, otherwise <P>apampl
+            <P>npe       : the number of photoelectrons, determined from
+                           <P>apampl if defined, <P>ampl otherwise
+            <P>npebackup : where pos >= 0, npe, otherwise the npe of the first
+                           filter which yields nonnegative pos
+            <P>posbackup : where pos >= 0, pos, otherwise the pos of the first
+                           filter which yields nonnegative pos, corrected to
+                           have the filter offset of the pos it replaces
         
         Where <P> is one of these prefixes indicating the peak:
         
@@ -1367,7 +1383,7 @@ class AfterPulse(npzload.NPZLoad):
         fig.tight_layout()
     
     @figmethod
-    def scatter(self, xexpr, yexpr, where=None, fig=None, selection=True):
+    def scatter(self, xexpr, yexpr, where=None, fig=None, selection=True, **kw):
         """
         Plot the scatterplot of two expressions.
         
@@ -1392,6 +1408,8 @@ class AfterPulse(npzload.NPZLoad):
             A matplotlib figure where the plot is drawn.
         selection : bool
             If True (default), write the `where` expression on the plot.
+        **kw :
+            Additional keyword arguments are passed to plt.plot.
         
         Return
         ------
@@ -1436,6 +1454,7 @@ class AfterPulse(npzload.NPZLoad):
                     label = f'{length} ({len(x)})',
                     alpha = (1 + i) / len(xylength),
                 )
+                plotkw.update(kw)
                 ax.plot(x, y, **plotkw)
             ax.legend(title='Filter length (entries)', fontsize='small', ncol=2, loc='upper right')
         
