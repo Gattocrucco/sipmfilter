@@ -12,7 +12,7 @@ length = 128
 
 ap21 = afterpulse_tile21.AfterPulseTile21(vov)
 
-fig = plt.figure(num='figpe', clear=True, figsize=[8, 4])
+fig = plt.figure(num='figpe', clear=True, figsize=[8, 3])
 
 ap21.sim.hist('mainheight', f'~saturated & ~closept & (mainpos >= 0) & (length == {length})', yscale='log', fig=fig, nbins=1000, selection=False)
 ax, = fig.get_axes()

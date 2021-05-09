@@ -173,6 +173,7 @@ def fithistogram(
     fig=None,
     errorfactor=None,
     mincount=3,
+    selection=True,
     **kw,
 ):
     """
@@ -210,6 +211,8 @@ def fithistogram(
         Bins are grouped starting from the last bin until there at least
         `mincount` elements in the last bin. (Applies to the overflow if
         present.)
+    selection : bool
+        If True (default), write `condexpr` on the plot.
     **kw :
         Additional keyword arguments are passed to lsqfit.nonlinear_fit.
     
@@ -295,7 +298,9 @@ def fithistogram(
         uerrorbar(ax, oc, ys, label='overflow', **kw)
 
     # plot fit
-    info = []
+    info = [
+        f'total count = {norm}'
+    ]
     styles = [
         dict(color='#0004'),
         dict(color='#f004'),
@@ -339,8 +344,9 @@ def fithistogram(
     ax.grid(which='minor', linestyle=':')
     ax.set_xlabel(expr)
     ax.set_ylabel('Count per bin')
-    cond = breaklines.breaklines(f'Selection: {condexpr}', 40, ')', '&|')
-    textbox.textbox(ax, cond, loc='upper left', fontsize='small')
+    if selection:
+        cond = breaklines.breaklines(f'Selection: {condexpr}', 40, ')', '&|')
+        textbox.textbox(ax, cond, loc='upper left', fontsize='small')
     fig.tight_layout()
     _, upper = ax.get_ylim()
     ax.set_ylim(0, upper)
@@ -454,7 +460,7 @@ def figmethod(*args, figparams=['fig']):
             for fig in figs:
                 ax, = fig.get_axes()
                 
-                if 'event' not in fig.canvas.get_window_title():
+                if 'event' not in fig.canvas.get_window_title() and kw.get('selection', True):
                     b, t = ax.get_ylim()
                     yscale = ax.get_yscale()
                     if yscale == 'log':
@@ -889,16 +895,16 @@ class AfterPulseTile21:
         return bkg
     
     @figmethod(figparams=['fig1', 'fig2'])
-    def apfittau(self, *, fig1, fig2):
+    def apfittau(self, *, fig1, fig2, **kw):
         """fit decay constant of afterpulses"""
         dcut = self.params['dcut']
         dcutr = self.params['dcutr']
-        f = self.apbkg / self.apcount
+        f = self.apbkg / gvar.mean(self.apcount)
         const = 1 / (dcutr - dcut) * f / (1 - f)
         nbins = int(15/20 * np.sqrt(gvar.mean(self.apcount)))
         tau0 = 1500
         bins = -tau0 * np.log1p(-np.linspace(0, 1 - np.exp(-(dcutr - dcut) / tau0), nbins + 1))
-        fit, _, _ = fitapdecay(self.sim, f'apApos-mainposbackup-{dcut}', self.apcond, const, bins=bins, fig1=fig1, fig2=fig2)
+        fit, _, _ = fitapdecay(self.sim, f'apApos-mainposbackup-{dcut}', self.apcond, const, bins=bins, fig1=fig1, fig2=fig2, **kw)
         self.results.update(apfittau=fit[0], apfittau2=fit[1])
         return fit, fig1, fig2
     
@@ -1158,22 +1164,22 @@ class Plotter:
     @plottermethod
     def plotapprob(self, ax):
         approb = self.listdict(lambda d: d['approb'])
-        self.errorbar(ax, approb * 100, -0.05, label='Single exponential')
+        self.errorbar(ax, approb * 100, -0.05, label='Single exponential', color='#f55')
         approb = self.listdict(lambda d: d['approb2'])
-        self.errorbar(ax, approb * 100,  0.05, label='Double exponential')
+        self.errorbar(ax, approb * 100,  0.05, label='Double exponential', color='black')
     
     @plottermethod
     def plotaptau(self, ax):
         aptau = self.listdict(lambda d: d['aptau'])
-        self.errorbar(ax, aptau, label='Single exponential')
+        self.errorbar(ax, aptau, label='Single exponential', color='#f55')
         tau1, tau2 = self.listdict(lambda d: d['aptau2']).T
-        self.errorbar(ax, tau1, label='Double expon., short comp.')
-        self.errorbar(ax, tau2, label='Double expon., long comp.')
+        self.errorbar(ax, tau1, label='Double expon., short comp.', color='black', marker='')
+        self.errorbar(ax, tau2, label='Double expon., long comp.', color='black', marker='s')
     
     @plottermethod
     def plotapweight(self, ax):
         w = self.listdict(self.paramgetter('apfittau2', 'w0'))
-        self.errorbar(ax, w)
+        self.errorbar(ax, w, color='black', marker='')
     
     @plottermethod
     def plotmupoisson(self, ax):

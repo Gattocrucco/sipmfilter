@@ -1404,8 +1404,8 @@ class AfterPulse(npzload.NPZLoad):
             An expression for a boolean condition to select the values of
             `xexpr` and `yexpr`. The condition is broadcasted with `xexpr` and
             `yexpr` prior to applying it.
-        fig : matplotlib figure, optional
-            A matplotlib figure where the plot is drawn.
+        fig : matplotlib figure or axis, optional
+            A matplotlib figure or axis where the plot is drawn.
         selection : bool
             If True (default), write the `where` expression on the plot.
         **kw :
@@ -1424,7 +1424,11 @@ class AfterPulse(npzload.NPZLoad):
         else:
             xvalues, yvalues = np.broadcast_arrays(xvalues, yvalues)
         
-        ax = fig.subplots()
+        if hasattr(fig, 'get_axes'):
+            ax = fig.subplots()
+        else:
+            ax = fig
+            fig = ax.get_figure()
         
         plotkw = dict(
             linestyle = '',
