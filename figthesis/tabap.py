@@ -53,7 +53,7 @@ for j, vov in enumerate(afterpulse_tile21.AfterPulseTile21.defaultparams):
         '{n.d.}',
         ap21.apfactor,
         ap21.approb * 100,
-        f'{fit1.chi2:.2g}',
+        f'{fit1.chi2:.0f}',
         fit1.dof,
         pformat(fit1.Q),
     ]
@@ -64,7 +64,7 @@ for j, vov in enumerate(afterpulse_tile21.AfterPulseTile21.defaultparams):
         fit2.palt['w0'] * 100,
         ap21.apfactor2,
         ap21.approb2 * 100,
-        f'{fit2.chi2:.2g}',
+        f'{fit2.chi2:.0f}',
         fit2.dof,
         pformat(fit2.Q),
     ]

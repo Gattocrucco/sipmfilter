@@ -536,6 +536,7 @@ class AfterPulseTile21:
         7.5: dict(ptlength= 64, **_defaults),
         9.5: dict(ptlength= 64, **_defaults),
     }
+    defaultparams[9.5].update(dcut=200)
     
     def __init__(self, vov, params={}):
         self.vov = vov

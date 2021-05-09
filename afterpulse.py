@@ -725,6 +725,14 @@ class AfterPulse(npzload.NPZLoad):
         """
         return self._computenpe_boundaries(ampl)[ilength]
     
+    @functools.cached_property
+    def _0to1peboundaries(self):
+        boundaries = self._computenpe_boundaries_ampl
+        out = np.empty(self.filtlengths.shape)
+        for idx, array in np.ndenumerate(boundaries):
+            out[idx] = array[0]
+        return out
+    
     def signal(self, ilength):
         """
         Filter the signal template.
@@ -1123,7 +1131,10 @@ class AfterPulse(npzload.NPZLoad):
             v1 = peakvars[prefix1]
             v2 = peakvars[prefix2]
             for key in v1:
-                cond = f"({v1['ampl']} >= 0) & ({v2['ampl']} >= 0) & ({v2['pos']} < {v1['pos']})"
+                if 'apampl' in v1:
+                    cond = f"({v1['apampl']} >= self._0to1peboundaries[..., None]) & ({v2['apampl']} >= self._0to1peboundaries[..., None]) & ({v2['pos']} < {v1['pos']})"
+                else:
+                    cond = f"({v1['ampl']} >= 0) & ({v2['ampl']} >= 0) & ({v2['pos']} < {v1['pos']})"
                 variables[newprefix + 'A' + key] = f"np.where({cond}, {v2[key]}, {v1[key]})"
                 variables[newprefix + 'B' + key] = f"np.where({cond}, {v1[key]}, {v2[key]})"
         return variables

@@ -17,6 +17,7 @@ plt.close(fig1)
 ax, = fig.get_axes()
 dcut = ap21.params['dcut']
 ax.set_xlabel(f'Delay from {dcut} ns after laser peak [ns]')
+ax.legend(loc='upper center')
 
 figs = [fig]
 
