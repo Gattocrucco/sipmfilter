@@ -7,24 +7,15 @@ import uncertainties
 
 table = []
 
-def fitbkg(fit):
-    x = fit.data[0]
-    bins = x['bins']
-    t = bins[-1] - bins[0]
-    c = fit.palt['const']
-    ct = c * t
-    count = x['norm']
-    return count * ct / (1 + ct)
-
 def uformat(x):
     ux = uncertainties.ufloat(x.mean, x.sdev)
     return f'{ux:.2u}'.replace('+/-', ' \\pm ')
 
 def pformat(p, limit=1e-6):
     if p < limit:
-        return f'{{<{limit:.1g}}}'
+        return f'{{<{limit:.1g}}}'.replace('e-0', 'e-')
     else:
-        return f'{p:.2g}'
+        return f'{p:#.2g}'
 
 for j, vov in enumerate(afterpulse_tile21.AfterPulseTile21.defaultparams):
     
@@ -43,11 +34,11 @@ for j, vov in enumerate(afterpulse_tile21.AfterPulseTile21.defaultparams):
         ap21.params['dcutr'],
         ap21.apnevents,
         int(ap21.apcount.mean),
-        f'{ap21.aptime:.2g}',
+        f'{ap21.aptime:#.2g}',
         ap21.apbkg,
     ]
     row2a = [
-        fitbkg(fit1),
+        ap21.apbkgfit,
         fit1.palt['tau'],
         '{n.d.}',
         '{n.d.}',
@@ -58,10 +49,10 @@ for j, vov in enumerate(afterpulse_tile21.AfterPulseTile21.defaultparams):
         pformat(fit1.Q),
     ]
     row2b = [
-        fitbkg(fit2),
+        ap21.apbkgfit2,
         fit2.palt['tau'][0],
         fit2.palt['tau'][1] * 1e-3,
-        fit2.palt['w0'] * 100,
+        fit2.palt['p1'] * 100,
         ap21.apfactor2,
         ap21.approb2 * 100,
         f'{fit2.chi2:.0f}',

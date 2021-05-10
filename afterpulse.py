@@ -931,7 +931,7 @@ class AfterPulse(npzload.NPZLoad):
         return self.apheight(self._peaksampl)
     
     @figmethod
-    def plotevent(self, wavdata, ievent, ilength=None, zoom='posttrigger', debug=False, fig=None):
+    def plotevent(self, wavdata, ievent, ilength=None, zoom='posttrigger', debug=False, fig=None, apampl=True):
         """
         Plot a single event.
         
@@ -952,8 +952,11 @@ class AfterPulse(npzload.NPZLoad):
             The x-axis extension.
         debug : bool
             If False (default), reduce the amount of information showed.
-        fig : matplotlib figure, optional
-            A matplotlib figure where the plot is drawn.
+        fig : matplotlib figure or axis, optional
+            A matplotlib figure or axis where the plot is drawn.
+        apampl : bool
+            If True (default), use the corrected afterpulse amplitude for
+            post-trigger pulses.
         
         Return
         ------
@@ -965,7 +968,11 @@ class AfterPulse(npzload.NPZLoad):
         elif not isinstance(ilength, tuple):
             ilength = (ilength,)
         
-        ax = fig.subplots()
+        if hasattr(fig, 'get_axes'):
+            ax = fig.subplots()
+        else:
+            ax = fig
+            fig = ax.get_figure()
         
         if not hasattr(wavdata, 'astype'):
             wavdata = wavdata[self.catindex(ievent)]
@@ -997,12 +1004,12 @@ class AfterPulse(npzload.NPZLoad):
         )
         
         peaks = [
-            # field, label, marker, amplitude
-            ('mainpeak'  , 'laser'       , 'o', self._peaksampl[..., 0]),
+            # field, label, marker, ap amplitude
+            ('mainpeak'  , 'laser'       , 'o', None),
             ('minorpeak' , '1st posttrig', 's', self._apheight[..., 0]),
             ('minorpeak2', '2nd posttrig', 'v', self._apheight[..., 1]),
-            ('ptpeak'    , '1st pretrig' , '<', self._peaksampl[..., 3]),
-            ('ptpeak2'   , '2nd pretrig' , '>', self._peaksampl[..., 4]),
+            ('ptpeak'    , '1st pretrig' , '<', None),
+            ('ptpeak2'   , '2nd pretrig' , '>', None),
         ]
         
         if zoom == 'all':
@@ -1021,7 +1028,10 @@ class AfterPulse(npzload.NPZLoad):
         for ipeak, (field, label, marker, aampl) in enumerate(peaks):
             peak = entry[field][ilength]
             pos = peak['pos']
-            ampl = aampl[ilength + (ievent,)]
+            if aampl is not None and apampl:
+                ampl = aampl[ilength + (ievent,)]
+            else:
+                ampl = self._peaksampl[ilength + (ievent, ipeak)]
             if pos < 0:
                 continue
             if not debug and (ampl < boundaries[0] or not xlim[0] <= pos <= xlim[1]):

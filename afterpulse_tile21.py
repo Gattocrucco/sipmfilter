@@ -128,7 +128,7 @@ def exponbkgcdf(x, params):
     const = params['const']
     if hasattr(scale, '__len__'):
         assert len(scale) == 2, len(scale)
-        w = params['w0']
+        w = params['p1']
         return w * (1 - np.exp(-x / scale[0])) + (1 - w) * (1 - np.exp(-x / scale[1])) + const * x
     else:
         return 1 - np.exp(-x / scale) + const * x
@@ -299,7 +299,7 @@ def fithistogram(
 
     # plot fit
     info = [
-        f'total count = {norm}'
+        f'N = {norm}'
     ]
     styles = [
         dict(color='#0004'),
@@ -333,7 +333,11 @@ def fithistogram(
                 if f:
                     k = m.group(2)
                     v = f(v)
-            info.append(f'{k} = {v}')
+            if hasattr(v, '__len__'):
+                for i, vv in enumerate(v):
+                    info.append(f'{k}{i+1} = {vv}')
+            else:
+                info.append(f'{k} = {v}')
     
     textbox.textbox(ax, '\n'.join(info), loc='center right', fontsize='small')
     
@@ -414,12 +418,12 @@ def fitapdecay(sim, expr, condexpr, const, *, fig1, fig2, **kw):
         exponbkgcdf,
     ]
     prior = [{
+        'const': const,
         'log(tau)': gvar.gvar(np.log(1000), 1),
-        'const': const,
     }, {
-        'log(tau)': gvar.gvar(np.log([400, 800]), np.ones(2)),
         'const': const,
-        'w0': gvar.BufferDict.uniform('U', 0, 1)
+        'log(tau)': gvar.gvar(np.log([400, 800]), np.ones(2)),
+        'p1': gvar.BufferDict.uniform('U', 0, 1)
     }]
     fit, _ = fithistogram(sim, expr, condexpr, prior, pmf, continuous=True, fig=fig2, **kw)
     sim.hist(expr, condexpr, fig=fig1)
@@ -536,7 +540,9 @@ class AfterPulseTile21:
         7.5: dict(ptlength= 64, **_defaults),
         9.5: dict(ptlength= 64, **_defaults),
     }
-    defaultparams[9.5].update(dcut=200)
+    defaultparams[5.5].update(dcut=250)
+    defaultparams[7.5].update(dcut=250)
+    defaultparams[9.5].update(dcut=150)
     
     def __init__(self, vov, params={}):
         self.vov = vov
@@ -909,6 +915,23 @@ class AfterPulseTile21:
         self.results.update(apfittau=fit[0], apfittau2=fit[1])
         return fit, fig1, fig2
     
+    def _apbkgfit(self, fit):
+        x = fit.data[0]
+        bins = x['bins']
+        t = bins[-1] - bins[0]
+        c = fit.palt['const']
+        ct = c * t
+        count = x['norm']
+        bkg = count * ct / (1 + ct)
+        return bkg
+    
+    @functools.cached_property
+    def apbkgfit(self):
+        fit = self.results['apfittau']
+        b = self._apbkgfit(fit)
+        self.results.update(apbkgfit=b)
+        return b
+    
     @functools.cached_property
     def aptau(self):
         """decay parameter of afterpulses"""
@@ -931,7 +954,7 @@ class AfterPulseTile21:
     @functools.cached_property
     def apccount(self):
         """afterpulse count corrected for temporal cuts and background"""
-        ccount = (self.apcount - self.apbkg) * self.apfactor
+        ccount = (self.apcount - self.apbkgfit) * self.apfactor
         self.results.update(apccount=ccount)
         return ccount
     
@@ -942,6 +965,13 @@ class AfterPulseTile21:
         self.results.update(approb=p)
         return p
     
+    @functools.cached_property
+    def apbkgfit2(self):
+        fit = self.results['apfittau2']
+        b = self._apbkgfit(fit)
+        self.results.update(apbkgfit2=b)
+        return b
+        
     @functools.cached_property
     def aptau2(self):
         """decay parameters of afterpulses with two components"""
@@ -959,7 +989,7 @@ class AfterPulseTile21:
         dcutr = self.params['dcutr']
         tau1, tau2 = self.aptau2
         fit = self.results['apfittau2']
-        w = fit.palt['w0']
+        w = fit.palt['p1']
         denom = w * exponinteg(dcut, dcutr, tau1)
         denom += (1 - w) * exponinteg(dcut, dcutr, tau2)
         factor = 1 / denom
@@ -969,7 +999,7 @@ class AfterPulseTile21:
     @functools.cached_property
     def apccount2(self):
         """afterpulse count corrected for temporal cuts and background"""
-        ccount = (self.apcount - self.apbkg) * self.apfactor2
+        ccount = (self.apcount - self.apbkgfit2) * self.apfactor2
         self.results.update(apccount2=ccount)
         return ccount
     
@@ -1175,11 +1205,11 @@ class Plotter:
         self.errorbar(ax, aptau, label='Single exponential', color='#f55')
         tau1, tau2 = self.listdict(lambda d: d['aptau2']).T
         self.errorbar(ax, tau1, label='Double expon., short comp.', color='black', marker='')
-        self.errorbar(ax, tau2, label='Double expon., long comp.', color='black', marker='s')
+        self.errorbar(ax, tau2, label='Double expon., long comp.', color='black', marker='.')
     
     @plottermethod
     def plotapweight(self, ax):
-        w = self.listdict(self.paramgetter('apfittau2', 'w0'))
+        w = self.listdict(self.paramgetter('apfittau2', 'p1'))
         self.errorbar(ax, w, color='black', marker='')
     
     @plottermethod
