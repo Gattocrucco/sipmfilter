@@ -62,6 +62,7 @@ class Hist2D(npzload.NPZLoad):
         parser = argparse.ArgumentParser(prog='hist2d', description='Plot the 2D histogram of a LNGS wav or Proto0 root.')
         parser.add_argument('filename', metavar='path[:channel]', help='File to read. The channel is the tile number or tree branch.')
         parser.add_argument('-m', '--maxevents', type=int, default=1000,        help='Max number of events read from the file, default 1000.')
+        parser.add_argument('-i', '--initial'  , type=int, default=0,           help='Initial event read, default 0 (first).')
         parser.add_argument('-l', '--length'   , type=int, default=0,           help='Number of samples read per event, default event length.')
         parser.add_argument('-s', '--start'    , type=int, default=0,           help='Starting sample read in each event.')
         parser.add_argument('-t', '--trigger'  , action='store_true',           help='If specified, the starting sample is relative to the trigger.')
@@ -78,7 +79,7 @@ class Hist2D(npzload.NPZLoad):
         """
         self._parseargv(argv)
 
-        data, trigger, self.freq, ndigit = read.read(self.filename, self.maxevents)
+        data, trigger, self.freq, ndigit = read.read(self.filename, self.maxevents, firstevent=self.initial)
         self.nevents = data.shape[0]
         self.eventlength = data.shape[1]
     

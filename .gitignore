@@ -9,6 +9,7 @@ afterpulse*/*
 darksidehd
 fdrall/*
 figthesis/*.npz
+figthesis/*.gvar
 !figthesis/figdoublepeak.npz
 !figthesis/figfakerate/*.npz
 !figthesis/fighist2d*.npz
