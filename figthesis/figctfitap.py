@@ -24,6 +24,8 @@ for j, vov in enumerate(afterpulse_tile21.AfterPulseTile21.defaultparams):
         ax.set_xlabel(f'Afterpulses PE')
         ax.legend(loc='upper right', fontsize='small')
 
+for axl, axr in axs:
+    axr.set_ylim(axl.get_ylim())
 fig.tight_layout()
 
 figlatex.save(fig)

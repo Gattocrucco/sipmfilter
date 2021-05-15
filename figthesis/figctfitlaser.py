@@ -36,6 +36,8 @@ for j, vov in enumerate(afterpulse_tile21.AfterPulseTile21.defaultparams):
             ax.set_xlabel(f'Laser pulses PE')
             ax.legend(loc=legendloc, fontsize='small')
 
-for fig, _ in figaxs:
+for fig, axs in figaxs:
+    for axl, axr in axs:
+        axr.set_ylim(axl.get_ylim())
     fig.tight_layout()
     figlatex.save(fig)
