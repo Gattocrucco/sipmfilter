@@ -15,7 +15,7 @@ data = readwav.readwav('darksidehd/' + prefix + '.wav', maxevents=1, mmap=False)
 signal = data[:, 0]
 
 template = _template.Template.load('templates/' + prefix + '-template.npz')
-templ, offset = template.matched_filter_template(length, timebase=1)
+templ, offset = template.matched_filter_template(length, timebase=1, aligned='trigger')
 
 filt = toy.Filter(signal, template.baseline)
 fsignal = filt.all(templ)[:, 0]

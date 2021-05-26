@@ -12,7 +12,8 @@ templ = _template.Template.load(templfile)
 
 fig, ax = plt.subplots(num='figtoytempl', clear=True, figsize=[6.4, 3.32])
 
-ax.plot(templ.templates[0], color='black')
+t, = templ.generate(templ.template_length, [0], timebase=1, aligned='trigger')
+ax.plot(t, color='black')
 
 ax.set_xlabel('Time [ns]')
 

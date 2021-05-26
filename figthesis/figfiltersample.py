@@ -19,7 +19,7 @@ event = data[0]
 signal, trigger = event
 
 template = _template.Template.load('templates/' + prefix + '-template.npz')
-templ, offset = template.matched_filter_template(length, timebase=1)
+templ, offset = template.matched_filter_template(length, timebase=1, aligned='trigger')
 
 filt = toy.Filter(signal[None], template.baseline)
 fsignal = filt.all(templ)[ifilter, 0]

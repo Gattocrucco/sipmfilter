@@ -50,7 +50,7 @@ def plot_comparison(locfield='loc'):
     r = toys[0].templocres(locfield, sampleunit=False)
     emabestlngs = np.min(r[2], axis=0)
     
-    templatesnr = template.max(timebase=1) / template.noise_std
+    templatesnr = template.max(timebase=1, aligned='trigger') / template.noise_std
     
     lngssnrvalues = [
         float(interpolate.interp1d(snr, res)(templatesnr))

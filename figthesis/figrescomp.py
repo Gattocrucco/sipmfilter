@@ -46,7 +46,7 @@ for n in names:
     assert np.array_equal(sim[n].tau, tau)
     assert np.array_equal(sim[n].snr, snr)
 
-fig, ax = plt.subplots(num='figrescomp', clear=True, figsize=[6.4, 7.19])
+fig, ax = plt.subplots(num='figrescomp', clear=True, figsize=[7, 10])
 
 def isomething(a, x, strict=True):
     i = min(np.searchsorted(a, x), len(a) - 1)
@@ -60,7 +60,7 @@ ratio = snrs[1, itau(128)]
 snr10, snr12 = np.array([10, 12]) / ratio
 
 template = _template.Template.load(f'templates/{prefix}-template.npz')
-lngssnr = template.max(timebase=1) / template.noise_std
+lngssnr = template.max(timebase=1, aligned='trigger') / template.noise_std
 noise_lngs = toy.DataCycleNoise(timebase=1)
 noise_lngs.load(f'noises/{prefix}-noise.npz')
 lngssnr /= np.std(toy.downsample(noise_lngs.noise_array, 8), axis=None)

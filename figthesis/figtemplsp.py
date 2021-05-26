@@ -25,7 +25,7 @@ s1 = arch['s1']
 s2 = arch['s2']
 
 template = _template.Template.load(templfile)
-templ, offset = template.matched_filter_template(3000, timebase=1)
+templ, offset = template.matched_filter_template(3000, timebase=1, aligned='trigger')
 
 def adapt(f, s):
     f /= 1e6

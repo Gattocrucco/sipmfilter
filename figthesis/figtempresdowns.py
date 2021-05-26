@@ -86,7 +86,7 @@ def maketable():
             t = sim[n][tb]
             ratio = t.snrratio()[3, 0]
             ratio = ratio / t.noise_ratio
-            row[tb] = f'{ratio:.2g}'
+            row[tb] = f'{ratio:#.2g}'
         table.append([nicenames[n]] + [row[tb] for tb in all_timebase])
     matrix = textmatrix.TextMatrix(table, fill_side='left')
     print(matrix.latex())
@@ -108,7 +108,7 @@ def snrhelp(noise=None):
             else:
                 ax = axs[1]
             ax.plot(timebase[n], FSFNSNR[:, i], label=label + ' ' + n, marker='.')
-    axs[0].plot(timebase['lngs'], [template.max(tb) for tb in timebase['lngs']])
+    axs[0].plot(timebase['lngs'], [template.max(tb, aligned='trigger') for tb in timebase['lngs']])
     for ax in axs:
         ax.legend(loc='best')
         ax.minorticks_on()
@@ -117,7 +117,7 @@ def snrhelp(noise=None):
         
     fig.show()
 
-fig = plt.figure(num='figtempresdowns', clear=True, figsize=[9.17, 5.06])
+fig = plt.figure(num='figtempresdowns', clear=True, figsize=[9, 10])
 gs = gridspec.GridSpec(5, 2)
 axs = {}
 axs['proto0'] = fig.add_subplot(gs[:, 1])
@@ -141,7 +141,7 @@ for n in sim:
         nr = t.noise_ratio
         label = t.sampling_str()
         if tb != 8:
-            label += f' (SNR $\\times$ {nr:.2g})'
+            label += f' (SNR $\\times$ {nr:#.2g})'
         line, = ax.plot(t.snr * nr, r, label=label, **plotkw[tb])
         
     ax.axhspan(0, 8, color='#ddd')

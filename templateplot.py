@@ -43,11 +43,31 @@ def templateplot(dest, fig=None):
         fig, axs = plt.subplots(2, 2, num='templateplot', clear=True, figsize=[10, 7.1])
     else:
         axs = fig.subplots(2, 2)
+    
+    info = '\n'.join([
+        f'{param}: {getattr(templ, param):.4g}'
+        for param in [
+            'template_N',
+            'template_rel_std',
+            'noise_std',
+            'baseline',
+            'baseline_std',
+            'start_min',
+            'start_max',
+            'start_median',
+        ]
+    ])
+    textbox.textbox(axs.flat[0], info, loc='center right')
 
     for ax in axs.flat[:3]:
         textbox.textbox(ax, 'Full template @ 1 GSa/s', fontsize='medium', loc='lower center')
-        ax.plot(templ.templates[0], color='#f55', label='Aligned to event window')
-        ax.plot(templ.templates[1], color='#000', linestyle=':', label='Aligned with trigger/filter')
+        gen = lambda aligned: templ.generate(templ.template_length, [0], timebase=1, aligned=aligned, randampl=False)[0]
+        ax.plot(gen(False), color='#f55', label='Aligned to event window')
+        ax.plot(gen(True), color='#000', linestyle='--', label='Aligned with filter')
+        try:
+            ax.plot(gen('trigger'), color='#000', linestyle=':', label='Aligned with trigger')
+        except ValueError:
+            pass
         ax.legend(loc='upper right')
     
     ax = axs.flat[1]

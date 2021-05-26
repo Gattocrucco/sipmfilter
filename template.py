@@ -109,16 +109,6 @@ class Template(npzload.NPZLoad):
         """
         self = cls.__new__(cls)
         
-        # TODO The noise at the Nyquist frequency does not gets cancelled with
-        # the first average and then is amplified by the filter. Do a 2-sample
-        # moving average on the unaligned template.
-        
-        # TODO The alignment with filter is better than the alignment with
-        # laser. Do both. Put the trigger in templates[2], only if there's the
-        # trigger. Then `aligned=True` means using the filter, and
-        # `aligned='trigger'` raises if the filter is not available. Use an
-        # internal method to get the appropriate template.
-        
         if mask is None:
             mask = np.ones(len(data), bool)
             
@@ -167,22 +157,25 @@ class Template(npzload.NPZLoad):
         tcs = np.pad(np.cumsum(template), (1, 0))
         filttempl = (tcs[2:] - tcs[:-2]) / 2
         
-        # Do it with alignment.
-        if hastrigger:
-            start = trigger
-        else:
-            delta = 100
-            t = trigger[0]
-            filtered = signal.fftconvolve(data[selection, 0, t - delta:t + delta + length - 1], -filttempl[None, ::-1], axes=-1, mode='valid')
-            indices = np.flatnonzero(selection)
-            assert filtered.shape == (len(indices), 2 * delta + 1)
-            idx = argminrelmin.argminrelmin(filtered, axis=-1)
-            selection[indices] &= idx >= 0
-            start = np.zeros(len(data), int)
-            start[indices] = t - delta + idx
+        # Redo the template aligning with the cross correlation filter.
+        delta = 100
+        t = trigger[0]
+        filtered = signal.fftconvolve(data[selection, 0, t - delta:t + delta + length - 1], -filttempl[None, ::-1], axes=-1, mode='valid')
+        indices = np.flatnonzero(selection)
+        assert filtered.shape == (len(indices), 2 * delta + 1)
+        idx = argminrelmin.argminrelmin(filtered, axis=-1)
+        selection[indices] &= idx >= 0
+        start = np.zeros(len(data), int)
+        start[indices] = t - delta + idx
         template_aligned = vecmeanat(data[:, 0], baseline, selection, start, length)
+        
+        # Redo the template aligning with the trigger, if available.
+        templates = [template, template_aligned]
+        if hastrigger:
+            template_trigger = vecmeanat(data[:, 0], baseline, selection, trigger, length)
+            templates.append(template_trigger)
             
-        self.templates = np.stack([template, template_aligned])
+        self.templates = np.stack(templates)
         self.template_rel_std = np.sqrt(width[1] ** 2 - width[0] ** 2) / center[1]
         self.template_N = np.sum(selection)
         
@@ -198,7 +191,7 @@ class Template(npzload.NPZLoad):
         self.baseline = np.mean(bs)
         self.baseline_std = np.std(bs)
         
-        # Save aligned template start distribution.
+        # Save filter-aligned template start distribution.
         trigarray = start[selection]
         self.start_min = np.min(trigarray)
         self.start_max = np.max(trigarray)
@@ -211,6 +204,16 @@ class Template(npzload.NPZLoad):
         cs = self._cumsum_templates[idx]
         x = (cs[n:] - cs[:-n]) / n
         return x
+    
+    def _gettemplidx(self, aligned):
+        if aligned == 'trigger' and len(self.templates) < 3:
+            raise ValueError('trigger-aligned template not available')
+        if aligned == 'trigger':
+            return 2
+        elif aligned:
+            return 1
+        else:
+            return 0
     
     def generate(self, event_length, signal_loc, generator=None, randampl=True, timebase=8, aligned=False):
         """
@@ -230,8 +233,10 @@ class Template(npzload.NPZLoad):
             If True (default), vary the amplitude of signals.
         timebase : int
             Duration of a sample in nanoseconds. Default is 8 i.e. 125 MSa/s.
-        aligned : bool
-            If True, use the template made with trigger alignment.
+        aligned : {False, True, 'trigger'}
+            If False, use as template the average done on subwaveforms at a
+            fixed offset from the event start. If True, align before averaging
+            using a filter. If 'trigger', align with the laser trigger.
         
         Return
         ------
@@ -250,7 +255,7 @@ class Template(npzload.NPZLoad):
         loc_ns = np.array(np.floor(signal_loc * timebase), int) % timebase
         loc_subns = (signal_loc * timebase) % 1
                 
-        idx = 1 if aligned else 0
+        idx = self._gettemplidx(aligned)
         templ = self._ma_template(timebase, idx)
         tlen = ((len(templ) - 1) // timebase) * timebase
 
@@ -277,8 +282,10 @@ class Template(npzload.NPZLoad):
         ----------
         timebase : int
             Duration of a sample in nanoseconds. Default is 8 i.e. 125 MSa/s.
-        aligned : bool
-            If True, use the template made with trigger alignment.
+        aligned : {False, True, 'trigger'}
+            If False, use as template the average done on subwaveforms at a
+            fixed offset from the event start. If True, align before averaging
+            using a filter. If 'trigger', align with the laser trigger.
     
         Return
         ------
@@ -298,16 +305,19 @@ class Template(npzload.NPZLoad):
         ----------
         timebase : int
             The unit of time in nanoseconds.
-        aligned : bool
-            If True, use the template made with trigger alignment.
+        aligned : {False, True, 'trigger'}
+            If False, use as template the average done on subwaveforms at a
+            fixed offset from the event start. If True, align before averaging
+            using a filter. If 'trigger', align with the laser trigger.
         """
-        idx = 1 if aligned else 0
+        idx = self._gettemplidx(aligned)
         return np.argmax(np.abs(self.templates[idx])) / timebase
     
     def matched_filter_template(self, length, norm=True, timebase=8, aligned=False):
         """
-        Return a template for the matched filter. The template is chosen to
-        maximize its vector norm.
+        
+        Return a truncated template for the matched filter. The template slice
+        is chosen to maximize its vector norm.
         
         Parameters
         ----------
@@ -320,8 +330,10 @@ class Template(npzload.NPZLoad):
         timebase : int
             The original template is at 1 GSa/s. The returned template is
             downsampled by this factor. Default is 8 (125 MSa/s).
-        aligned : bool
-            If True, use the template made with trigger alignment.
+        aligned : {False, True, 'trigger'}
+            If False, use as template the average done on subwaveforms at a
+            fixed offset from the event start. If True, align before averaging
+            using a filter. If 'trigger', align with the laser trigger.
         
         Return
         ------
@@ -334,7 +346,7 @@ class Template(npzload.NPZLoad):
         """
         len1ghz = timebase * length
         assert len1ghz <= self.templates.shape[1]
-        idx = 1 if aligned else 0
+        idx = self._gettemplidx(aligned)
         template = self.templates[idx]
         cs = np.pad(np.cumsum(template ** 2), (1, 0))
         s = cs[len1ghz:] - cs[:-len1ghz] # s[j] = sum(template[j:j+len1ghz]**2)

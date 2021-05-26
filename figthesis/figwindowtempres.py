@@ -66,7 +66,7 @@ for n in names:
     assert np.array_equal(sim[n].tau, tau)
     assert np.array_equal(sim[n].snr, snr)
 
-fig, axs = plt.subplots(2, 2, num='figwindowtempres', clear=True, sharex=True, sharey='row', gridspec_kw=dict(height_ratios=[2, 1]), figsize=[8.18, 7.19])
+fig, axs = plt.subplots(2, 2, num='figwindowtempres', clear=True, sharex=True, sharey='row', gridspec_kw=dict(height_ratios=[2, 1]), figsize=[8.18, 10])
 
 for i, n in enumerate(names):
     for j, center in enumerate([1, 2]):

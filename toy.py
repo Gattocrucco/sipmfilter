@@ -29,6 +29,7 @@ import readwav
 import textbox
 import npzload
 import template as _template
+import colormap
 
 def downsample(a, n, axis=-1, dtype=None):
     """
@@ -628,7 +629,7 @@ class Toy(npzload.NPZLoad):
         self.timebase = timebase
         self.upsampling = upsampling
         
-        self.sigma = template.max(timebase=1) / snr
+        self.sigma = template.max(timebase=1, aligned='trigger') / snr
                 
         self.margin = 512 // timebase
         self.event_length = np.max(tau) + template.template_length // timebase + self.margin
@@ -646,7 +647,7 @@ class Toy(npzload.NPZLoad):
         
         for i in range(len(self.tau)):
             length = self.tau[i] * self.timebase // timebase
-            templ, offset = self.template.matched_filter_template(length, timebase=timebase)
+            templ, offset = self.template.matched_filter_template(length, timebase=timebase, aligned='trigger')
             assert len(templ) == length
             templs[i]['length'] = length
             templs[i]['offset'] = offset
@@ -738,7 +739,7 @@ class Toy(npzload.NPZLoad):
         signal_loc_offset = event_length - template_length - margin // 2
         signal_loc_cont = generator.uniform(size=nevents)
         signal_loc = signal_loc_offset + signal_loc_cont
-        simulated_signal = self.template.generate(event_length, signal_loc, generator, timebase=timebase)
+        simulated_signal = self.template.generate(event_length, signal_loc, generator, timebase=timebase, aligned='trigger')
         simulated_noise = self.noisegen.generate(nevents, event_length, generator)
         
         # # Filter with a moving average to compute the baseline.
@@ -864,7 +865,7 @@ class Toy(npzload.NPZLoad):
                 
         # Align approximately the localization.
         # loc = np.asarray(minima, float)
-        # loc[[0, 2], :3] -= self.template.maxoffset(timebase)
+        # loc[[0, 2], :3] -= self.template.maxoffset(timebase, aligned='trigger')
         # loc[:, 1:] -= self.tau[:, None, None]
         # loc[[0, 2], 3] += self.templs['offset'][:, None, None]
         
@@ -1357,17 +1358,23 @@ class Toy(npzload.NPZLoad):
 
         axs = axs.reshape(-1)
         
-        linekw = dict(color='#600')
+        # colors = colormap.uniform(['#600', '#600'], len(tau), (100, 20)).colors
+        colors = colormap.uniform(['red', 'red'], len(tau), (70, 0)).colors
+        
         for ifilter, ax in enumerate(axs):
             if ifilter > 0:
                 lines = []
                 for itau in range(len(tau)):
-                    alpha = (itau + 1) / len(tau)
                     labeltau = tau[itau]
-                    line, = ax.plot(snr, width[ifilter, itau], alpha=alpha, label=f'{labeltau}', **linekw)
+                    linekw = dict(
+                        color = colors[itau],
+                        label = f'{labeltau}',
+                        linestyle = ['-', '--'][itau % 2],
+                    )
+                    line, = ax.plot(snr, width[ifilter, itau], **linekw)
                     lines.append(line)
             else:
-                ax.plot(snr, width[0, 0], **linekw)
+                ax.plot(snr, width[0, 0], color=colors[-1])
         
             if not sampleunit:
                 ax.axhspan(0, self.timebase, zorder=-10, color='#ddd')
