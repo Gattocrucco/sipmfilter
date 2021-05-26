@@ -40,7 +40,7 @@ def savetemplate(source, plot='show'):
     print(f'write {dest}...')
     templ.save(dest)
 
-    fig2 = plt.figure(num='savetemplate2', clear=True, figsize=[6.4, 7.1])
+    fig2 = plt.figure(num='savetemplate2', clear=True, figsize=[10, 7])
     templateplot.templateplot(dest, fig=fig2)
 
     for i, fig in enumerate([fig1, fig2]):

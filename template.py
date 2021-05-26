@@ -163,13 +163,17 @@ class Template(npzload.NPZLoad):
         mtrig = np.full(len(trigger), np.median(trigger))
         template = vecmeanat(data[:, 0], baseline, selection, mtrig, length)
         
+        # Do a 2-sample moving average to remove the nyquist noise.
+        tcs = np.pad(np.cumsum(template), (1, 0))
+        filttempl = (tcs[2:] - tcs[:-2]) / 2
+        
         # Do it with alignment.
         if hastrigger:
             start = trigger
         else:
             delta = 100
             t = trigger[0]
-            filtered = signal.fftconvolve(data[selection, 0, t - delta:t + delta + length], -template[None, ::-1], axes=-1, mode='valid')
+            filtered = signal.fftconvolve(data[selection, 0, t - delta:t + delta + length - 1], -filttempl[None, ::-1], axes=-1, mode='valid')
             indices = np.flatnonzero(selection)
             assert filtered.shape == (len(indices), 2 * delta + 1)
             idx = argminrelmin.argminrelmin(filtered, axis=-1)
