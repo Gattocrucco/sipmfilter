@@ -1,6 +1,7 @@
 # sipmfilter
 
-This repository contains some code to study filtering of the SiPM output.
+This repository contains some code to study filtering of the SiPM output. It
+produces all the figures of my thesis, https://github.com/Gattocrucco/thesis.
 
 ## Running the code
 

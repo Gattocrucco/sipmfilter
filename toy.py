@@ -1166,7 +1166,7 @@ class Toy(npzload.NPZLoad):
         r = self.templocres()[jfilter, jtau, jsnr]
         tauname = 'N' if jfilter != 2 else '$\\tau$'
         taustr = f', {tauname}={self.tau[jtau]}' if jfilter != 0 else ''
-        return f'{Filter.name(jfilter, short=True)}{taustr}, SNR={self.snr[jsnr]:.3g} ($\\sigma$ = {r:.2g} Sa)'
+        return f'{Filter.name(jfilter, short=True)}{taustr}, SNR={self.snr[jsnr]:#.3g} ($\\sigma$ = {r:#.2g} Sa)'
     
     def plot_event_window(self, ievent, isnr, itau, iwlen, icenter=0, ax=None):
         """
@@ -1454,11 +1454,12 @@ class Toy(npzload.NPZLoad):
         else:
             returnfig = False
         
+        colors = colormap.uniform(['red', 'red'], len(wlen), (80, 20)).colors
+        
         for iwlen, wl in enumerate(wlen):
-            alpha = (iwlen + 1) / len(wlen)
             lenus = wl * self.timebase / 1000
             label = f'$-${wmargin[iwlen]}+{wl - wmargin[iwlen]} ({lenus:.1f} $\\mu$s)'
-            ax.plot(snr, width[iwlen], alpha=alpha, label=label, color='#600000')
+            ax.plot(snr, width[iwlen], color=colors[iwlen], linestyle=['-', '--'][iwlen % 2], label=label)
         ax.plot(snr, width_orig, 'k.', label=f'$-${wmargin_orig}+{wlen_orig - wmargin_orig}')
         ax.legend(loc='best', title='Window [samples]\n$-$L+R of center')
         

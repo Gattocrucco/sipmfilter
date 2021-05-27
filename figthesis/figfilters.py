@@ -22,7 +22,7 @@ fsignal = filt.all(templ)[:, 0]
 
 print(f'filter length = {length} ns')
 
-fig, ax = plt.subplots(num='figfilters', clear=True)
+fig, ax = plt.subplots(num='figfilters', clear=True, figsize=[6.4, 3.5])
 
 ax.plot(fsignal[0], color='#f55', linewidth=1, label=toy.Filter.name(0))
 for i in range(3):

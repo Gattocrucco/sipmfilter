@@ -83,7 +83,7 @@ for ax in axs.reshape(-1):
         lims = ax.get_ylim()
         ax.set_ylim(0, lims[1])
     if ax.is_first_row() and ax.is_first_col():
-        ax.legend(fontsize='small', title='Window [samples]\n$-$L+R of center', title_fontsize='small', loc='center right')
+        ax.legend(fontsize='medium', title='Window [samples]\n$-$L+R of center', title_fontsize='small', loc='center right')
     else:
         lg = ax.legend([], [])
         lg.remove()

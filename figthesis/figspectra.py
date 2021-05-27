@@ -54,7 +54,7 @@ if __name__ == '__main__':
     s1 = arch['s1']
     s2 = arch['s2']
 
-    fig, axs = plt.subplots(2, 1, num='figspectra', clear=True, figsize=[10, 4.71], sharey=True)
+    fig, axs = plt.subplots(2, 1, num='figspectra', clear=True, figsize=[9, 4.71], sharey=True)
 
     for i, ax in enumerate(axs):
     

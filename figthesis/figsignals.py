@@ -37,7 +37,7 @@ for nph in nphotons:
     indices2 = trigger[indices, None] + np.arange(-leftmargin, length)
     datanph.append(data[indices0, 0, indices2])
 
-fig, ax = plt.subplots(num='figsignals', clear=True)
+fig, ax = plt.subplots(num='figsignals', clear=True, figsize=[6.4, 3.5])
 
 # linestyles = ['-', '--', '-.', ':']
 for i in range(len(datanph)):
@@ -45,7 +45,7 @@ for i in range(len(datanph)):
     kw = dict(
         # color=f'C{i}',
         color=[i / len(datanph)] * 3,
-        label=f'{nph} photon' + ('s' if nph > 1 else ''),
+        label=f'{nph} pe',
         zorder=10 - i,
         # linestyle=linestyles[i],
     )

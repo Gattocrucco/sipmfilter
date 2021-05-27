@@ -27,7 +27,7 @@ fsignal = filt.all(templ)[ifilter, 0]
 print(f'filter is {toy.Filter.name(ifilter)}')
 print(f'filter length = {length} ns')
 
-fig, ax = plt.subplots(num='figfiltersample', clear=True, figsize=[9.6, 4.8])
+fig, ax = plt.subplots(num='figfiltersample', clear=True, figsize=[9, 4])
 
 ax.plot(signal, color='#f55', label='unfiltered waveform')
 ax.plot(trigger, color='black', linestyle='--', label='laser trigger')

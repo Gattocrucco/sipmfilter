@@ -16,7 +16,7 @@ mask = ~readwav.spurious_signals(data)
 trigger, baseline, value = integrate.filter(data, bslen=8000, length_ma=length, delta_ma=length)
 corr_value = baseline - value[:, 0]
 
-fig = plt.figure(num='figfingerplot', clear=True)
+fig = plt.figure(num='figfingerplot', clear=True, figsize=[6.4, 3.5])
 single_filter_analysis.single_filter_analysis(corr_value[mask], fig)
 
 fig.tight_layout()

@@ -10,9 +10,12 @@ darksidehd
 fdrall/*
 figthesis/*.npz
 figthesis/*.gvar
+!figthesis/figchangebs*.npz
 !figthesis/figdoublepeak.npz
 !figthesis/figfakerate/*.npz
 !figthesis/fighist2d*.npz
+!figthesis/figsnrmaxplot.npz
+!figthesis/figsnrplot.npz
 !figthesis/figspectra.npz
 !figthesis/figtriggerhist.npz
 hist2dall/*
