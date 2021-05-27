@@ -191,7 +191,7 @@ def make_start_mf(waveform_mf, length_mf):
     """
     Find the optimal start_mf parameter for filter() given the waveform and the
     truncation length, in the sense of finding the slice that maximizes the
-    sum of the slice.
+    sum of squares of the slice.
     
     Parameters
     ----------
@@ -207,10 +207,10 @@ def make_start_mf(waveform_mf, length_mf):
     length_mf = _asarray1d(length_mf, int)
 
     start_mf = np.empty(len(length_mf), int)
-    cs = np.concatenate([[0], np.cumsum(waveform_mf)])
+    cs = np.concatenate([[0], np.cumsum(waveform_mf ** 2)])
     for i, l in enumerate(length_mf):
         assert l <= len(waveform_mf)
-        s = cs[l:] - cs[:-l] # s[j] = sum(waveform_mf[j:j+l])
+        s = cs[l:] - cs[:-l] # s[j] = sum(waveform_mf[j:j+l] ** 2)
         start_mf[i] = np.argmax(s)
     
     return start_mf

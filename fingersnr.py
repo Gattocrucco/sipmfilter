@@ -2,6 +2,8 @@
 Compute the filtered SNR on an LNGS wav.
 """
 
+import os
+
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib import gridspec
@@ -11,11 +13,14 @@ import tqdm
 import readwav
 import integrate
 from single_filter_analysis import single_filter_analysis
-from make_template import make_template
 import colormap
+import template as _template
+import make_template
 
 class FingerSnr:
     """
+    The plotting methods are static.
+    
     Methods
     -------
     make_tau_delta :
@@ -39,6 +44,8 @@ class FingerSnr:
     
     def __init__(self, filename='darksidehd/nuvhd_lf_3x_tile57_77K_64V_6VoV_1.wav'):
         """
+        The wav file is read at initialization.
+        
         Parameters
         ----------
         filename : str
@@ -47,6 +54,12 @@ class FingerSnr:
         self.data = readwav.readwav(filename, mmap=False)
         self.ignore = readwav.spurious_signals(self.data)
         print(f'ignoring {np.sum(self.ignore)} events with signals in baseline zone')
+        
+        _, name = os.path.split(filename)
+        base, _ = os.path.splitext(name)
+        templfile = 'templates/' + base + '-template.npz'
+        print(f'read {templfile}...')
+        self.template = _template.Template.load(templfile)
 
     @staticmethod
     def make_tau_delta(tau, ndelta, flat=True):
@@ -150,9 +163,11 @@ class FingerSnr:
         tau, delta_ma, delta_exp, delta_mf = self.make_tau_delta(tau, ndelta, flat=True)
     
         print('make template for matched filter...')
-        w0 = make_template(self.data, self.ignore, np.max(tau) + 200, noisecorr=False)
+        # w0 = make_template.make_template(self.data, self.ignore, np.max(tau) + 200, noisecorr=False)
+        w0, offset = self.template.matched_filter_template(self.template.template_length, timebase=1, aligned='trigger')
+        assert offset == 0, offset
         start_mf = integrate.make_start_mf(w0, tau)
-        # waveform = make_template(self.data, self.ignore, np.max(tau + start_mf), noisecorr=True)
+        # waveform = make_template.make_template(self.data, self.ignore, np.max(tau + start_mf), noisecorr=True)
         waveform = w0
     
         print('computing filters...')
@@ -272,7 +287,7 @@ class FingerSnr:
         fig1.clf()
         fig2.clf()
     
-        make_template(self.data, self.ignore, n, True,  fig1, fig2)
+        make_template.make_template(self.data, self.ignore, n, True,  fig1, fig2)
     
         fig1.tight_layout()
         fig2.tight_layout()
@@ -307,10 +322,11 @@ class FingerSnr:
         elif kind == 'exp':
             start, baseline, value = integrate.filter(self.data, bslen, delta_exp=delta, tau_exp=tau)
         elif kind in ('mf', 'mfn'):
-            w0 = make_template(self.data, self.ignore, tau + 200, noisecorr=False)
+            w0, offset = self.template.matched_filter_template(self.template.template_length, timebase=1, aligned='trigger')
+            assert offset == 0, offset
             start_mf = integrate.make_start_mf(w0, tau)
             if kind == 'mfn':
-                waveform = make_template(self.data, self.ignore, tau + start_mf[0], noisecorr=True)
+                waveform = make_template.make_template(self.data, self.ignore, tau + start_mf[0], noisecorr=True)
             else:
                 waveform = w0
             start, baseline, value = integrate.filter(self.data, bslen, delta_mf=delta, waveform_mf=waveform, length_mf=tau, start_mf=start_mf)
@@ -381,7 +397,8 @@ class FingerSnr:
         ntau = len(tau)
     
         print('make template for matched filter...')
-        waveform = make_template(self.data, self.ignore, np.max(tau) + 200)
+        waveform, offset = self.template.matched_filter_template(self.template.template_length, timebase=1, aligned='trigger')
+        assert offset == 0, offset
         start_mf = integrate.make_start_mf(waveform, tau)
 
         print('maximizing SNR for each tau...')
