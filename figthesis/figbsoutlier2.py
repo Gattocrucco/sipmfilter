@@ -21,7 +21,8 @@ for j, vov in enumerate(afterpulse_tile21.AfterPulseTile21.defaultparams):
 
         ap21.sim.plotevent(datalist, ievt, 2, zoom='all', fig=fig)
         ax, = fig.get_axes()
-        textbox.textbox(ax, f'{vov} VoV', fontsize='medium', loc='lower left')
+        ax.legend(loc='lower left', fontsize='small')
+        textbox.textbox(ax, f'{vov} VoV', fontsize='medium', loc='lower right')
 
         fig.tight_layout()
         fig.show()

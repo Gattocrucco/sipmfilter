@@ -12,7 +12,9 @@ flengths = [64, 128]
 
 ap21 = afterpulse_tile21.AfterPulseTile21(vov)
 
-event = ap21.sim.getexpr('event[argmax(mainpos)]', f'(length=={flengths[0]})&(mainnpe==1)')
+event = ap21.sim.getexpr('event[argmax(mainpos)]', f'(length=={flengths[0]})&(mainnpe==1)&(event!=22209)')
+# If you look at event 22209, your eyes will cry blood
+# Serious version: it is one of those delayed for real pulses.
 
 figs = []
 for i, length in enumerate(flengths):

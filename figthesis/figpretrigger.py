@@ -11,7 +11,7 @@ ap21 = afterpulse_tile21.AfterPulseTile21(vov)
 
 fig = plt.figure(num='figpretrigger-0', clear=True, figsize=[4.5, 3])
 
-ap21.ptscatter(fig=fig, selection=False)
+ap21.ptscatter(fig=fig, selection=False, vovloc='upper left')
 ax, = fig.get_axes()
 ax.set_xlabel('Position of first pre-trigger pulse [ns]')
 ax.set_ylabel('Amplitude')
@@ -21,7 +21,7 @@ figs = [fig]
 
 fig = plt.figure(num='figpretrigger-1', clear=True, figsize=[4.5, 3])
 
-ap21.pthist(fig=fig, selection=False)
+ap21.pthist(fig=fig, selection=False, vovloc='center right')
 ax, = fig.get_axes()
 ax.set_xlabel('Amplitude of first pre-trigger pulse')
 

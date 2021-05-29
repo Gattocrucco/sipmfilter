@@ -32,7 +32,7 @@ for i, event in enumerate([event0, event1]):
     ap21.sim.plotevent(ap21.datalist, event, ilen, zoom=zoom, fig=fig)
     ax, = fig.get_axes()
     textbox.textbox(ax, f'{vov} VoV', fontsize='medium', loc=vovloc)
-    ax.legend(loc=legloc, fontsize='small')
+    ax.legend(loc=legloc, fontsize='x-small')
 
     figs.append(fig)
 

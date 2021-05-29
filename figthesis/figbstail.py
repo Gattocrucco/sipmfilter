@@ -22,8 +22,8 @@ for i, ievt in enumerate(events[:2]):
 
     ap21.sim.plotevent(datalist, ievt, 2, zoom='all', fig=fig)
     ax, = fig.get_axes()
-    ax.legend(loc='lower right', fontsize='x-small')
-    textbox.textbox(ax, f'{vov} VoV', fontsize='medium', loc='lower left')
+    ax.legend(loc='lower left', fontsize='x-small')
+    textbox.textbox(ax, f'{vov} VoV', fontsize='medium', loc='lower right')
 
     fig.tight_layout()
     fig.show()

@@ -9,7 +9,7 @@ import figlatex
 import template
 import afterpulse_tile21
 
-fig, ax = plt.subplots(num='figtemplates', clear=True)
+fig, ax = plt.subplots(num='figtemplates', clear=True, figsize=[6.7, 3.2])
 
 styles = {
     5.5: dict(color='#f55'),

@@ -27,7 +27,7 @@ for (vov, length), file, style in zip(lengths.items(), files, styles):
     templobj = template.Template.load(file)
     
     templ, offset = templobj.matched_filter_template(length, norm=False, aligned=True, timebase=1)
-    ax.plot(np.arange(len(templ)) + offset, templ, label=f'{vov} VoV ({length} ns)', **style)
+    ax.plot(np.arange(len(templ)) + offset, templ, label=f'{vov} V ({length} ns)', **style)
 
 ax.minorticks_on()
 ax.grid(True, 'major', linestyle='--')

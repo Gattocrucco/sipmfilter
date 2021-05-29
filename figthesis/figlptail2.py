@@ -15,7 +15,7 @@ for j, vov in enumerate(afterpulse_tile21.AfterPulseTile21.defaultparams):
 
     ap21 = afterpulse_tile21.AfterPulseTile21(vov)
 
-    event = ap21.sim.getexpr('event[argmax(mainpos)]', f'(length=={flengths[0]})&(mainnpe==1)')
+    event = ap21.sim.getexpr('event[argmax(mainpos)]', f'(length=={flengths[0]})&(mainnpe==1)&(event!=22209)')
 
     row = []
     for i, length in enumerate(flengths):

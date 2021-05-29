@@ -634,7 +634,7 @@ class AfterPulseTile21:
                 kw = dict(
                     batch = 100,
                     pbar = True,
-                    trigger = np.full(len(data), savetemplate.defaulttrigger()),
+                    trigger = np.full(len(data), savetemplate.defaulttrigger(wavfile)),
                     filtlengths = [32, 64, 128, 256, 512, 1024, 2048],
                 )
                 sim = afterpulse.AfterPulse(data, template, **kw)

@@ -40,8 +40,8 @@ for j, vov in enumerate(afterpulse_tile21.AfterPulseTile21.defaultparams):
     row2a = [
         ap21.apbkgfit,
         fit1.palt['tau'],
-        '{n.d.}',
-        '{n.d.}',
+        '',
+        '',
         ap21.apfactor,
         ap21.approb * 100,
         f'{fit1.chi2:.0f}',
