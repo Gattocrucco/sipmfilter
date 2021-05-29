@@ -117,6 +117,12 @@ for title, veto, files in table:
         if not os.path.exists(savefile):
             processspec(spec, savefile, veto)
 
+def pcross(u, sigma, fu=40e6):
+    # from Sav18 pp. 97-98
+    # fu = upper cutoff frequency
+    R0 = 2 * fu / np.sqrt(3)
+    return R0 / 2 * np.exp(-1/2 * (u / sigma) ** 2)
+    
 figkw = dict(
     num='figfakerate',
     clear=True,
@@ -213,6 +219,10 @@ for ax, (title, veto, files) in zip(axs, table):
         
         if ifile == 0:
             ax.axhspan(0, ratefactor, color='#ddd')
+        
+        if ifile == 0:
+            thr_sav = np.linspace(2, 8, 300)
+            ax.plot(thr_sav, pcross(thr_sav, 1), linewidth=5, color='black', alpha=0.5)
     
     ax.legend(loc='upper center', title=title, title_fontsize='large')
 
