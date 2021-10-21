@@ -9,3 +9,4 @@ tqdm==4.43.0
 scipy==1.5.4
 gvar==11.9.2
 pandas==1.0.3
+ipython==7.13.0
