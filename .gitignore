@@ -14,6 +14,7 @@ figthesis/*.gvar
 !figthesis/figdoublepeak.npz
 !figthesis/figfakerate/*.npz
 !figthesis/fighist2d*.npz
+figthesis/fighist2d*-cmap*.npz
 !figthesis/figsnrmaxplot.npz
 !figthesis/figsnrplot.npz
 !figthesis/figspectra.npz
