@@ -1,0 +1,129 @@
+# data from figures in: G. Petrillo, "Online processing of the large area SiPM detector signals for the DarkSide20k experiment"
+
+# figure 7.27
+
+# panel "parameter"
+
+# model borel (color: black)
+
+# Random (marker: triangle)
+# VOV	param	error
+5.5	0.2111	0.0463
+7.5	0.2894	0.0289
+9.5	0.5466	0.0357
+
+# Laser (marker: none)
+# VOV	param	error
+5.5	0.1919	0.0037
+7.5	0.3007	0.0051
+9.5	0.4968	0.0124
+
+# AP (marker: dot)
+# VOV	param	error
+5.5	0.1742	0.0152
+7.5	0.3002	0.0166
+9.5	0.4572	0.0142
+
+# model geom (color: red)
+
+# Random (marker: triangle)
+# VOV	param	error
+5.5	0.2096	0.0420
+7.5	0.2394	0.0248
+9.5	0.4960	0.0273
+
+# Laser (marker: none)
+# VOV	param	error
+5.5	0.2047	0.0016
+7.5	0.3234	0.0056
+9.5	0.5059	0.0089
+
+# AP (marker: dot)
+# VOV	param	error
+5.5	0.1654	0.0145
+7.5	0.2890	0.0153
+9.5	0.4451	0.0330
+
+# panel "probability"
+
+# model borel (color: black)
+
+# Random (marker: triangle)
+# VOV	param	error
+5.5	19.0307	3.7519
+7.5	25.1296	2.1641
+9.5	42.1064	2.0691
+
+# Laser (marker: none)
+# VOV	param	error
+5.5	17.4625	0.3048
+7.5	25.9677	0.3785
+9.5	39.1515	0.7562
+
+# AP (marker: dot)
+# VOV	param	error
+5.5	15.9889	1.2770
+7.5	25.9333	1.2259
+9.5	36.6951	0.8970
+
+# model geom (color: red)
+
+# Random (marker: triangle)
+# VOV	param	error
+5.5	20.9573	4.2039
+7.5	23.9418	2.4789
+9.5	49.5972	2.7315
+
+# Laser (marker: none)
+# VOV	param	error
+5.5	20.4716	0.1569
+7.5	32.3408	0.5606
+9.5	50.5867	0.8868
+
+# AP (marker: dot)
+# VOV	param	error
+5.5	16.5378	1.4541
+7.5	28.9013	1.5256
+9.5	44.5139	3.3012
+
+# panel "pe"
+
+# model borel (color: black)
+
+# Random (marker: triangle)
+# VOV	param	error
+5.5	0.2676	0.0745
+7.5	0.4073	0.0572
+9.5	1.2054	0.1738
+
+# Laser (marker: none)
+# VOV	param	error
+5.5	0.2375	0.0057
+7.5	0.4299	0.0105
+9.5	0.9872	0.0491
+
+# AP (marker: dot)
+# VOV	param	error
+5.5	0.2110	0.0223
+7.5	0.4290	0.0338
+9.5	0.8423	0.0481
+
+# model geom (color: red)
+
+# Random (marker: triangle)
+# VOV	param	error
+5.5	0.2651	0.0673
+7.5	0.3148	0.0429
+9.5	0.9840	0.1075
+
+# Laser (marker: none)
+# VOV	param	error
+5.5	0.2574	0.0025
+7.5	0.4780	0.0122
+9.5	1.0237	0.0363
+
+# AP (marker: dot)
+# VOV	param	error
+5.5	0.1981	0.0209
+7.5	0.4065	0.0302
+9.5	0.8023	0.1072
